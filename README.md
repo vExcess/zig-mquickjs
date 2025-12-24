@@ -26,7 +26,7 @@ MQuickJS only supports a [subset](#javascript-subset-reference) of Javascript cl
 implements a **stricter mode** where some error prone or inefficient
 Javascript constructs are forbidden.
 
-Although MQuickJS shares many code with QuickJS, it internals are
+Although MQuickJS shares much code with QuickJS, its internals are
 different in order to consume less memory. In particular, it relies on
 a tracing garbage collector, the VM does not use the CPU stack and
 strings are stored in UTF-8.
@@ -122,7 +122,7 @@ engines. Here are the main points:
 
 - `Array` objects:
 
-    - They have no hole.
+    - They have no holes.
     
     - Numeric properties are always handled by the array object and not
       forwarded to its prototype.
@@ -158,7 +158,7 @@ Always prefer using `for of` instead which is supported with arrays:
 - C functions cannot have own properties (but C constructors behave as
   expected).
 
-- The global object is supported but its use is discouraged. It cannot
+- The global object is supported but, its use is discouraged. It cannot
   contain getter/setters and properties directly created in it are not
   visible as global variables in the executing script.
 
@@ -225,7 +225,7 @@ The C API is very similar to QuickJS (see `mquickjs.h`). However,
 since there is a compacting garbage collector, there are important
 differences:
 
-1. Explicitely freeing values is not necessary (no `JS_FreeValue()`).
+1. Explicitly freeing values is not necessary (no `JS_FreeValue()`).
 
 2. The address of objects can move each time a JS allocation is
 called. The general rule is to avoid having variables of type
@@ -319,7 +319,7 @@ CPU). A value may contain:
   - a pointer to a memory block. Memory blocks have a tag stored in
     memory.
 
-Javascript objects requires at least 3 CPU words (hence 12 bytes on a
+Javascript objects require at least 3 CPU words (hence 12 bytes on a
 32 bit CPU). Additional data may be allocated depending on the object
 class. The properties are stored in a hash table. Each property
 requires at least 3 CPU words. Properties may reside in ROM for
@@ -330,7 +330,7 @@ type. They are either a string or a positive 31 bit integer. String
 property keys are internalized (unique).
 
 Strings are internally stored in UTF-8 (instead of 8 or 16 bit arrays
-in QuickJS). Surrogate pairs are not stored explicitly but still
+in QuickJS). Surrogate pairs are not stored explicitly but are still
 visible when iterating thru 16 bit code units in Javascript. Hence full
 compatibility with Javascript and UTF-8 is maintained.
 

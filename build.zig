@@ -22,7 +22,6 @@ pub fn build(b: *std.Build) !void {
         "-Wall",
         "-g",
         "-Werror",
-        "-Wno-absolute-value", // not sure why bellard is taking abs of an unsigned integer, lets just ignore this
         "-Wno-macro-redefined", // zig passes -DNDEBUG to the C compiler by default. we don't want this
         "-D_GNU_SOURCE",
         "-fno-math-errno",
