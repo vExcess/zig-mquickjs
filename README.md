@@ -1,6 +1,19 @@
 MicroQuickJS
 ============
 
+## Zigged
+I'm working on porting mquickjs to Zig. I've only got one file ported so far. But you can build the C version using the Zig build system right now.
+
+Build mqjs: `zig build`
+
+Build example: `zig build example`
+
+Run microbenchmark: `zig build microbench`
+
+Run octane benchmark: `zig build octane`
+
+Run tests: `zig build test`
+
 ## Introduction
 
 MicroQuickJS (aka. MQuickJS) is a Javascript engine targetted at
