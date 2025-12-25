@@ -3177,7 +3177,7 @@ static JSValue JS_SetPropertyInternal(JSContext *ctx, JSValue this_obj,
                p->class_id <= JS_CLASS_FLOAT64_ARRAY) {
         if (JS_IsInt(prop)) {
             uint32_t idx = JS_VALUE_GET_INT(prop);
-            int v;
+            int v, conv_ret;
             double d;
             JSObject *pbuffer;
             JSByteArray *arr;
@@ -3187,21 +3187,20 @@ static JSValue JS_SetPropertyInternal(JSContext *ctx, JSValue this_obj,
             JS_PUSH_VALUE(ctx, val);
             switch(p->class_id) {
             case JS_CLASS_UINT8C_ARRAY:
-                if (JS_ToUint8Clamp(ctx, &v, val))
-                    return JS_EXCEPTION;
+                conv_ret = JS_ToUint8Clamp(ctx, &v, val);
                 break;
             case JS_CLASS_FLOAT32_ARRAY:
             case JS_CLASS_FLOAT64_ARRAY:
-                if (JS_ToNumber(ctx, &d, val))
-                    return JS_EXCEPTION;
+                conv_ret = JS_ToNumber(ctx, &d, val);
                 break;
             default:
-                if (JS_ToInt32(ctx, &v, val))
-                    return JS_EXCEPTION;
+                conv_ret = JS_ToInt32(ctx, &v, val);
                 break;
             }
             JS_POP_VALUE(ctx, val);
             JS_POP_VALUE(ctx, this_obj);
+            if (conv_ret)
+                return JS_EXCEPTION;
             
             p = JS_VALUE_TO_PTR(this_obj);
             if (idx >= p->u.typed_array.len)
