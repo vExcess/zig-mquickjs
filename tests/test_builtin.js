@@ -361,14 +361,29 @@ function test_string()
     assert("abc".indexOf("c"), 2);
     assert("abcabc".lastIndexOf("ab"), 3);
 
-    a = "a,b,c".split(",");
-    assert(a.length === 3 && a[0] === "a" && a[1] === "b" && a[2] === "c");
-    a = ",b,c".split(",");
-    assert(a.length === 3 && a[0] === "" && a[1] === "b" && a[2] === "c");
-    a = "a,b,".split(",");
-    assert(a.length === 3 && a[0] === "a" && a[1] === "b" && a[2] === "");
+    assert("a,b,c".split(","), ["a","b","c"]);
+    assert(",b,c".split(","), ["","b","c"]);
+    assert("a,b,".split(","), ["a","b",""]);
 
-//    assert((1,eval)('"\0"'), "\0");
+    assert("aaaa".split(), [ "aaaa" ]);
+    assert("aaaa".split(undefined, 0), [ ]);
+    assert("aaaa".split(""), [ "a", "a", "a", "a" ]);
+    assert("aaaa".split("", 0), [ ]);
+    assert("aaaa".split("", 1), [ "a" ]);
+    assert("aaaa".split("", 2), [ "a", "a" ]);
+    assert("aaaa".split("a"), [ "", "", "", "", "" ]);
+    assert("aaaa".split("a", 2), [ "", "" ]);
+    assert("aaaa".split("aa"), [ "", "", "" ]);
+    assert("aaaa".split("aa", 0), [ ]);
+    assert("aaaa".split("aa", 1), [ "" ]);
+    assert("aaaa".split("aa", 2), [ "", "" ]);
+    assert("aaaa".split("aaa"), [ "", "a" ]);
+    assert("aaaa".split("aaaa"), [ "", "" ]);
+    assert("aaaa".split("aaaaa"), [ "aaaa" ]);
+    assert("aaaa".split("aaaaa", 0), [  ]);
+    assert("aaaa".split("aaaaa", 1), [ "aaaa" ]);
+
+    //    assert((1,eval)('"\0"'), "\0");
     assert("123AbCd€".toLowerCase(), "123abcd€");
     assert("123AbCd€".toUpperCase(), "123ABCD€");
     assert("  ab€cd  ".trim(), "ab€cd");
@@ -376,6 +391,10 @@ function test_string()
     assert("  ab€cd  ".trimEnd(), "  ab€cd");
     assert("abcabc".replace("b", "a$$b$&"), "aa$bbcabc");
     assert("abcabc".replaceAll("b", "a$$b$&"),"aa$bbcaa$bbc");
+
+    a = "";
+    assert("bab".replace("a", function(a0, a1, a2) { a += a0 + "," + a1 + "," + a2; return "hi"; }), "bhib");
+    assert(a, "a,1,bab");
 }
 
 /* specific tests for internal UTF-8 storage */
@@ -740,6 +759,11 @@ function test_regexp()
     assert("abbbbccccd".replace(/(b+)(c+)/g, "_$1_$2_"), "a_bbbb_cccc_d");
     assert("abbbbcd".replace(/b+/g, "_$`_$&_$'_"), "a_a_bbbb_cd_cd");
 
+    a = "";
+    assert("babbc".replace(/a(b+)/, function() { var i; for(i=0;i<arguments.length;i++) a += " " + arguments[i]; return "hi"; }),
+           "bhic");
+    assert(a, " abb bb 1 babbc");
+    
     assert("abc".split(/b/), ["a", "c"]);
     assert("ab".split(/a*/g), ["", "b"]);
     assert("ab".split(/a*?/g), ["a", "b"]);

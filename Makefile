@@ -125,7 +125,7 @@ test: mqjs example
 # test bytecode generation and loading
 	./mqjs -o test_builtin.bin tests/test_builtin.js
 #	@sha256sum -c test_builtin.sha256
-	./mqjs test_builtin.bin
+	./mqjs -b test_builtin.bin
 	./example tests/test_rect.js
 
 microbench: mqjs

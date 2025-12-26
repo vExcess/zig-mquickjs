@@ -112,6 +112,7 @@ static const JSPropDef js_string_proto[] = {
     JS_CFUNC_MAGIC_DEF("trim", 0, js_string_trim, 3 ),
     JS_CFUNC_MAGIC_DEF("trimEnd", 0, js_string_trim, 2 ),
     JS_CFUNC_MAGIC_DEF("trimStart", 0, js_string_trim, 1 ),
+    JS_CFUNC_DEF("toString", 0, js_string_toString ),
     JS_PROP_END,
 };
 

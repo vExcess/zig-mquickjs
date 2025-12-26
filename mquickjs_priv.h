@@ -131,6 +131,8 @@ JSValue js_string_toLowerCase(JSContext *ctx, JSValue *this_val,
                               int argc, JSValue *argv, int to_lower);
 JSValue js_string_trim(JSContext *ctx, JSValue *this_val,
                        int argc, JSValue *argv, int magic);
+JSValue js_string_toString(JSContext *ctx, JSValue *this_val,
+                           int argc, JSValue *argv);
 
 JSValue js_object_constructor(JSContext *ctx, JSValue *this_val,
                               int argc, JSValue *argv);

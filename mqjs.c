@@ -307,14 +307,15 @@ static int eval_buf(JSContext *ctx, const char *eval_str, const char *filename, 
 }
 
 static int eval_file(JSContext *ctx, const char *filename,
-                     int argc, const char **argv, int parse_flags)
+                     int argc, const char **argv, int parse_flags,
+                     BOOL allow_bytecode)
 {
     uint8_t *buf;
     int ret, buf_len;
     JSValue val;
     
     buf = load_file(filename, &buf_len);
-    if (JS_IsBytecode(buf, buf_len)) {
+    if (allow_bytecode && JS_IsBytecode(buf, buf_len)) {
         if (JS_RelocateBytecode(ctx, buf, buf_len)) {
             fprintf(stderr, "Could not relocate bytecode\n");
             exit(1);
@@ -570,15 +571,16 @@ static void help(void)
 {
     printf("MicroQuickJS" "\n"
            "usage: mqjs [options] [file [args]]\n"
-           "-h  --help         list options\n"
-           "-e  --eval EXPR    evaluate EXPR\n"
-           "-i  --interactive  go to interactive mode\n"
-           "-I  --include file include an additional file\n"
-           "-d  --dump         dump the memory usage stats\n"
-           "    --memory-limit n       limit the memory usage to 'n' bytes\n"
-           "--no-column        no column number in debug information\n"
-           "-o FILE            save the bytecode to FILE\n"
-           "-m32               force 32 bit bytecode output (use with -o)\n");
+           "-h  --help            list options\n"
+           "-e  --eval EXPR       evaluate EXPR\n"
+           "-i  --interactive     go to interactive mode\n"
+           "-I  --include file    include an additional file\n"
+           "-d  --dump            dump the memory usage stats\n"
+           "    --memory-limit n  limit the memory usage to 'n' bytes\n"
+           "--no-column           no column number in debug information\n"
+           "-o FILE               save the bytecode to FILE\n"
+           "-m32                  force 32 bit bytecode output (use with -o)\n"
+           "-b  --allow-bytecode  allow bytecode in input file\n");
     exit(1);
 }
 
@@ -595,12 +597,13 @@ int main(int argc, const char **argv)
     uint8_t *mem_buf;
     JSContext *ctx;
     int i, parse_flags;
-    BOOL force_32bit;
+    BOOL force_32bit, allow_bytecode;
     
     mem_size = 16 << 20;
     dump_memory = 0;
     parse_flags = 0;
     force_32bit = FALSE;
+    allow_bytecode = FALSE;
     
     /* cannot use getopt because we want to pass the command line to
        the script */
@@ -705,6 +708,10 @@ int main(int argc, const char **argv)
                 arg += strlen(arg);
                 continue;
             }
+            if (opt == 'b' || !strcmp(longopt, "allow-bytecode")) {
+                allow_bytecode = TRUE;
+                continue;
+            }
             if (opt) {
                 fprintf(stderr, "qjs: unknown option '-%c'\n", opt);
             } else {
@@ -732,8 +739,10 @@ int main(int argc, const char **argv)
         }
 
         for(i = 0; i < include_count; i++) {
-            if (eval_file(ctx, include_list[i], 0, NULL, parse_flags))
+            if (eval_file(ctx, include_list[i], 0, NULL,
+                          parse_flags, allow_bytecode)) {
                 goto fail;
+            }
         }
         
         if (expr) {
@@ -743,8 +752,9 @@ int main(int argc, const char **argv)
             interactive = 1;
         } else {
             if (eval_file(ctx, argv[optind], argc - optind, argv + optind,
-                          parse_flags))
+                          parse_flags, allow_bytecode)) {
                 goto fail;
+            }
         }
         
         if (interactive) {
