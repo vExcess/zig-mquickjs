@@ -92,7 +92,7 @@ function test_for_in()
     }
     assert(tab.toString(), "1,x,y,4", "for_in");
     
-    /* non enumerable properties hide enumerables ones in the
+    /* non enumerable properties hide enumerable ones in the
        prototype chain */
     a = {y: 2, "1": 3};
     Object.defineProperty(a, "x", { value: 1 });
@@ -138,7 +138,7 @@ function test_for_in()
     }
     assert(tab.toString(), "x,y", "for_in");
 
-    /* variable assigment in the for in */
+    /* variable assignment in the for in */
 /*
     tab = [];
     for(var k = 2 in {x:1, y: 2}) {

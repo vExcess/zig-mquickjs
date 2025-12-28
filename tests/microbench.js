@@ -757,7 +757,7 @@ function string_length(n)
     return n * 4;
 }
 
-/* incremental string contruction as local var */
+/* incremental string construction as local var */
 function string_build1(n)
 {
     var i, j, r;
@@ -770,7 +770,7 @@ function string_build1(n)
     return n * 100;
 }
 
-/* incremental string contruction as arg */
+/* incremental string construction as arg */
 function string_build2(n, r)
 {
     var i, j;
@@ -783,7 +783,7 @@ function string_build2(n, r)
     return n * 100;
 }
 
-/* incremental string contruction by prepending */
+/* incremental string construction by prepending */
 function string_build3(n, r)
 {
     var i, j;
@@ -796,7 +796,7 @@ function string_build3(n, r)
     return n * 100;
 }
 
-/* incremental string contruction with multiple reference */
+/* incremental string construction with multiple reference */
 function string_build4(n)
 {
     var i, j, r, s;

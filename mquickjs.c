@@ -38,7 +38,7 @@
 /*
   TODO:
   - regexp: better error position info
-  - use a specific MTAG for short functions intead of an immediate value
+  - use a specific MTAG for short functions instead of an immediate value
   - use hash table for atoms
   - set the length accessors as non configurable so that the
     'get_length' instruction optimizations are always safe.
@@ -51,7 +51,7 @@
       saved bytecode ?
   - reduced memory usage:
     - reduce JSFunctionBytecode size (remove source_pos)
-    - do not explictely store function names for get/set/bound
+    - do not explicitly store function names for get/set/bound
     - use JSSTDLibraryDef fields instead of copying them to JSContext ?
 */
 
@@ -1582,7 +1582,7 @@ static BOOL is_utf8_right_surrogate(const uint8_t *p)
 
 typedef struct {
     JSValue buffer; /* string, JSByteBuffer or JS_EXCEPTION */
-    int len; /* currrent string length (in bytes) */
+    int len; /* current string length (in bytes) */
     BOOL is_ascii;
 } StringBuffer;
 
@@ -3843,7 +3843,7 @@ static uint32_t get_ugolomb(const uint8_t *buf, uint32_t buf_len,
             break;
         i++;
         if (i == 32) {
-            /* errror */
+            /* error */
             *pindex = index;
             return 0xffffffff;
         }
@@ -5829,7 +5829,7 @@ JSValue JS_Call(JSContext *ctx, int call_flags)
                         goto get_field_slow;
                     for(;;) {
                         /* no array check is necessary because 'prop' is
-                           guaranted not to be a numeric property */
+                           guaranteed not to be a numeric property */
                         /* XXX: slow due to short ints */
                         pr = find_own_property_inlined(ctx, p, prop);
                         if (pr) {
@@ -5927,7 +5927,7 @@ JSValue JS_Call(JSContext *ctx, int call_flags)
                     if (unlikely(p->mtag != JS_MTAG_OBJECT))
                         goto put_field_slow;
                     /* no array check is necessary because 'prop' is
-                       guaranted not to be a numeric property */
+                       guaranteed not to be a numeric property */
                     /* XXX: slow due to short ints */
                     pr = find_own_property_inlined(ctx, p, prop);
                     if (unlikely(!pr))
@@ -9169,10 +9169,10 @@ static JSValue js_parse_pop_val(JSParseState *s)
     }
 
 /* WARNING: local variables are not preserved across PARSE_CALL(). So
-   they must be explicitely saved and restored */
+   they must be explicitly saved and restored */
 #define PARSE_CALL(s, cur_state, func, param) return (cur_state | (PARSE_FUNC_ ## func << 8) | ((param) << 16)); parse_state ## cur_state : ;
 
-/* preserve var1, ... accross the call */
+/* preserve var1, ... across the call */
 #define PARSE_CALL_SAVE1(s, cur_state, func, param, var1) \
     PARSE_PUSH_INT(s, var1);                                    \
     PARSE_CALL(s, cur_state, func, param);                      \
@@ -11236,13 +11236,13 @@ static void compute_stack_size_push(JSParseState *s,
     js_printf(s->ctx, "%5d: %d\n", pos, stack_len);
 #endif
     if (pos >= (uint32_t)arr->size)
-        js_parse_error(s, "bytecode buffer overlow (pc=%d)", pos);
+        js_parse_error(s, "bytecode buffer overflow (pc=%d)", pos);
     /* XXX: could avoid the division */
     short_stack_len = 1 + ((unsigned)stack_len % 255);
     if (explore_tab[pos] != 0) {
         /* already explored: check that the stack size is consistent */
         if (explore_tab[pos] != short_stack_len) {
-            js_parse_error(s, "unconsistent stack size: %d %d (pc=%d)", explore_tab[pos] - 1, short_stack_len - 1, (int)pos);
+            js_parse_error(s, "inconsistent stack size: %d %d (pc=%d)", explore_tab[pos] - 1, short_stack_len - 1, (int)pos);
         }
     } else {
         explore_tab[pos] = short_stack_len;
@@ -11300,7 +11300,7 @@ static void compute_stack_size(JSParseState *s, JSValue *pfunc)
         oi = &opcode_info[op];
         op_len = oi->size;
         if ((pos + op_len - 1) > arr->size) {
-            js_parse_error(s, "bytecode buffer overlow (pc=%d)", (int)(pos - 1));
+            js_parse_error(s, "bytecode buffer overflow (pc=%d)", (int)(pos - 1));
         }
         n_pop = oi->n_pop;
         if (oi->fmt == OP_FMT_npop)
@@ -14181,7 +14181,7 @@ JSValue js_array_join(JSContext *ctx, JSValue *this_val,
     uint32_t i, len;
     BOOL is_array;
     JSValue sep, val;
-    JSGCRef sep_ref;
+    JSGCRef sep_ref, b_ref;
     JSObject *p;
     JSValueArray *arr;
     StringBuffer b_s, *b = &b_s;
@@ -14220,7 +14220,9 @@ JSValue js_array_join(JSContext *ctx, JSValue *this_val,
             else
                 val = JS_UNDEFINED;
         } else {
+            JS_PUSH_STRING_BUFFER(ctx, b);
             val = JS_GetPropertyUint32(ctx, *this_val, i);
+            JS_POP_STRING_BUFFER(ctx, b);
             if (JS_IsException(val))
                 goto exception;
         }
@@ -14233,7 +14235,7 @@ JSValue js_array_join(JSContext *ctx, JSValue *this_val,
     JS_POP_VALUE(ctx, sep);
     return string_buffer_end(ctx, b);
 
-    exception:
+ exception:
     JS_POP_VALUE(ctx, sep);
     return JS_EXCEPTION;
 }
@@ -14826,7 +14828,7 @@ JSValue js_array_sort(JSContext *ctx, JSValue *this_val,
     
     p = JS_VALUE_TO_PTR(*this_val);
     arr = JS_VALUE_TO_PTR(p->u.array.tab);
-    /* XXX: could resize the array in case it was shrinked by the compare function */
+    /* XXX: could resize the array in case it was shrank by the compare function */
     len = min_int(len, p->u.array.len);
     for(i = 0; i < len; i++) {
         arr->arr[i] = tab->arr[2 * i];
@@ -15128,6 +15130,8 @@ JSValue js_typed_array_constructor(JSContext *ctx, JSValue *this_val,
         if (JS_ToIndex(ctx, &len, argv[0]))
             return JS_EXCEPTION;
         buffer = js_array_buffer_alloc(ctx, len << size_log2);
+        if (JS_IsException(buffer))
+            return JS_EXCEPTION;
         offset = 0;
     } else {
         p = JS_VALUE_TO_PTR(argv[0]);
@@ -16946,10 +16950,9 @@ static int lre_exec(JSContext *ctx, JSValue capture_buf,
         }                                               \
     } while(0)
 
-    /* XXX: optimize */    
 #define CHECK_STACK_SPACE(n)                            \
     {                                                   \
-        if (unlikely(sp <= ctx->stack_bottom)) {        \
+        if (unlikely((sp - ctx->stack_bottom) < (n))) { \
             int ret, saved_pc, saved_cptr;              \
             arr = JS_VALUE_TO_PTR(byte_code);      \
             saved_pc = pc - arr->buf;                   \

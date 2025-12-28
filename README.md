@@ -16,7 +16,7 @@ Run tests: `zig build test`
 
 ## Introduction
 
-MicroQuickJS (aka. MQuickJS) is a JavaScript engine targetted at
+MicroQuickJS (aka. MQuickJS) is a JavaScript engine targeted at
 embedded systems. It compiles and runs JavaScript programs using as little
 as 10 kB of RAM. The whole engine requires about 100 kB of ROM (ARM
 Thumb-2 code) including the C library. The speed is comparable to
@@ -283,7 +283,7 @@ case, it must be relocated before being flashed into ROM (see
 `JS_LoadBytecode()` and run as normal script with `JS_Run()` (see
 `mqjs.c`).
 
-As with QuickJS, no backward compatibility is garanteed at the
+As with QuickJS, no backward compatibility is guaranteed at the
 bytecode level. Moreover, the bytecode is not verified before being
 executed. Only run JavaScript bytecode from trusted sources.
 
@@ -373,7 +373,7 @@ Running the QuickJS micro benchmark:
 make microbench
 ```
 
-Addtional tests and a patched version of the Octane benchmark running
+Additional tests and a patched version of the Octane benchmark running
 in stricter mode can be downloaded
 [here](https://bellard.org/mquickjs/mquickjs-extras.tar.xz):
 
