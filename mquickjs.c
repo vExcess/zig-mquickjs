@@ -1436,7 +1436,7 @@ static __maybe_unused void dump_string_pos_cache(JSContext *ctx)
 }
 
 /* an UTF-8 position is the byte position multiplied by 2. One is
-   added when the corresponding UTF-16 character represents the left
+   added when the corresponding UTF-16 character represents the right
    surrogate if the code is >= 0x10000.
 */
 static uint32_t js_string_convert_pos(JSContext *ctx, JSValue val, uint32_t pos,
@@ -1692,6 +1692,7 @@ static int string_buffer_concat_utf8(JSContext *ctx, StringBuffer *s, JSValue st
     
     if (end <= start)
         return 0;
+    /* XXX: avoid explicitly constructing the substring */
     val2 = js_sub_string_utf8(ctx, str, start, end);
     if (JS_IsException(val2)) {
         s->buffer_ref.val = JS_EXCEPTION;
@@ -1731,6 +1732,7 @@ static int string_buffer_puts(JSContext *ctx, StringBuffer *s, const char *str)
 {
     JSValue val;
 
+    /* XXX: avoid this allocation */
     val = JS_NewString(ctx, str);
     if (JS_IsException(val))
         return -1;
@@ -2929,19 +2931,23 @@ static JSProperty *js_create_property(JSContext *ctx, JSValue obj,
     return pr;
 }
 
-#define JS_DEF_PROP_FLAGS_LOOKUP  (1 << 0)
-#define JS_DEF_PROP_FLAGS_RET_VAL (1 << 1)
+/* don't do property lookup if not present */
+#define JS_DEF_PROP_LOOKUP  (1 << 0)
+/* return the raw property value */
+#define JS_DEF_PROP_RET_VAL (1 << 1)
+#define JS_DEF_PROP_HAS_VALUE (1 << 2)
+#define JS_DEF_PROP_HAS_GET   (1 << 3)
+#define JS_DEF_PROP_HAS_SET   (1 << 4)
 
 /* XXX: handle arrays and typed arrays */
 static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
                                          JSValue prop, JSValue val,
-                                         JSValue setter, JSPropTypeEnum prop_type,
-                                         int flags)
+                                         JSValue setter, int flags)
 {
     JSProperty *pr;
     JSValueArray *arr;
     JSGCRef obj_ref, prop_ref, val_ref, setter_ref;
-    int ret;
+    int ret, prop_type;
     
     /* move to RAM if needed */
     JS_PUSH_VALUE(ctx, obj);
@@ -2956,16 +2962,23 @@ static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
     if (ret)
         return JS_EXCEPTION;
     
-    if (flags & JS_DEF_PROP_FLAGS_LOOKUP) {
+    if (flags & JS_DEF_PROP_LOOKUP) {
         pr = find_own_property(ctx, JS_VALUE_TO_PTR(obj), prop);
         if (pr) {
-            if (pr->prop_type != prop_type)
-                return JS_ThrowTypeError(ctx, "cannot modify getter/setter/value kind");
-            switch(prop_type) {
-            case JS_PROP_NORMAL:
-                pr->value = val;
-                break;
-            case JS_PROP_GETSET:
+            if (flags & JS_DEF_PROP_HAS_VALUE) {
+                if (pr->prop_type == JS_PROP_NORMAL) {
+                    pr->value = val;
+                } else if (pr->prop_type == JS_PROP_VARREF) {
+                    JSVarRef *pv = JS_VALUE_TO_PTR(pr->value);
+                    pv->u.value = val;
+                } else {
+                    goto error_modify;
+                }
+            } else if (flags & (JS_DEF_PROP_HAS_GET | JS_DEF_PROP_HAS_SET)) {
+                if (pr->prop_type != JS_PROP_GETSET) {
+                error_modify:
+                    return JS_ThrowTypeError(ctx, "cannot modify getter/setter/value kind");
+                }
                 arr = JS_VALUE_TO_PTR(pr->value);
                 if (unlikely(JS_IS_ROM_PTR(ctx, arr))) {
                     /* move to RAM */
@@ -2988,20 +3001,17 @@ static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
                     pr->value = JS_VALUE_FROM_PTR(arr2);
                     arr = arr2;
                 }
-                /* XXX: should add flags to set only getter or setter */
-                if (val != JS_UNDEFINED)
+                if (flags & JS_DEF_PROP_HAS_GET)
                     arr->arr[0] = val;
-                if (setter != JS_UNDEFINED)
+                if (flags & JS_DEF_PROP_HAS_SET)
                     arr->arr[1] = setter;
-                break;
-            default:
-                assert(0);
             }
-            return pr->value;
+            goto done;
         }
     }
 
-    if (prop_type == JS_PROP_GETSET) {
+    if (flags & (JS_DEF_PROP_HAS_GET | JS_DEF_PROP_HAS_SET)) {
+        prop_type = JS_PROP_GETSET;
         JS_PUSH_VALUE(ctx, obj);
         JS_PUSH_VALUE(ctx, prop);
         JS_PUSH_VALUE(ctx, val);
@@ -3016,9 +3026,10 @@ static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
         arr->arr[0] = val;
         arr->arr[1] = setter;
         val = JS_VALUE_FROM_PTR(arr);
-    } else if (prop_type == JS_PROP_VARREF) {
+    } else if (obj == ctx->global_obj) {
         JSVarRef *pv;
         
+        prop_type = JS_PROP_VARREF;
         JS_PUSH_VALUE(ctx, obj);
         JS_PUSH_VALUE(ctx, prop);
         JS_PUSH_VALUE(ctx, val);
@@ -3031,6 +3042,8 @@ static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
         pv->is_detached = TRUE;
         pv->u.value = val;
         val = JS_VALUE_FROM_PTR(pv);
+    } else {
+        prop_type = JS_PROP_NORMAL;
     }
     JS_PUSH_VALUE(ctx, val);
     pr = js_create_property(ctx, obj, prop);
@@ -3039,8 +3052,9 @@ static JSValue JS_DefinePropertyInternal(JSContext *ctx, JSValue obj,
         return JS_EXCEPTION;
     pr->prop_type = prop_type;
     pr->value = val;
-    if (flags & JS_DEF_PROP_FLAGS_RET_VAL) {
-        return val;
+ done:
+    if (flags & JS_DEF_PROP_RET_VAL) {
+        return pr->value;
     } else {
         return JS_UNDEFINED;
     }
@@ -3050,15 +3064,15 @@ static JSValue JS_DefinePropertyValue(JSContext *ctx, JSValue obj,
                                       JSValue prop, JSValue val)
 {
     return JS_DefinePropertyInternal(ctx, obj, prop, val, JS_NULL,
-                                     JS_PROP_NORMAL, JS_DEF_PROP_FLAGS_LOOKUP);
+                                     JS_DEF_PROP_LOOKUP | JS_DEF_PROP_HAS_VALUE);
 }
 
 static JSValue JS_DefinePropertyGetSet(JSContext *ctx, JSValue obj,
                                        JSValue prop, JSValue getter,
-                                       JSValue setter)
+                                       JSValue setter, int flags)
 {
     return JS_DefinePropertyInternal(ctx, obj, prop, getter, setter,
-                                     JS_PROP_GETSET, JS_DEF_PROP_FLAGS_LOOKUP);
+                                     JS_DEF_PROP_LOOKUP | flags);
 }
 
 /* return a JSVarRef or an exception. */
@@ -3082,7 +3096,7 @@ static JSValue add_global_var(JSContext *ctx, JSValue prop, BOOL define_flag)
     }
     return JS_DefinePropertyInternal(ctx, ctx->global_obj, prop,
                                      define_flag ? JS_UNDEFINED : JS_UNINITIALIZED, JS_NULL,
-                                     JS_PROP_VARREF, JS_DEF_PROP_FLAGS_RET_VAL);
+                                     JS_DEF_PROP_RET_VAL | JS_DEF_PROP_HAS_VALUE);
 }
 
 /* return JS_UNDEFINED in the normal case. Otherwise:
@@ -3325,7 +3339,7 @@ static JSValue JS_SetPropertyInternal(JSContext *ctx, JSValue this_obj,
     if (!is_obj)
         return JS_ThrowTypeErrorNotAnObject(ctx);
     return JS_DefinePropertyInternal(ctx, this_obj, prop, val, JS_UNDEFINED,
-                                     this_obj == ctx->global_obj ? JS_PROP_VARREF : JS_PROP_NORMAL, 0);
+                                     JS_DEF_PROP_HAS_VALUE);
 }
 
 JSValue JS_SetPropertyStr(JSContext *ctx, JSValue this_obj,
@@ -3509,7 +3523,7 @@ static void stdlib_init(JSContext *ctx, const JSValueArray *arr)
         }
         JS_DefinePropertyInternal(ctx, ctx->global_obj, name,
                                   val, JS_NULL,
-                                  JS_PROP_VARREF, 0);
+                                  JS_DEF_PROP_HAS_VALUE);
     }
 }
 
@@ -6076,9 +6090,9 @@ JSValue JS_Call(JSContext *ctx, int call_flags)
                 if (opcode == OP_define_field) {
                     val = JS_DefinePropertyValue(ctx, sp[1], prop, sp[0]);
                 } else if (opcode == OP_define_getter)
-                    val = JS_DefinePropertyGetSet(ctx, sp[1], prop, sp[0], JS_UNDEFINED);
+                    val = JS_DefinePropertyGetSet(ctx, sp[1], prop, sp[0], JS_UNDEFINED, JS_DEF_PROP_HAS_GET);
                 else
-                    val = JS_DefinePropertyGetSet(ctx, sp[1], prop, JS_UNDEFINED, sp[0]);
+                    val = JS_DefinePropertyGetSet(ctx, sp[1], prop, JS_UNDEFINED, sp[0], JS_DEF_PROP_HAS_SET);
                 RESTORE();
                 if (unlikely(JS_IsException(val)))
                     goto exception;
@@ -13641,6 +13655,32 @@ JSValue js_string_toString(JSContext *ctx, JSValue *this_val,
     return *this_val;
 }
 
+JSValue js_string_repeat(JSContext *ctx, JSValue *this_val,
+                         int argc, JSValue *argv)
+{
+    StringBuffer b_s, *b = &b_s;
+    JSStringCharBuf buf;
+    JSString *p;
+    int n;
+    int64_t len;
+    
+    if (!JS_IsString(ctx, *this_val))
+        return JS_ThrowTypeError(ctx, "not a string");
+    if (JS_ToInt32Sat(ctx, &n, argv[0]))
+        return -1;
+    p = get_string_ptr(ctx, &buf, *this_val);
+    if (n < 0 || (len = (int64_t)n * p->len) > JS_STRING_LEN_MAX)
+        return JS_ThrowRangeError(ctx, "invalid repeat count");
+    if (p->len == 0 || n == 1)
+        return *this_val;
+    if (string_buffer_push(ctx, b, len))
+        return JS_EXCEPTION;
+    while (n-- > 0) {
+        string_buffer_concat_str(ctx, b, *this_val);
+    }
+    return string_buffer_pop(ctx, b);
+}
+
 /**********************************************************************/
 
 JSValue js_object_constructor(JSContext *ctx, JSValue *this_val,
@@ -13654,10 +13694,6 @@ JSValue js_object_constructor(JSContext *ctx, JSValue *this_val,
         return argv[0];
     }
 }
-
-#define DEF_PROP_HAS_VALUE (1 << 0)
-#define DEF_PROP_HAS_GET   (1 << 1)
-#define DEF_PROP_HAS_SET   (1 << 2)
 
 JSValue js_object_defineProperty(JSContext *ctx, JSValue *this_val,
                                  int argc, JSValue *argv)
@@ -13681,32 +13717,44 @@ JSValue js_object_defineProperty(JSContext *ctx, JSValue *this_val,
     setter = JS_UNDEFINED;
     flags = 0;
     if (JS_HasProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_value))) {
-        flags |= DEF_PROP_HAS_VALUE;
+        flags |= JS_DEF_PROP_HAS_VALUE;
         val = JS_GetProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_value));
+        if (JS_IsException(val))
+            return JS_EXCEPTION;
     }
     if (JS_HasProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_get))) {
-        flags |= DEF_PROP_HAS_GET;
+        flags |= JS_DEF_PROP_HAS_GET;
         JS_PUSH_VALUE(ctx, val);
         getter = JS_GetProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_get));
         JS_POP_VALUE(ctx, val);
+        if (JS_IsException(getter))
+            return JS_EXCEPTION;
+        if (!JS_IsUndefined(getter) && !JS_IsFunction(ctx, getter))
+            goto bad_getset;
     }
     if (JS_HasProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_set))) {
-        flags |= DEF_PROP_HAS_SET;
+        flags |= JS_DEF_PROP_HAS_SET;
         JS_PUSH_VALUE(ctx, val);
         JS_PUSH_VALUE(ctx, getter);
         setter = JS_GetProperty(ctx, *pdesc, js_get_atom(ctx, JS_ATOM_set));
         JS_POP_VALUE(ctx, getter);
         JS_POP_VALUE(ctx, val);
+        if (JS_IsException(setter))
+            return JS_EXCEPTION;
+        if (!JS_IsUndefined(setter) && !JS_IsFunction(ctx, setter)) {
+        bad_getset:
+            return JS_ThrowTypeError(ctx, "invalid getter or setter");
+        }
     }
-    if (flags == 0) {
-        return JS_ThrowTypeError(ctx, "unsupported defineProperty");
+    if (flags & (JS_DEF_PROP_HAS_GET | JS_DEF_PROP_HAS_SET)) {
+        if (flags & JS_DEF_PROP_HAS_VALUE)
+            return JS_ThrowTypeError(ctx, "cannot have both value and get/set");
+        val = getter;
     }
-    if (flags & DEF_PROP_HAS_VALUE) {
-        JS_DefinePropertyValue(ctx, *pobj, *pprop, val);
-    } else {
-        /* XXX: that getter/setter are function or undefined */
-        JS_DefinePropertyGetSet(ctx, *pobj, *pprop, getter, setter);
-    }
+    val = JS_DefinePropertyInternal(ctx, *pobj, *pprop, val, setter,
+                                    flags | JS_DEF_PROP_LOOKUP);
+    if (JS_IsException(val))
+        return val;
     return *pobj;
 }
 
@@ -13970,9 +14018,7 @@ JSValue js_error_toString(JSContext *ctx, JSValue *this_val,
 {
     JSObject *p;
     JSValue name;
-    JSCStringBuf name_str_buf, msg_str_buf;
-    const char *name_str, *msg_str;
-    char buf[128];
+    StringBuffer b_s, *b = &b_s;
 
     if (!JS_IsError(ctx, *this_val))
         return JS_ThrowTypeError(ctx, "not an Error object");
@@ -13985,12 +14031,15 @@ JSValue js_error_toString(JSContext *ctx, JSValue *this_val,
         name = JS_ToString(ctx, name);
     if (JS_IsException(name))
         return name;
-    
-    name_str = JS_ToCString(ctx, name, &name_str_buf);
+    string_buffer_push(ctx, b, 0);
+    string_buffer_concat(ctx, b, name);
     p = JS_VALUE_TO_PTR(*this_val);
-    msg_str = JS_ToCString(ctx, p->u.error.message, &msg_str_buf);
-    js_snprintf(buf, sizeof(buf), "%s: %s", name_str, msg_str);
-    return JS_NewString(ctx, buf);
+    if (p->u.error.message != JS_NULL) {
+        string_buffer_puts(ctx, b, ": ");
+        p = JS_VALUE_TO_PTR(*this_val);
+        string_buffer_concat(ctx, b, p->u.error.message);
+    }
+    return string_buffer_pop(ctx, b);
 }
 
 JSValue js_error_get_message(JSContext *ctx, JSValue *this_val,
@@ -15551,20 +15600,15 @@ JSValue js_json_stringify(JSContext *ctx, JSValue *this_val,
                         idx++;
                     }
                 }
+                JS_PUSH_VALUE(ctx, val);
                 if (saved_idx != 0)
                     string_buffer_putc(ctx, b, ',');
                 ctx->sp[1] = JS_NewShortInt(idx + 1);
                 p = JS_VALUE_TO_PTR(ctx->sp[2]);
                 arr = JS_VALUE_TO_PTR(p->u.array.tab);
-                JS_PUSH_VALUE(ctx, val);
                 ret = js_to_quoted_string(ctx, b, arr->arr[idx]);
-                JS_POP_VALUE(ctx, val);
-                if (ret)
-                    goto fail;
                 string_buffer_putc(ctx, b, ':');
-                
-                JS_PUSH_VALUE(ctx, val);
-                ret = JS_StackCheck(ctx, JSON_REC_SIZE);
+                ret |= JS_StackCheck(ctx, JSON_REC_SIZE);
                 JS_POP_VALUE(ctx, val);
                 if (ret)
                     goto fail;
@@ -15633,7 +15677,7 @@ static const REOpCode reopcode_info[REOP_COUNT] = {
 #define REDEF(id, size) { size },
 #endif
 #include "mquickjs_opcode.h"
-#undef DEF
+#undef REDEF
 };
 
 #define LRE_FLAG_GLOBAL     (1 << 0)
@@ -16205,7 +16249,7 @@ static void re_range_optimize(JSParseState *s, int range_start, BOOL invert)
 
     /* compress to 8 bit if possible */
     /* XXX: adjust threshold */
-    if (n < 16) {
+    if (n > 0 && n < 16) {
         uint8_t *tab = arr->buf + range_start;
         int c, i;
         c = get_u32(&tab[8 * (n - 1) + 4]);
@@ -17393,7 +17437,7 @@ static int lre_exec(JSContext *ctx, JSValue capture_buf,
 
                 n = get_u16(pc); /* n must be >= 1 */
                 pc += 2;
-                if (cptr >= cbuf_end)
+                if (cptr >= cbuf_end || n == 0)
                     goto no_match;
                 GET_CHAR(c, cptr, cbuf_end);
                 idx_min = 0;
@@ -17589,7 +17633,6 @@ static void dump_regexp(JSContext *ctx, JSObject *p)
 {
     JSStringCharBuf buf;
     JSString *ps;
-    int i;
     char buf2[RE_FLAG_COUNT + 1];
     JSByteArray *arr;
     
@@ -17598,9 +17641,7 @@ static void dump_regexp(JSContext *ctx, JSObject *p)
     if (ps->len == 0) {
         js_printf(ctx, "(?:)");
     } else {
-        for(i = 0; i < ps->len; i++) {
-            js_putchar(ctx, ps->buf[i]);
-        }
+        js_printf(ctx, "%" JSValue_PRI, p->u.regexp.source);
     }
     arr = JS_VALUE_TO_PTR(p->u.regexp.byte_code);
     js_regexp_flags_str(buf2, lre_get_flags(arr->buf));
@@ -17667,7 +17708,7 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
 {
     JSObject *p;
     JSRegExp *re;
-    JSValue obj, capture_buf, res;
+    JSValue obj, *capture_buf, res;
     uint32_t *capture, last_index_utf8;
     int rc, capture_count, i, re_flags, last_index;
     JSByteArray *bc_arr, *carr;
@@ -17699,8 +17740,9 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
 
     carr = js_alloc_byte_array(ctx, sizeof(uint32_t) * lre_get_alloc_count(bc_arr->buf));
     if (!carr)
-        return JS_EXCEPTION;
-    capture_buf = JS_VALUE_FROM_PTR(carr);
+        goto fail;
+    capture_buf = JS_PushGCRef(ctx, &capture_buf_ref);
+    *capture_buf = JS_VALUE_FROM_PTR(carr);
     capture = (uint32_t *)carr->buf;
     for(i = 0; i < 2 * capture_count; i++)
         capture[i] = -1;
@@ -17712,15 +17754,13 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
     if (last_index_utf8 > js_string_byte_len(ctx, argv[0])) {
         rc = 2;
     } else {
-        JS_PUSH_VALUE(ctx, capture_buf);
         p = JS_VALUE_TO_PTR(*this_val);
         re = &p->u.regexp;
         str = get_string_ptr(ctx, &str_buf, argv[0]);
         /* JS_VALUE_FROM_PTR(str) is acceptable here because the
            GC ignores pointers outside the heap */
-        rc = lre_exec(ctx, capture_buf, re->byte_code, JS_VALUE_FROM_PTR(str),
+        rc = lre_exec(ctx, *capture_buf, re->byte_code, JS_VALUE_FROM_PTR(str),
                       last_index_utf8);
-        JS_POP_VALUE(ctx, capture_buf);
     }
     if (rc != 1) {
         if (rc >= 0) {
@@ -17736,12 +17776,13 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
             else
                 obj = JS_NULL;
         } else {
-            return JS_EXCEPTION;
+            goto fail;
         }
     } else {
-        capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(capture_buf))->buf;
+        capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(*capture_buf))->buf;
         if (magic == MAGIC_REGEXP_SEARCH) {
-            return JS_NewShortInt(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2));
+            obj = JS_NewShortInt(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2));
+            goto done;
         } 
         if (re_flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY)) {
             p = JS_VALUE_TO_PTR(*this_val);
@@ -17751,47 +17792,39 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
         if (magic == MAGIC_REGEXP_TEST) {
             obj = JS_TRUE;
         } else {
-            JS_PUSH_VALUE(ctx, capture_buf);
             obj = JS_NewArray(ctx, capture_count);
-            JS_POP_VALUE(ctx, capture_buf);
             if (JS_IsException(obj))
-                return JS_EXCEPTION;
+                goto fail;
 
-            JS_PUSH_VALUE(ctx, capture_buf);
             JS_PUSH_VALUE(ctx, obj);
-            capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(capture_buf))->buf;
+            capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(*capture_buf))->buf;
             res = JS_DefinePropertyValue(ctx, obj, js_get_atom(ctx, JS_ATOM_index),
                                          JS_NewShortInt(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2)));
             JS_POP_VALUE(ctx, obj);
-            JS_POP_VALUE(ctx, capture_buf);
             if (JS_IsException(res))
-                return JS_EXCEPTION;
+                goto fail;
 
-            JS_PUSH_VALUE(ctx, capture_buf);
             JS_PUSH_VALUE(ctx, obj);
             res = JS_DefinePropertyValue(ctx, obj, js_get_atom(ctx, JS_ATOM_input),
                                          argv[0]);
             JS_POP_VALUE(ctx, obj);
-            JS_POP_VALUE(ctx, capture_buf);
             if (JS_IsException(res))
-                return JS_EXCEPTION;
+                goto fail;
 
             for(i = 0; i < capture_count; i++) {
                 int start, end;
                 JSValue val;
 
-                capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(capture_buf))->buf;
+                capture = (uint32_t *)((JSByteArray *)JS_VALUE_TO_PTR(*capture_buf))->buf;
                 start = capture[2 * i];
                 end = capture[2 * i + 1];
                 if (start != -1 && end != -1) {
                     JSValueArray *arr;
-                    JS_PUSH_VALUE(ctx, capture_buf);
                     JS_PUSH_VALUE(ctx, obj);
                     val = js_sub_string_utf8(ctx, argv[0], 2 * start, 2 * end);
                     JS_POP_VALUE(ctx, obj);
-                    JS_POP_VALUE(ctx, capture_buf);
                     if (JS_IsException(val))
-                        return JS_EXCEPTION;
+                        goto fail;
                     p = JS_VALUE_TO_PTR(obj);
                     arr = JS_VALUE_TO_PTR(p->u.array.tab);
                     arr->arr[i] = val;
@@ -17799,7 +17832,12 @@ JSValue js_regexp_exec(JSContext *ctx, JSValue *this_val,
             }
         }
     }
+ done:
+    JS_PopGCRef(ctx, &capture_buf_ref);
     return obj;
+ fail:
+    obj = JS_EXCEPTION;
+    goto done;
 }
 
 /* if regexp replace: capture_buf != NULL, needle = NULL
