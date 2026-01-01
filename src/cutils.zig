@@ -189,15 +189,18 @@ pub fn __utf8_get(p: []const u8, plen: *usize) i32 {
 // #define stringify(s)    tostring(s)
 // #define tostring(s)     #s
 
-// #ifndef offsetof
-// #define offsetof(type, field) ((size_t) &((type *)0)->field)
-// #endif
+pub fn offsetof(_type: type, field: anytype) usize {
+    return &@as(*_type, 0)[field];
+}
+
 // #ifndef countof
 // #define countof(x) (sizeof(x) / sizeof((x)[0]))
 // #endif
 
-// /* return the pointer of type 'type *' containing 'ptr' as field 'member' */
-// #define container_of(ptr, type, member) ((type *)((uint8_t *)(ptr) - offsetof(type, member)))
+// return the pointer of type 'type *' containing 'ptr' as field 'member'
+pub fn container_of(_ptr: anytype, _type: type, _member: anytype) *_type {
+    return @ptrCast(@as(*u8, _ptr) - offsetof(_type, _member));
+}
 
 pub inline fn max_int(a: i32, b: i32) i32 {
     return if (a > b) a else b;
