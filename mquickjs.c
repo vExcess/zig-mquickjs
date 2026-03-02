@@ -64,6 +64,7 @@
 #define JS_MIN_CRITICAL_FREE_SIZE (JS_MIN_FREE_SIZE - 256)
 #define JS_MAX_LOCAL_VARS 65535
 #define JS_MAX_FUNC_STACK_SIZE 65535
+#define JS_MAX_ARGC 65535
 /* maximum number of recursing JS_Call() */
 #define JS_MAX_CALL_RECURSE 8
 
@@ -3651,11 +3652,12 @@ JSContext *JS_NewContext(void *mem_start, size_t mem_size, const JSSTDLibraryDef
 
 void JS_FreeContext(JSContext *ctx)
 {
-    /* call the user C finalizers */
     uint8_t *ptr;
     int size;
     JSObject *p;
     
+    /* call the user C finalizers */
+    /* XXX: could disable it when prepare_compilation = true */
     ptr = ctx->heap_base;
     while (ptr < ctx->heap_free) {
         size = get_mblock_size(ptr);
@@ -9572,7 +9574,7 @@ static int js_parse_postfix_expr(JSParseState *s, int state, int parse_flags)
             arg_count = 0;
             if (s->token.val != ')') {
                 for(;;) {
-                    if (arg_count >= 65535)
+                    if (arg_count >= JS_MAX_ARGC)
                         js_parse_error(s, "too many call arguments");
                     arg_count++;
                     PARSE_CALL_SAVE5(s, 5, js_parse_assign_expr, 0,
@@ -12835,6 +12837,8 @@ int JS_PrepareBytecode64to32(JSContext *ctx,
 
     *pdata_buf = ctx->heap_base;
     *pdata_len = ctx->heap_free - ctx->heap_base;
+    /* ensure that JS_FreeContext() will do nothing */
+    ctx->heap_free = ctx->heap_base; 
     return 0;
 }
 #endif /* JSW == 8 */
@@ -13125,6 +13129,8 @@ JSValue js_function_apply(JSContext *ctx, JSValue *this_val,
         return JS_ThrowTypeError(ctx, "not an array");
     arr = JS_VALUE_TO_PTR(p->u.array.tab);
     len = p->u.array.len;
+    if (len > JS_MAX_ARGC)
+        return JS_ThrowTypeError(ctx, "too many call arguments");
     if (JS_StackCheck(ctx, len + 2))
         return JS_EXCEPTION;
     p = JS_VALUE_TO_PTR(argv[1]);
@@ -13161,7 +13167,7 @@ JSValue js_function_bound(JSContext *ctx, JSValue *this_val,
 {
     JSValueArray *arr;
     JSGCRef params_ref;
-    int i, err, size;
+    int i, err, size, argc2;
     
     arr = JS_VALUE_TO_PTR(params);
     size = arr->size;
@@ -13170,6 +13176,9 @@ JSValue js_function_bound(JSContext *ctx, JSValue *this_val,
     JS_POP_VALUE(ctx, params);
     if (err)
         return JS_EXCEPTION;
+    argc2 = size - 2 + argc;
+    if (argc2 > JS_MAX_ARGC)
+        return JS_ThrowTypeError(ctx, "too many call arguments");
     arr = JS_VALUE_TO_PTR(params);
     for(i = argc - 1; i >= 0; i--)
         JS_PushArg(ctx, argv[i]);
@@ -13179,7 +13188,7 @@ JSValue js_function_bound(JSContext *ctx, JSValue *this_val,
     JS_PushArg(ctx, arr->arr[0]); /* func */
     JS_PushArg(ctx, arr->arr[1]); /* this_val */
     /* we avoid recursing on the C stack */
-    return JS_NewTailCall(size - 2 + argc);
+    return JS_NewTailCall(argc2);
 }
 
 /**********************************************************************/
@@ -13459,10 +13468,12 @@ JSValue js_string_fromCharCode(JSContext *ctx, JSValue *this_val,
     for(i = 0; i < argc; i++) {
         int c;
         if (JS_ToInt32(ctx, &c, argv[i]))
-            return JS_EXCEPTION;
+            goto fail;
         if (is_fromCodePoint) {
-            if (c < 0 || c > 0x10ffff)
-                return JS_ThrowRangeError(ctx, "invalid code point");
+            if (c < 0 || c > 0x10ffff) {
+                JS_ThrowRangeError(ctx, "invalid code point");
+                goto fail;
+            }
         } else {
             c &= 0xffff;
         }
@@ -13470,6 +13481,9 @@ JSValue js_string_fromCharCode(JSContext *ctx, JSValue *this_val,
             break;
     }
     return string_buffer_pop(ctx, b);
+ fail:
+    string_buffer_pop(ctx, b);
+    return JS_EXCEPTION;
 }
 
 JSValue js_string_concat(JSContext *ctx, JSValue *this_val,
@@ -13583,7 +13597,8 @@ JSValue js_string_toLowerCase(JSContext *ctx, JSValue *this_val,
     if (JS_IsException(*this_val))
         return *this_val;
     len = js_string_len(ctx, *this_val);
-    string_buffer_push(ctx, b, len);
+    if (string_buffer_push(ctx, b, len))
+        return JS_EXCEPTION;
     for(i = 0; i < len; i++) {
         c = string_getc(ctx, *this_val, i);
         if (to_lower) {
