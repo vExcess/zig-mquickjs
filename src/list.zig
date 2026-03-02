@@ -25,8 +25,8 @@
 const cutils = @import("./cutils.zig");
 
 const list_head = struct {
-    prev: *list_head,
-    next: *list_head
+    prev: ?*list_head,
+    next: ?*list_head
 };
 
 // #define LIST_HEAD_INIT(el) { &(el), &(el) }
