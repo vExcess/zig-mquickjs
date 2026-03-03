@@ -49,10 +49,10 @@ pub fn build(b: *std.Build) !void {
         "-O2",
     });
 
-    // The standard library is compiled by a custom tool (mquickjs_build.c) to 
-    // C structures that may reside in ROM. Hence the standard library 
-    // instantiation is very fast and requires almost no RAM. An example of 
-    // standard library for mqjs is provided in mqjs_stdlib.c. The result of 
+    // The standard library is compiled by a custom tool (mquickjs_build.c) to
+    // C structures that may reside in ROM. Hence the standard library
+    // instantiation is very fast and requires almost no RAM. An example of
+    // standard library for mqjs is provided in mqjs_stdlib.c. The result of
     // its compilation is mqjs_stdlib.h
     const mqjs_stdlib_tool = b.addExecutable(.{
         .name = "mqjs_stdlib",
@@ -62,7 +62,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
-    mqjs_stdlib_tool.addCSourceFiles(.{
+    mqjs_stdlib_tool.root_module.addCSourceFiles(.{
         .files = &.{ "mqjs_stdlib.c", "mquickjs_build.c" },
         .flags = cHostFlags.items,
     });
@@ -70,9 +70,9 @@ pub fn build(b: *std.Build) !void {
     // Generate Header Files
     const gen_atoms = b.addRunArtifact(mqjs_stdlib_tool);
     gen_atoms.addArg("-a");
-    const mquickjs_atom_h = gen_atoms.captureStdOut();
+    const mquickjs_atom_h = gen_atoms.captureStdOut(.{});
     const gen_stdlib = b.addRunArtifact(mqjs_stdlib_tool);
-    const mqjs_stdlib_h = gen_stdlib.captureStdOut();
+    const mqjs_stdlib_h = gen_stdlib.captureStdOut(.{});
     const wf = b.addWriteFiles();
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
@@ -86,12 +86,12 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
-    example_stdlib_tool.addCSourceFiles(.{
+    example_stdlib_tool.root_module.addCSourceFiles(.{
         .files = &.{ "example_stdlib.c", "mquickjs_build.c" },
         .flags = &.{ "-O2", "-D_GNU_SOURCE" },
     });
     const gen_example_stdlib = b.addRunArtifact(example_stdlib_tool);
-    const example_stdlib_h = gen_example_stdlib.captureStdOut();
+    const example_stdlib_h = gen_example_stdlib.captureStdOut(.{});
     const example_exe = b.addExecutable(.{
         .name = "example",
         .root_module = b.createModule(.{
@@ -101,12 +101,12 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
-    example_exe.addConfigHeader(
-        b.addConfigHeader(.{.style = .blank }, .{})
+    example_exe.root_module.addConfigHeader(
+        b.addConfigHeader(.{ .style = .blank }, .{}),
     );
-    example_exe.addIncludePath(wf.getDirectory());
-    example_exe.addIncludePath(b.path("."));
-    example_exe.addCSourceFiles(.{
+    example_exe.root_module.addIncludePath(wf.getDirectory());
+    example_exe.root_module.addIncludePath(b.path("."));
+    example_exe.root_module.addCSourceFiles(.{
         .files = &.{
             "example.c",
             "mquickjs.c",
@@ -129,7 +129,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
-    exe.addCSourceFiles(.{
+    exe.root_module.addCSourceFiles(.{
         .files = &.{
             "mqjs.c",
             "readline_tty.c",
@@ -141,11 +141,9 @@ pub fn build(b: *std.Build) !void {
         },
         .flags = cFlags.items,
     });
-    exe.addConfigHeader(
-        b.addConfigHeader(.{.style = .blank }, .{})
-    );
-    exe.addIncludePath(wf.getDirectory());
-    exe.addIncludePath(b.path("."));
+    exe.root_module.addConfigHeader(b.addConfigHeader(.{ .style = .blank }, .{}));
+    exe.root_module.addIncludePath(wf.getDirectory());
+    exe.root_module.addIncludePath(b.path("."));
     b.installArtifact(exe);
 
     // make test
