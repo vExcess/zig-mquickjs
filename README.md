@@ -2,7 +2,7 @@ MicroQuickJS
 ============
 
 ## Zigged
-I'm working on porting mquickjs to Zig. I've only got one file ported so far. But you can build the C version using the Zig build system right now.
+I'm working on porting mquickjs to Zig. I've only got one file ported so far. You can build the project using the Zig build system right now.
 
 Build mqjs: `zig build`
 
@@ -13,6 +13,16 @@ Run microbenchmark: `zig build microbench`
 Run octane benchmark: `zig build octane`
 
 Run tests: `zig build test`
+
+### Why use Zig over C?
+- Memory safety - Zig can detect double-frees, use-after-frees, and memory leaks
+- Speed - Because Zig does not have to maintain strict binary layouts in memory, the compiler can reorder structs to achieve better cache locality resulting in even better performance than equivelant C code
+- Readability - Zig code is much easier to understand than C
+- Guard Rails - Zig has a lot of guard rails to prevent you from introducing silly mistake bugs such as forgetting to cast an item before operating on it
+- Comptime - Comptime is an objectively superior metaprogramming system compared to C macros
+- Portability - The Zig compiler can cross-compile to nearly any platform without any special setup by the programmer
+
+Much of the code was written by Gemini 3 Pro, but I have thoroughly manually reviewed any AI generated code to make sure it is correct. And it's a good thing I did too because I found multiple bugs in the AI generated code.
 
 ## Introduction
 

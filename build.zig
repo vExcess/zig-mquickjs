@@ -77,6 +77,17 @@ pub fn build(b: *std.Build) !void {
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
 
+    // Compile the Zig version of cutils into an object file
+    const cutils_obj = b.addObject(.{
+        .name = "cutils",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("cutils.zig"),
+            .link_libc = true,
+        }),
+    });
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -112,10 +123,10 @@ pub fn build(b: *std.Build) !void {
             "mquickjs.c",
             "dtoa.c",
             "libm.c",
-            "cutils.c",
         },
         .flags = cFlags.items,
     });
+    example_exe.addObject(cutils_obj);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -137,10 +148,10 @@ pub fn build(b: *std.Build) !void {
             "mquickjs.c",
             "dtoa.c",
             "libm.c",
-            "cutils.c",
         },
         .flags = cFlags.items,
     });
+    exe.addObject(cutils_obj);
     exe.addConfigHeader(
         b.addConfigHeader(.{.style = .blank }, .{})
     );
