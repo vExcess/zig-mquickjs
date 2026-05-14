@@ -286,7 +286,8 @@ static int atom_cmp(const void *p1, const void *p2)
 
 /* js_atom_table must be properly aligned because the property hash
    table uses the low bits of the atom pointer value */
-#define ATOM_ALIGN 64
+//    Was 64, increased by VExcess so that build time hashmaps can store 32 entries
+#define ATOM_ALIGN 256
 
 static void dump_atoms(BuildContext *ctx)
 {

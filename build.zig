@@ -194,6 +194,7 @@ pub fn build(b: *std.Build) !void {
     gen_bytecode.addArg("tests/test_builtin.js");
     const run_bytecode = b.addRunArtifact(exe);
     run_bytecode.stdio = .inherit;
+    run_bytecode.addArg("-b");
     run_bytecode.addFileArg(bin_file);
     test_step.dependOn(&run_bytecode.step);
 

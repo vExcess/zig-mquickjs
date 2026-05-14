@@ -2,7 +2,7 @@ MicroQuickJS
 ============
 
 ## Zigged
-I'm working on porting mquickjs to Zig. I've only got one file ported so far. You can build the project using the Zig build system right now. Currently using Zig 0.15.2. Will port to 0.16.0 later.
+I'm working on porting mquickjs to Zig. I've only got a few files ported so far. You can build the project using the Zig build system right now. Currently using Zig 0.15.2. Will port to 0.16.0 later.
 
 Build mqjs: `zig build`
 
