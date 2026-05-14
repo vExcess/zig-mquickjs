@@ -88,6 +88,17 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    // Compile the Zig version of readline into an object file
+    const readline_obj = b.addObject(.{
+        .name = "readline",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("readline.zig"),
+            .link_libc = true,
+        }),
+    });
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -144,14 +155,15 @@ pub fn build(b: *std.Build) !void {
         .files = &.{
             "mqjs.c",
             "readline_tty.c",
-            "readline.c",
+            // "readline.c",
             "mquickjs.c",
             "dtoa.c",
             "libm.c",
         },
         .flags = cFlags.items,
     });
-    exe.addObject(cutils_obj);
+    // exe.addObject(cutils_obj);
+    exe.addObject(readline_obj);
     exe.addConfigHeader(
         b.addConfigHeader(.{.style = .blank }, .{})
     );

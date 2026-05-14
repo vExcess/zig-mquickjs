@@ -28,6 +28,12 @@
 const std = @import("std");
 const mem = std.mem;
 
+pub fn min_int(a: c_int, b: c_int) c_int {
+    return if (a < b) a else b;
+}
+
+pub const UTF8_CHAR_LEN_MAX = 4;
+
 pub fn strlen(buf: [*c]const u8) usize {
     return std.mem.len(@as([*:0]const u8, buf));
 }
@@ -110,7 +116,7 @@ export fn has_suffix(_str: [*c]const u8, _suffix: [*c]const u8) c_int {
     return 0;
 }
 
-export fn __unicode_to_utf8(_buf: [*c]u8, _c: c_uint) usize {
+pub export fn __unicode_to_utf8(_buf: [*c]u8, _c: c_uint) usize {
     const buf: [*]u8 = @ptrCast(_buf);
     const c: u32 = @intCast(_c);
 
@@ -140,6 +146,17 @@ export fn __unicode_to_utf8(_buf: [*c]u8, _c: c_uint) usize {
     q += 1;
     
     return q;
+}
+
+// Note: at most 21 bits are encoded. At most UTF8_CHAR_LEN_MAX bytes
+// are output.
+pub inline fn unicode_to_utf8(buf: [*c]u8, c: u32) usize {
+    if (c < 0x80) {
+        buf[0] = @as(u8, @intCast(c));
+        return 1;
+    } else {
+        return __unicode_to_utf8(buf, c);
+    }
 }
 
 export fn __unicode_from_utf8(_p: [*c]const u8, maxLen: usize, _plen: [*c]usize) c_int {
@@ -206,7 +223,7 @@ export fn __unicode_from_utf8(_p: [*c]const u8, maxLen: usize, _plen: [*c]usize)
     return @bitCast(c);
 }
 
-export fn __utf8_get(_p: [*c]const u8, _plen: [*c]usize) c_int {
+pub export fn __utf8_get(_p: [*c]const u8, _plen: [*c]usize) c_int {
     const p: [*]const u8 = @ptrCast(_p);
     const plen: *usize = @ptrCast(_plen);
 
@@ -230,4 +247,18 @@ export fn __utf8_get(_p: [*c]const u8, _plen: [*c]usize) c_int {
     
     plen.* = len;
     return @bitCast(c);
+}
+
+// Warning: no error checking is done so the UTF-8 encoding must be
+// validated before.
+pub inline fn utf8_get(buf: [*c]const u8, plen: [*c]usize) i32 {
+    // Zig doesn't have a direct 'likely' macro, but the optimizer 
+    // is generally excellent at branch prediction for simple checks.
+    if (buf[0] < 0x80) {
+        @branchHint(.likely);
+        plen.* = 1;
+        return @intCast(buf[0]);
+    } else {
+        return __utf8_get(buf, plen);
+    }
 }
