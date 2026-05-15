@@ -36,8 +36,9 @@ const UTF8_CHAR_LEN_MAX = cutils.UTF8_CHAR_LEN_MAX;
 const utf8_get = cutils.utf8_get;
 const unicode_to_utf8 = cutils.unicode_to_utf8;
 
-const FALSE = 0;
-const TRUE = 1;
+const BOOL = cutils.BOOL;
+const FALSE = cutils.FALSE;
+const TRUE = cutils.TRUE;
 
 const ReadLineFunc = *const fn(*anyopaque, [*c]const u8) callconv(.c) void;
 const ReadLineGetColor = *const fn([*c]c_int, [*c]const u8, c_int, c_int) callconv(.c) c_int;
@@ -109,14 +110,14 @@ export const term_colors = [_][*c]const u8{
     "\x1b[37;1m",
 };
 
-const READLINE_RET_EXIT        = -1; 
-const READLINE_RET_NOT_HANDLED =  0; // command not handled
-const READLINE_RET_HANDLED     =  1; // command handled
-const READLINE_RET_ACCEPTED    =  2; // return pressed
+pub const READLINE_RET_EXIT        = -1; 
+pub const READLINE_RET_NOT_HANDLED =  0; // command not handled
+pub const READLINE_RET_HANDLED     =  1; // command handled
+pub const READLINE_RET_ACCEPTED    =  2; // return pressed
 // return READLINE_RET_x
 // return > 0 if command handled, -1 if exit */
 // XXX: could process buffers to avoid redisplaying at each char input (copy paste case)
-export fn readline_handle_byte(s: *ReadlineState, _c: c_int) c_int {
+pub export fn readline_handle_byte(s: *ReadlineState, _c: c_int) c_int {
     var c = @as(u32, @intCast(_c));
     if (c >= 0xc0 and c < 0xf8) {
         s.utf8_state = 1 + (if (c >= 0xe0) @as(@TypeOf(s.utf8_state), 1) else @as(@TypeOf(s.utf8_state), 0)) + (if (c >= 0xf0) @as(@TypeOf(s.utf8_state), 1) else @as(@TypeOf(s.utf8_state), 0));
@@ -137,7 +138,7 @@ export fn readline_handle_byte(s: *ReadlineState, _c: c_int) c_int {
     return readline_handle_char(s, @intCast(c));
 }
 
-export fn readline_start(s: *ReadlineState, prompt: [*c]const u8, is_password: c_int) void {
+pub export fn readline_start(s: *ReadlineState, prompt: [*c]const u8, is_password: c_int) void {
     s.term_prompt = prompt;
     s.term_is_password = @as(u8, @intCast(is_password));
     s.term_hist_entry = -1;

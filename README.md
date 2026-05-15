@@ -22,7 +22,9 @@ Run tests: `zig build test`
 - Comptime - Comptime is an objectively superior metaprogramming system compared to C macros
 - Portability - The Zig compiler can cross-compile to nearly any platform without any special setup by the programmer
 
-Much of the code was written by Gemini 3 Pro, but I have thoroughly manually reviewed any AI generated code to make sure it is correct. And it's a good thing I did too because I found multiple bugs in the AI generated code.
+Much of the code was written by Gemini 3 Pro, but I have thoroughly manually reviewed any AI generated code to make sure it is correct. And it's a good thing I did too because I found a lot of bugs in the AI generated code.
+
+First files will be ported to Zig while maintaining C ABI compatability. Later the code will be updated to be Zig-style code rather than a strict line by line translation.
 
 ## Introduction
 

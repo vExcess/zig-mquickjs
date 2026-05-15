@@ -28,6 +28,10 @@
 const std = @import("std");
 const mem = std.mem;
 
+pub const BOOL = c_int;
+pub const FALSE = 0;
+pub const TRUE = 1;
+
 pub fn min_int(a: c_int, b: c_int) c_int {
     return if (a < b) a else b;
 }

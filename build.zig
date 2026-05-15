@@ -154,7 +154,7 @@ pub fn build(b: *std.Build) !void {
     exe.addCSourceFiles(.{
         .files = &.{
             "mqjs.c",
-            "readline_tty.c",
+            // "readline_tty.c",
             // "readline.c",
             "mquickjs.c",
             "dtoa.c",
