@@ -6,7 +6,6 @@ const std = @import("std");
 
 const engine_c_sources = [_][]const u8{
     "mquickjs.c",
-    "libm.c",
 };
 
 fn addEngineCSources(exe: *std.Build.Step.Compile, c_flags: []const []const u8) void {
@@ -20,11 +19,15 @@ fn addRuntimeObjects(
     exe: *std.Build.Step.Compile,
     cutils_obj: *std.Build.Step.Compile,
     dtoa_obj: ?*std.Build.Step.Compile,
+    libm_obj: ?*std.Build.Step.Compile,
     readline_obj: ?*std.Build.Step.Compile,
 ) void {
     exe.addObject(cutils_obj);
     if (dtoa_obj) |dtoa| {
         exe.addObject(dtoa);
+    }
+    if (libm_obj) |libm| {
+        exe.addObject(libm);
     }
     if (readline_obj) |rl| {
         exe.addObject(rl);
@@ -146,6 +149,21 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    const libm_obj = b.addObject(.{
+        .name = "libm",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("libm.zig"),
+            .link_libc = true,
+        }),
+    });
+    libm_obj.root_module.addCSourceFiles(.{
+        .files = &.{"libm_softfp.c"},
+        .flags = cFlags.items,
+    });
+    libm_obj.root_module.addIncludePath(b.path("."));
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -176,7 +194,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(example_exe, cFlags.items);
-    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, null);
+    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -195,7 +213,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(exe, cFlags.items);
-    addRuntimeObjects(exe, cutils_obj, dtoa_obj, readline_obj);
+    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj);
     addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);
 
