@@ -90,34 +90,18 @@ pub fn build(b: *std.Build) !void {
         try cFlags.append(b.allocator, "-DUSE_SOFTFLOAT");
     }
 
-    var cHostFlags = try std.ArrayList([]const u8).initCapacity(b.allocator, 16);
-    defer cHostFlags.deinit(b.allocator);
-    try cHostFlags.appendSlice(b.allocator, &.{
-        "-Wall",
-        "-g",
-        "-Werror",
-        "-D_GNU_SOURCE",
-        "-fno-math-errno",
-        "-fno-trapping-math",
-        "-O2",
-    });
-
-    // The standard library is compiled by a custom tool (mquickjs_build.c) to 
-    // C structures that may reside in ROM. Hence the standard library 
-    // instantiation is very fast and requires almost no RAM. An example of 
-    // standard library for mqjs is provided in mqjs_stdlib.c. The result of 
-    // its compilation is mqjs_stdlib.h
+    // The standard library is compiled by a custom tool (mquickjs_build_lib.zig)
+    // to C structures that may reside in ROM. Hence the standard library
+    // instantiation is very fast and requires almost no RAM. An example of
+    // standard library for mqjs is provided in mqjs_stdlib_tables.zig. The
+    // result of its compilation is mqjs_stdlib.h
     const mqjs_stdlib_tool = b.addExecutable(.{
         .name = "mqjs_stdlib",
         .root_module = b.createModule(.{
+            .root_source_file = b.path("mqjs_stdlib.zig"),
             .target = b.graph.host,
             .optimize = .ReleaseFast,
-            .link_libc = true,
         }),
-    });
-    mqjs_stdlib_tool.addCSourceFiles(.{
-        .files = &.{ "mqjs_stdlib.c", "mquickjs_build.c" },
-        .flags = cHostFlags.items,
     });
 
     // Generate Header Files
@@ -266,14 +250,10 @@ pub fn build(b: *std.Build) !void {
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
         .root_module = b.createModule(.{
+            .root_source_file = b.path("example_stdlib.zig"),
             .target = b.graph.host,
             .optimize = .ReleaseFast,
-            .link_libc = true,
         }),
-    });
-    example_stdlib_tool.addCSourceFiles(.{
-        .files = &.{ "example_stdlib.c", "mquickjs_build.c" },
-        .flags = &.{ "-O2", "-D_GNU_SOURCE" },
     });
     const gen_example_stdlib = b.addRunArtifact(example_stdlib_tool);
     const example_stdlib_h = gen_example_stdlib.captureStdOut();
