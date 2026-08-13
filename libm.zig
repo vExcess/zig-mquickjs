@@ -113,3 +113,25 @@ export fn js_pow(x: f64, y: f64) f64 {
 export fn js_rem_pio2(x: f64, y: [*]f64) c_int {
     return lib.js_rem_pio2(x, y);
 }
+
+comptime {
+    if (lib.use_softfloat) {
+        @export(&lib.__adddf3, .{ .name = "__adddf3" });
+        @export(&lib.__subdf3, .{ .name = "__subdf3" });
+        @export(&lib.__muldf3, .{ .name = "__muldf3" });
+        @export(&lib.__divdf3, .{ .name = "__divdf3" });
+        @export(&lib.__eqdf2, .{ .name = "__eqdf2" });
+        @export(&lib.__nedf2, .{ .name = "__nedf2" });
+        @export(&lib.__ledf2, .{ .name = "__ledf2" });
+        @export(&lib.__ltdf2, .{ .name = "__ltdf2" });
+        @export(&lib.__gedf2, .{ .name = "__gedf2" });
+        @export(&lib.__gtdf2, .{ .name = "__gtdf2" });
+        @export(&lib.__unorddf2, .{ .name = "__unorddf2" });
+        @export(&lib.__floatsidf, .{ .name = "__floatsidf" });
+        @export(&lib.__floatdidf, .{ .name = "__floatdidf" });
+        @export(&lib.__floatunsidf, .{ .name = "__floatunsidf" });
+        @export(&lib.__fixdfsi, .{ .name = "__fixdfsi" });
+        @export(&lib.__extendsfdf2, .{ .name = "__extendsfdf2" });
+        @export(&lib.__truncdfsf2, .{ .name = "__truncdfsf2" });
+    }
+}

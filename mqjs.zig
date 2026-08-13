@@ -48,7 +48,7 @@ const c = @cImport({
     @cInclude("mquickjs.h");
 });
 
-extern "C" const js_stdlib: c.JSSTDLibraryDef;
+const stdlib_data = @import("mqjs_stdlib_data");
 
 const MAX_TIMERS = 16;
 const MAX_INCLUDES = 32;
@@ -543,7 +543,7 @@ fn compileFile(
     force_32bit: BOOL,
 ) void {
     const mem_buf: [*]u8 = @ptrCast(c.malloc(mem_size));
-    const ctx = c.JS_NewContext2(mem_buf, mem_size, &js_stdlib, TRUE).?;
+    const ctx = c.JS_NewContext2(mem_buf, mem_size, @ptrCast(&stdlib_data.js_stdlib), TRUE).?;
     c.JS_SetLogFunc(ctx, jsLogFunc);
 
     const eval_str: [*]u8 = @ptrCast(loadFile(filename, null));
@@ -629,6 +629,7 @@ fn help() noreturn {
 }
 
 pub fn main() u8 {
+    stdlib_data.relocate();
     const allocator = std.heap.page_allocator;
     const argv = std.process.argsAlloc(allocator) catch return 1;
     defer std.process.argsFree(allocator, argv);
@@ -774,7 +775,7 @@ pub fn main() u8 {
     }
 
     const mem_buf: [*]u8 = @ptrCast(c.malloc(mem_size));
-    const ctx = c.JS_NewContext(mem_buf, mem_size, &js_stdlib).?;
+    const ctx = c.JS_NewContext(mem_buf, mem_size, @ptrCast(&stdlib_data.js_stdlib)).?;
     c.JS_SetLogFunc(ctx, jsLogFunc);
     {
         var tv: c.struct_timeval = undefined;

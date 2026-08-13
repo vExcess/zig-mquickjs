@@ -14,9 +14,13 @@ Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`
 
 Run tests: `zig build test -Doptimize=ReleaseFast`
 
+Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
+
 The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` only if you prefer that interface (set `ZIG=/path/to/zig` if zig is not on your PATH).
 
 ### Port status
+
+Faithful C→Zig port is complete: **zero compiled C translation units**. Reference `.c` files remain on disk and are not linked.
 
 | Module | Source | Status |
 |--------|--------|--------|
@@ -25,11 +29,11 @@ The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` onl
 | readline_tty | `readline_tty.zig` | Ported (Zig, via readline) |
 | mqjs completion hook | `mqjs.zig` | Ported (in mqjs.zig) |
 | dtoa | `dtoa.zig`, `dtoa_lib.zig` | Ported (Zig) |
-| libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.c` | Ported (Zig) |
-| mquickjs | 7 C files (`mquickjs_*.c`) | C |
+| libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.zig` | Ported (Zig; `-Dsoftfloat=true` for software float) |
+| mquickjs engine | 7 Zig modules (`mquickjs_*.zig`) | Ported (Zig) |
 | mqjs REPL | `mqjs.zig` | Ported (Zig) |
 | example | `example.zig` | Ported (Zig) |
-| stdlib codegen | `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c` | C (host tools) |
+| stdlib codegen | `mquickjs_build_lib.zig`, `mqjs_stdlib_tables.zig` | Ported (Zig host tools) |
 
 An incomplete first port attempt lives in `archive/src-first-attempt/` and is not used by the build.
 

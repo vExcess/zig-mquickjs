@@ -9,10 +9,20 @@
 
 const lib = @import("mquickjs_lexer_lib.zig");
 const lt = @import("mquickjs_lexer_types.zig");
+const utils = @import("mquickjs_utils_lib.zig");
 const c = lib.c;
+
+extern fn longjmp(env: *anyopaque, val: c_int) noreturn;
 
 export fn get_line_col(pcol_num: *c_int, buf: [*]const u8, len: usize) c_int {
     return lib.get_line_col(pcol_num, buf, len);
+}
+
+export fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) callconv(.c) noreturn {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    _ = utils.js_vsnprintf(@ptrCast(&s.error_msg), s.error_msg.len, fmt, @ptrCast(&ap));
+    longjmp(@ptrCast(&s.jmp_env), 1);
 }
 
 export fn js_parse_error_mem(s: *lt.JSParseState) void {

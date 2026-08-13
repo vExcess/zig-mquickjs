@@ -17,5 +17,6 @@ pub fn main() u8 {
         tables.globalProps(.{}),
         tables.cFunctionDeclProps(.{}),
         args,
+        "",
     ) catch 1;
 }

@@ -99,12 +99,18 @@ export fn is_ident_next(ch: c_int) c_int {
     return lib.is_ident_next(ch);
 }
 
-export fn mqjs_vprintf(write_func: *anyopaque, opaque_val: ?*anyopaque, fmt: [*:0]const u8, ap: *anyopaque) void {
-    lib.js_vprintf(@ptrCast(write_func), opaque_val, fmt, ap);
+export fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]const u8, ap: *anyopaque) callconv(.c) void {
+    lib.js_vprintf(write_func, opaque_val, fmt, ap);
 }
 
-export fn mqjs_vsnprintf(buf: [*c]u8, buf_size: usize, fmt: [*:0]const u8, ap: *anyopaque) c_int {
+export fn js_vsnprintf(buf: [*c]u8, buf_size: usize, fmt: [*:0]const u8, ap: *anyopaque) callconv(.c) c_int {
     return lib.js_vsnprintf(buf, buf_size, fmt, ap);
+}
+
+export fn js_snprintf(buf: [*c]u8, buf_size: usize, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return lib.js_vsnprintf(buf, buf_size, fmt, @ptrCast(&ap));
 }
 
 export fn js_printf(ctx: *c.JSContext, fmt: [*:0]const u8, ...) callconv(.c) void {

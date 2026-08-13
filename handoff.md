@@ -3,7 +3,7 @@
 Last updated: 2026-08-13  
 Zig version: **0.15.2** (see `.zigversion`)  
 Zig path used in session: `/home/vexcess/zig-x86_64-linux-0.15.2/zig`  
-Last known-good: **handoff 12 (builtins port)** — uncommitted; parent commit **`8649a67` (handoff 11 — gc port)**
+Last known-good: **handoff 14 (zero-C complete, Steps 8–11)** — uncommitted; parent commit **`8649a67` (handoff 11 — gc port)**; handoffs 12–14 also uncommitted
 
 ---
 
@@ -26,49 +26,51 @@ Last known-good: **handoff 12 (builtins port)** — uncommitted; parent commit *
 | **Step 6 (5/7)** | Port `mquickjs_parser.c` → Zig | **Complete** |
 | **Step 6 (6/7)** | Port `mquickjs_gc.c` → Zig | **Complete** |
 | **Step 6 (7/7)** | Port `mquickjs_builtins.c` → Zig | **Complete** |
+| **Step 7** | Port stdlib codegen (`mquickjs_build.c`) | **Complete** |
+| **Step 8** | Port variadic C shims (`*_va.c`) | **Complete** |
+| **Step 9** | Port stdlib embed wrappers (`*_stdlib_embed.c`) | **Complete** |
+| **Step 10** | Port `libm_softfp.c` (+ `-Dsoftfloat=true`) | **Complete** |
+| **Step 11** | Zero-C verification + build cleanup | **Complete** |
 
-**Step 6 is done.** The JavaScript engine runtime is fully Zig. No engine `.c` files are compiled.
+**Steps 0–11 are done.** Faithful C→Zig port is complete: **zero compiled C translation units**. Reference `.c` files remain on disk and are not linked.
 
 ### In progress / not yet started
 
 | Plan step | Description | Status |
 |-----------|-------------|--------|
-| **Step 2 Phase 2b** | Softfloat (`-Dsoftfloat=true`) | **Not started** |
-| **Step 7** | Port stdlib codegen (`mquickjs_build.c`) | **Not started** |
-| **Step 8** | Idiomatic refactor, collapse `extern fn` → `@import` where acyclic | **Not started** |
+| **Step 12** | Idiomatic refactor (`extern fn` → `@import`, naming, etc.) | **Not started** |
+
+**Do Step 12 only after the user asks** — the faithful zero-C port is finished.
 
 ### Current runtime link layout
 
 ```
 mqjs / example
 ├── Zig: mqjs.zig or example.zig (executable roots)
-├── C embed: mqjs_stdlib_embed.c or example_stdlib_embed.c (generated stdlib tables)
-├── C engine: (none — engine_c_sources is empty)
+├── Generated Zig stdlib data: mqjs_stdlib_data.zig / example_stdlib_data.zig
 ├── Zig engine (7 modules):
-│     mquickjs_utils   — utils.zig + utils_lib.zig + utils_types.zig (+ utils_va.c shim)
+│     mquickjs_utils   — utils.zig + utils_lib.zig + utils_types.zig
 │     mquickjs_value   — value.zig + value_lib.zig + value_types.zig
 │     mquickjs_runtime — runtime.zig + runtime_lib.zig + runtime_types.zig
-│     mquickjs_lexer   — lexer.zig + lexer_lib.zig + lexer_types.zig (+ lexer_va.c shim)
+│     mquickjs_lexer   — lexer.zig + lexer_lib.zig + lexer_types.zig
 │     mquickjs_parser  — parser.zig + parser_lib.zig + parser_types.zig
 │     mquickjs_gc      — gc.zig + gc_lib.zig + gc_types.zig
 │     mquickjs_builtins — builtins.zig + builtins_lib.zig + builtins_types.zig
-├── Shared engine header: mquickjs_internal.h
-├── Zig objects: cutils, dtoa, libm, mquickjs_utils, mquickjs_value, mquickjs_runtime,
-│                mquickjs_lexer, mquickjs_parser, mquickjs_gc, mquickjs_builtins, readline
-└── Generated headers: mquickjs_atom.h, mqjs_stdlib.h, example_stdlib.h
+├── Zig host tools: mqjs_stdlib, example_stdlib (generate atom/stdlib headers + Zig data)
+├── Shared engine header: mquickjs_internal.h (still @cImport'd)
+├── Zig objects: cutils, dtoa, libm (+ libm_softfp.zig), readline, 7 engine modules
+└── Generated: mquickjs_atom.h, mqjs_stdlib.h, example_stdlib.h, *_stdlib_data.zig
 ```
 
-**On Zig:** cutils, dtoa, libm, readline, readline_tty, example, mqjs, and all **7 engine modules**.  
-**Still C:** stdlib codegen (`mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c`) + embed `.c` + two `*_va.c` shims.  
-**Reference only (not compiled):** `archive/mquickjs_monolith.c`, all split `mquickjs_*.c` files, `example.c`, `mqjs.c`, `dtoa.c`, `libm.c`.
+**On Zig:** everything that is compiled.  
+**Still compiled as C:** none (`grep addCSourceFiles build.zig` is empty).
+
+**Reference only (not compiled):** `archive/mquickjs_monolith.c`, all split `mquickjs_*.c`, `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c`, `example.c`, `mqjs.c`, `dtoa.c`, `libm.c`, `libm_softfp.c`, `mquickjs_utils_va.c`, `mquickjs_lexer_va.c`, `mqjs_stdlib_embed.c`, `example_stdlib_embed.c`.
 
 ### Recommended next work (priority order)
 
-1. **Commit handoff 12** — builtins port is green but uncommitted (user must ask).
-2. **Update README port-status table** — still says “mquickjs: 7 C files”.
-3. **Step 7** — port `mquickjs_build.c` (stdlib atom/codegen host tool).
-4. **Step 2 Phase 2b** — softfloat (`-Dsoftfloat=true`).
-5. **Step 8** — idiomatic refactor; replace acyclic `extern fn` with `@import`.
+1. **Step 12** — idiomatic refactor (only if the user asks).
+2. **Optional:** commit handoffs 12–14 if user asks.
 
 ---
 
@@ -140,7 +142,7 @@ Mechanical split of monolith into 7 linkable C TUs. Regenerate with `python3 spl
 | [`mquickjs_value_lib.zig`](mquickjs_value_lib.zig) | ~2,216 | JSValue primitives, strings, objects, properties, atoms, stdlib init |
 | [`mquickjs_value.zig`](mquickjs_value.zig) | ~447 | Thin `export fn` wrappers |
 
-**Circular deps with runtime:** `value_lib` calls runtime symbols via `extern fn`. Do **not** refactor to `@import` until Step 8 (would create import cycle).
+**Circular deps with runtime:** `value_lib` calls runtime symbols via `extern fn`. Do **not** refactor to `@import` until Step 12 (would create import cycle).
 
 ### Step 6 (3/7) — port mquickjs_runtime.c to Zig
 
@@ -211,7 +213,7 @@ Mechanical split of monolith into 7 linkable C TUs. Regenerate with `python3 spl
 
 **Regexp PARSE coroutines:** `re_parse_alternative` / `re_parse_disjunction` use same labeled-switch pattern as parser; **`callconv(.c)`**; resume states 0–2; internal loops at 100+; `js_parse_regexp` calls `js_parse_call(s, pt.PARSE_FUNC_re_parse_disjunction, 0)`.
 
-**Uncommitted changes (2026-08-13):**
+**Uncommitted changes (2026-08-13, handoff 12 — builtins):**
 
 ```
  M build.zig
@@ -219,6 +221,61 @@ Mechanical split of monolith into 7 linkable C TUs. Regenerate with `python3 spl
 ?? mquickjs_builtins_types.zig
 ?? mquickjs_builtins_lib.zig
 ```
+
+### Step 7 — port stdlib codegen (`mquickjs_build.c`)
+
+| File | Lines | Role |
+|------|-------|------|
+| [`mquickjs_build_types.zig`](mquickjs_build_types.zig) | ~245 | `PropDef` / `ClassDef` + comptime macro helpers mirroring [`mquickjs_build.h`](mquickjs_build.h) |
+| [`mquickjs_build_lib.zig`](mquickjs_build_lib.zig) | ~870 | Faithful port of [`mquickjs_build.c`](mquickjs_build.c): `buildAtoms`, atom/class/prop/cfunc emission |
+| [`mqjs_stdlib_tables.zig`](mqjs_stdlib_tables.zig) | ~660 | All stdlib tables from [`mqjs_stdlib.c`](mqjs_stdlib.c); `comptime class_example` flag |
+| [`example_stdlib_tables.zig`](example_stdlib_tables.zig) | ~60 | Rectangle classes + mqjs tables with `class_example = true` |
+| [`mqjs_stdlib.zig`](mqjs_stdlib.zig) | ~22 | Host root for mqjs stdlib generation |
+| [`example_stdlib.zig`](example_stdlib.zig) | ~22 | Host root for example stdlib generation |
+
+**Build:** `build.zig` uses Zig host executables (`mqjs_stdlib`, `example_stdlib`); no C host tools. Generated headers captured via `WriteFiles` step unchanged.
+
+**Verification:** On 64-bit Linux / `JSW=8`, `mquickjs_atom.h`, `mqjs_stdlib.h`, and `example_stdlib.h` are **byte-identical** to C tool output. Full test gate green.
+
+**Uncommitted changes (2026-08-13, handoff 13 — stdlib codegen):**
+
+```
+ M build.zig
+ M handoff.md
+?? mquickjs_build_types.zig
+?? mquickjs_build_lib.zig
+?? mqjs_stdlib_tables.zig
+?? example_stdlib_tables.zig
+?? mqjs_stdlib.zig
+?? example_stdlib.zig
+```
+
+(Plus handoff 12 builtins files if still uncommitted.)
+
+### Step 8 — variadic C shims
+
+- [`mquickjs_utils.zig`](mquickjs_utils.zig): C ABI exports `js_vprintf`, `js_vsnprintf`, `js_snprintf` (`@cVaStart` / `@cVaEnd`).
+- [`mquickjs_lexer.zig`](mquickjs_lexer.zig): `export fn js_parse_error(..., ...) callconv(.c) noreturn` via `js_vsnprintf` + `longjmp`. `error_msg` is **64 bytes**.
+- Removed `mquickjs_utils_va.c` / `mquickjs_lexer_va.c` from `build.zig`. Files kept on disk as reference.
+
+### Step 9 — stdlib embed → generated Zig data
+
+- [`mquickjs_build_lib.zig`](mquickjs_build_lib.zig): `-z` emits `*_stdlib_data.zig` (`js_stdlib_table`, cfunc/finalizer tables, `js_stdlib`, `relocate()` for ROM pointers).
+- [`mqjs.zig`](mqjs.zig) / [`example.zig`](example.zig): `@import("mqjs_stdlib_data")` / `example_stdlib_data`; call `relocate()` at start of `main`.
+- Removed `mqjs_stdlib_embed.c` / `example_stdlib_embed.c` from `build.zig`. C header generation (no `-z`) unchanged.
+
+### Step 10 — libm softfloat
+
+- New [`libm_softfp.zig`](libm_softfp.zig): comptime `SoftFP(32|64)` port of [`softfp_template.h`](softfp_template.h); exports `libm_cvt_sf64_i32`, `libm_fmod_sf64`, `libm_mul_u64`.
+- [`libm_lib.zig`](libm_lib.zig): `@import("libm_softfp.zig")`; `USE_SOFTFLOAT` paths (`js_sqrt` via `sqrt_sf64`, `js_rem_pio2` large-only, compiler-rt wrappers). Flag via `build_options.softfloat`.
+- [`libm.zig`](libm.zig): `@export` compiler-rt (`__adddf3`, …) only when `-Dsoftfloat=true`.
+- Removed `libm_softfp.c` from `build.zig`.
+
+### Step 11 — zero-C verification
+
+- `grep addCSourceFiles build.zig` — empty.
+- Removed dead `addEngineCSources` / `engine_c_sources` / unused C flags.
+- Updated [`README.md`](README.md) port table; this handoff marked complete.
 
 ---
 
@@ -236,7 +293,7 @@ Mechanical split of monolith into 7 linkable C TUs. Regenerate with `python3 spl
 2. **Build:** remove `.c` from `engine_c_sources`; add `*_obj` to `addRuntimeObjects`.
 3. **Variadic C bridge:** only if needed — `mquickjs_utils_va.c`, `mquickjs_lexer_va.c`.
 4. **One module at a time.** Full test gate after each port.
-5. **Faithful port first.** Idiomatic refactor is Step 8.
+5. **Faithful port first.** Idiomatic refactor is Step 12 (after zero-C in Steps 8–11).
 
 ### Cross-module import rules (critical)
 
@@ -265,7 +322,7 @@ builtins_lib → @import utils_lib, cutils_lib, builtins_types; extern fn for pa
 | **`setjmp` / `jmp_buf` types** | `extern fn setjmp(env: *anyopaque)` in parser to avoid cimport clash |
 | **JSON `for(;;)` → labeled switch** | Update loop cursor before every `continue :sw` back to loop head |
 | **Circular Zig imports** | Never `@import` acyclic partner's `_lib.zig` if partner already `extern fn`s you |
-| **`js_parse_error` variadic** | Keep in `mquickjs_lexer_va.c` |
+| **`js_parse_error` variadic** | Step 8: export from `mquickjs_lexer.zig`; Step 12 may refactor call sites |
 | **GC 64→32 function bytecode** | Read flags from packed `header` word via helper fns |
 | **Bitwise NOT on alignment masks** | Use `~@as(usize, c.JSW - 1)` not `~(c.JSW - 1)` |
 
@@ -294,21 +351,25 @@ builtins_lib → @import utils_lib, cutils_lib, builtins_types; extern fn for pa
 - **Makefile:** Legacy; `zig build` is source of truth.
 - **Optimize mode:** Must use `-Doptimize=ReleaseFast` or `-Doptimize=ReleaseSmall`.
 - **Do not use** `archive/src-first-attempt/`.
-- **README port table:** stale (still lists engine as C) — update in Step 7 or on request.
+- **README port table:** stale — update in Step 11.
+- **Zero-C goal:** Steps 8–11 eliminate all five compiled C TUs; Step 12 is idiomatic refactor only.
 
 ### Dependencies (current)
 
 ```
 dtoa_lib.zig              →  cutils_lib.zig
-libm_lib.zig              →  libm_softfp.c
+libm_lib.zig              →  libm_softfp.c (Step 10 → libm_softfp.zig)
+mquickjs_build_lib.zig    →  mquickjs_build_types.zig
+mqjs_stdlib_tables.zig    →  mquickjs_build_types.zig
+example_stdlib_tables.zig →  mqjs_stdlib_tables.zig, mquickjs_build_types.zig
 mquickjs_utils_lib.zig    →  cutils_lib.zig, mquickjs_utils_types.zig; extern value/runtime/builtins/gc
 mquickjs_value_lib.zig    →  value_types; extern runtime/utils/dtoa/builtins
 mquickjs_runtime_lib.zig  →  runtime_types, utils_lib, dtoa_lib; extern value/builtins/gc
-mquickjs_lexer_lib.zig    →  lexer_types, utils_lib, cutils_lib; extern value/dtoa/builtins
+mquickjs_lexer_lib.zig    →  lexer_types, utils_lib, cutils_lib; extern value/dtoa/builtins; extern js_parse_error (Step 8 → export from lexer.zig)
 mquickjs_parser_lib.zig   →  parser_types, utils_lib, cutils_lib; extern lexer/value/runtime/builtins/dtoa
 mquickjs_gc_lib.zig       →  gc_types, utils_lib; extern value
 mquickjs_builtins_lib.zig → builtins_types, utils_lib, cutils_lib; extern parser/lexer/value/runtime
-example.zig / mqjs.zig    →  link 7 Zig engine modules + embed + leaf objects (no engine C)
+example.zig / mqjs.zig    →  @import generated *_stdlib_data; call relocate()
 ```
 
 ---
@@ -328,70 +389,41 @@ $ZIG build microbench -Doptimize=ReleaseFast
 bash run-tests.sh
 ```
 
-**Results after Step 6 builtins port (2026-08-13, uncommitted handoff 12):**
+**Results after Step 11 zero-C (2026-08-13, handoff 14):**
 
-- `zig build` — pass
-- `zig build test` — pass (bytecode `-o` / `-b` round-trip)
+- `zig build -Doptimize=ReleaseFast` — pass
+- `zig build test -Doptimize=ReleaseFast` — pass
 - `zig build example` + `tests/test_rect.js` — pass
-- `zig build microbench` — pass (~118s; regexp/sort benches included)
-- `run-tests.sh` — pass (test_builtin, test_closure, test_language, test_loop, bytecode, test_rect, mandelbrot)
-
-Critical regressions verified green:
-
-- **`tests/test_builtin.js`** — JSON.parse/stringify, all builtins, regexp compile/exec, String.match/replace/split
-- **`tests/test_closure.js`** — GC still green after final engine module switch
-- **Bytecode `-o`/`-b`** — unchanged, still green
+- `zig build microbench` — pass (~121s, hard float)
+- `run-tests.sh` — pass (hard float and `-Dsoftfloat=true`)
+- `zig build -Doptimize=ReleaseFast -Dsoftfloat=true` — pass
+- `grep addCSourceFiles build.zig` — empty
 
 **Not run / not done:**
 
-- `zig build -Dsoftfloat=true` — Phase 2b not implemented
 - `zig build octane` — requires [mquickjs-extras](https://bellard.org/mquickjs/mquickjs-extras.tar.xz)
-- Git commit for builtins port — not created (awaiting user request)
-- README port-status table — not updated
+- Git commits for handoffs 12–14 — not created (awaiting user request)
 
 ---
 
-## 5. Next Steps
+## 5. Next Steps — Step 12 idiomatic refactor (only if requested)
 
-### Immediate housekeeping (optional, low risk)
+Faithful zero-C port is **complete**. Remaining work is optional cleanup, not required for a green build.
 
-1. **Commit handoff 12** — if user asks: `build.zig` + three `mquickjs_builtins*.zig` files.
-2. **Update README** — change “mquickjs: 7 C files” to “7 Zig modules”; note engine C is zero.
-3. **Remove dead `addEngineCSources` calls** — optional cleanup in `build.zig` (currently no-op).
+### Step 12 — Idiomatic refactor
 
-### Step 7 — port stdlib codegen (`mquickjs_build.c`) ← **recommended next port**
-
-**Goal:** Port the host tool that compiles stdlib definition tables into generated headers/embed `.c` files.
-
-**Still C today:**
-
-- [`mquickjs_build.c`](mquickjs_build.c) — shared codegen logic (`build_atoms`, class/prop table emission)
-- [`mqjs_stdlib.c`](mqjs_stdlib.c) — mqjs stdlib definition tables
-- [`example_stdlib.c`](example_stdlib.c) — example stdlib definition tables
-- Generated: `mqjs_stdlib.h`, `example_stdlib.h`, `*_stdlib_embed.c`
-
-**Build integration:** `build.zig` runs `mqjs_stdlib` / `example_stdlib` host executables at build time (`b.addExecutable` + `addCSourceFiles` with `mquickjs_build.c`). After port, these become Zig host tools.
-
-**Scope notes:**
-
-- Host-only — does not affect runtime engine ABI.
-- Tables reference `js_*` function pointers — all now resolve against `mquickjs_builtins.zig` exports at link time for runtime; host tool only needs to emit pointer names/symbols into C headers.
-- Likely pattern: `mquickjs_build_lib.zig` + `mqjs_stdlib.zig` / `example_stdlib.zig` host exes, or one shared lib + thin roots.
-
-**Test gate:** full build + `run-tests.sh` (stdlib tables must remain byte-identical or behavior-identical).
-
-### Step 2 Phase 2b — libm softfloat (optional parallel track)
-
-Make `zig build -Dsoftfloat=true` work. Extend `libm_softfp.c` with `-DUSE_SOFTFLOAT`; port softfloat paths in `libm_lib.zig`. Reference: `libm.c` `#ifdef USE_SOFTFLOAT` blocks.
-
-### Step 8 — idiomatic refactor
-
-- Replace acyclic `extern fn` with `@import` where safe (e.g. builtins ↔ value may still cycle — analyze graph first).
-- Collapse duplicate type definitions between utils_types and value_types.
+- Replace acyclic `extern fn` with `@import` where safe (analyze import graph first — utils/value/runtime/builtins may cycle).
+- Collapse duplicate type definitions between `utils_types` and `value_types`.
 - Zig-style naming, comptime where C used macros, remove C-order fidelity comments.
-- **Do not start until Step 7 is green** (or user explicitly wants refactor-only work).
+- Optional: consolidate thin `export fn` roots, reduce `@cImport` surface.
 
----
+**Do not start Step 12 unless the user explicitly requests it.**
+
+### Immediate housekeeping (optional)
+
+1. **Commit handoffs 12–14** — if user asks (builtins, stdlib codegen, zero-C).
+2. README port table is already updated.
+
 
 ## Quick reference commands
 
@@ -402,6 +434,10 @@ $ZIG build -Doptimize=ReleaseFast
 $ZIG build test -Doptimize=ReleaseFast
 $ZIG build example -Doptimize=ReleaseFast
 $ZIG build microbench -Doptimize=ReleaseFast
+bash run-tests.sh
+
+# Soft-float libm:
+$ZIG build -Doptimize=ReleaseFast -Dsoftfloat=true
 bash run-tests.sh
 
 # Regenerate C split from monolith backup:
@@ -417,7 +453,7 @@ python3 split_mquickjs.py
 - [`mquickjs.h`](mquickjs.h), [`mquickjs_priv.h`](mquickjs_priv.h) — public API
 - [`archive/src-first-attempt/`](archive/src-first-attempt/) — stale
 - Reference `.c` files not in build — port diffs only
-- Already-ported Zig engine modules unless fixing build break or Step 8 refactor
+- Already-ported Zig engine modules unless fixing build break or Step 12 refactor
 - Plan files under `.cursor/plans/` — do not edit unless asked
 
 ---
@@ -425,44 +461,27 @@ python3 split_mquickjs.py
 ## Next agent prompt (copy-paste)
 
 ```
-Continue the microquickjs C→Zig port.
+Continue the microquickjs C→Zig port — Step 12 idiomatic refactor (only if requested).
 
-Read handoff.md first — it has full context from prior sessions.
+Read handoff.md first.
 
-Done: Steps 0–6 complete (all 7 engine modules on Zig).
-- Leaf modules cutils, dtoa, libm, readline are on Zig.
-- Host apps example and mqjs are on Zig.
-- Engine: 7 Zig modules (utils, value, runtime, lexer, parser, gc, builtins).
-- engine_c_sources is empty — zero engine C compiled.
-- Reference C kept but not compiled: all mquickjs_*.c split files.
-- Last green: uncommitted handoff 12 (builtins port); parent commit 8649a67.
-- Tests pass with Zig 0.15.2 and -Doptimize=ReleaseFast.
+Done: Steps 0–11 complete. Faithful zero-C port is finished.
+- Zero compiled C translation units (`grep addCSourceFiles build.zig` is empty).
+- Engine, leaf modules, host apps, stdlib codegen, variadic ABI, stdlib embed, and libm softfloat are Zig.
+- Tests pass with Zig 0.15.2 at -Doptimize=ReleaseFast and -Dsoftfloat=true.
+- Last green: handoff 14 (zero-C); parent commit 8649a67; handoffs 12–14 uncommitted.
 
-Your task: Step 7 — port stdlib codegen (mquickjs_build.c) to Zig
+Your task: Step 12 — idiomatic refactor (ONLY if the user explicitly asks)
 
-Goal: Replace the C host tools that generate stdlib headers/embed files:
-  mquickjs_build.c + mqjs_stdlib.c + example_stdlib.c
-So build.zig no longer compiles these as C host executables.
-
-Read first:
-- handoff.md (Sections 1, 2 Step 6 builtins, 5 Step 7)
-- mquickjs_build.c — build_atoms, JSPropDef/JSClassDef table emission
-- mqjs_stdlib.c, example_stdlib.c — stdlib table definitions
-- build.zig — mqjs_stdlib_tool / example_stdlib_tool blocks (~lines 105–130, 266–280)
-- Generated outputs: mqjs_stdlib.h, example_stdlib.h, *_stdlib_embed.c
-
-Implementation sketch:
-1. Create mquickjs_build_lib.zig (shared codegen) + thin host roots if needed.
-2. Port build_atoms and table-walking logic faithfully.
-3. Wire build.zig to use Zig host tools instead of C addCSourceFiles for stdlib codegen.
-4. Verify generated headers/embed .c are equivalent (or accept intentional diffs with test proof).
-5. Do NOT refactor engine modules unless build breaks.
+- Replace acyclic extern fn with @import where safe (watch utils/value/runtime/builtins cycles).
+- Collapse duplicate types between utils_types and value_types.
+- Zig-style naming; comptime where C used macros.
 
 Constraints:
 - Zig 0.15.2 (/home/vexcess/zig-x86_64-linux-0.15.2/zig if not on PATH)
-- Build/test only with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall
+- Build/test with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall
 - Do not create git commits unless I ask
-- Faithful port first; idiomatic refactor is Step 8
+- Keep reference .c files on disk
 
 Test gate:
   export ZIG=/home/vexcess/zig-x86_64-linux-0.15.2/zig
@@ -472,12 +491,12 @@ Test gate:
   ./zig-out/bin/example tests/test_rect.js
   $ZIG build microbench -Doptimize=ReleaseFast
   bash run-tests.sh
-
-Pay special attention: stdlib tables must still wire all js_* handlers; test_builtin.js is the regression gate.
+  $ZIG build -Doptimize=ReleaseFast -Dsoftfloat=true
+  bash run-tests.sh
 ```
 
 **Alternative tasks:**
 
-- **Softfloat:** Step 2 Phase 2b — `-Dsoftfloat=true`; read handoff Section 5.
-- **Docs only:** update README port-status table; commit handoff 12 if user asks.
-- **Step 8 refactor:** only if user explicitly requests — analyze extern/import graph first; do not break cycles.
+- **Docs/commit:** commit handoffs 12–14 if user asks.
+- **Do not** restart Steps 8–11; they are complete.
+

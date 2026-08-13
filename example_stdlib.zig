@@ -17,5 +17,10 @@ pub fn main() u8 {
         tables.global_object,
         tables.c_function_decl,
         args,
+        \\pub const JS_CLASS_RECTANGLE = c.JS_CLASS_USER + 0;
+        \\pub const JS_CLASS_FILLED_RECTANGLE = c.JS_CLASS_USER + 1;
+        \\pub const JS_CLASS_COUNT = c.JS_CLASS_USER + 2;
+        \\pub const JS_CFUNCTION_rectangle_closure_test = c.JS_CFUNCTION_USER + 0;
+        \\
     ) catch 1;
 }

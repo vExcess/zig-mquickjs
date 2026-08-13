@@ -4,16 +4,6 @@
 
 const std = @import("std");
 
-const engine_c_sources = [_][]const u8{};
-
-fn addEngineCSources(exe: *std.Build.Step.Compile, c_flags: []const []const u8) void {
-    if (engine_c_sources.len == 0) return;
-    exe.addCSourceFiles(.{
-        .files = &engine_c_sources,
-        .flags = c_flags,
-    });
-}
-
 fn addRuntimeObjects(
     exe: *std.Build.Step.Compile,
     cutils_obj: *std.Build.Step.Compile,
@@ -66,29 +56,8 @@ pub fn build(b: *std.Build) !void {
         return;
     }
 
-    const configSmall = b.option(bool, "small", "Optimize for size") orelse true;
+    _ = b.option(bool, "small", "Optimize for size (no-op: no C translation units remain)");
     const configSoftFloat = b.option(bool, "softfloat", "Use soft float") orelse false;
-
-    var cFlags = try std.ArrayList([]const u8).initCapacity(b.allocator, 16);
-    defer cFlags.deinit(b.allocator);
-    try cFlags.appendSlice(b.allocator, &.{
-        "-Wall",
-        "-g",
-        "-Werror",
-        "-Wno-macro-redefined", // zig passes -DNDEBUG to the C compiler by default. we don't want this
-        "-D_GNU_SOURCE",
-        "-fno-math-errno",
-        "-fno-trapping-math",
-    });
-    if (configSmall) {
-        try cFlags.append(b.allocator, "-Os");
-    } else {
-        try cFlags.append(b.allocator, "-O2");
-    }
-    if (configSoftFloat) {
-        try cFlags.append(b.allocator, "-msoft-float");
-        try cFlags.append(b.allocator, "-DUSE_SOFTFLOAT");
-    }
 
     // The standard library is compiled by a custom tool (mquickjs_build_lib.zig)
     // to C structures that may reside in ROM. Hence the standard library
@@ -110,9 +79,13 @@ pub fn build(b: *std.Build) !void {
     const mquickjs_atom_h = gen_atoms.captureStdOut();
     const gen_stdlib = b.addRunArtifact(mqjs_stdlib_tool);
     const mqjs_stdlib_h = gen_stdlib.captureStdOut();
+    const gen_stdlib_zig = b.addRunArtifact(mqjs_stdlib_tool);
+    gen_stdlib_zig.addArg("-z");
+    const mqjs_stdlib_data_zig = gen_stdlib_zig.captureStdOut();
     const wf = b.addWriteFiles();
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
+    const mqjs_stdlib_data_file = wf.addCopyFile(mqjs_stdlib_data_zig, "mqjs_stdlib_data.zig");
 
     // Compile the Zig version of cutils into an object file
     const cutils_obj = b.addObject(.{
@@ -155,10 +128,9 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
-    libm_obj.root_module.addCSourceFiles(.{
-        .files = &.{"libm_softfp.c"},
-        .flags = cFlags.items,
-    });
+    const libm_opts = b.addOptions();
+    libm_opts.addOption(bool, "softfloat", configSoftFloat);
+    libm_obj.root_module.addOptions("build_options", libm_opts);
     libm_obj.root_module.addIncludePath(b.path("."));
 
     const mquickjs_utils_obj = b.addObject(.{
@@ -171,10 +143,6 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     addCommonIncludes(mquickjs_utils_obj, b, wf);
-    mquickjs_utils_obj.root_module.addCSourceFiles(.{
-        .files = &.{"mquickjs_utils_va.c"},
-        .flags = cFlags.items,
-    });
 
     const mquickjs_value_obj = b.addObject(.{
         .name = "mquickjs_value",
@@ -208,10 +176,6 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     addCommonIncludes(mquickjs_lexer_obj, b, wf);
-    mquickjs_lexer_obj.root_module.addCSourceFiles(.{
-        .files = &.{"mquickjs_lexer_va.c"},
-        .flags = cFlags.items,
-    });
 
     const mquickjs_parser_obj = b.addObject(.{
         .name = "mquickjs_parser",
@@ -257,6 +221,30 @@ pub fn build(b: *std.Build) !void {
     });
     const gen_example_stdlib = b.addRunArtifact(example_stdlib_tool);
     const example_stdlib_h = gen_example_stdlib.captureStdOut();
+    const gen_example_stdlib_zig = b.addRunArtifact(example_stdlib_tool);
+    gen_example_stdlib_zig.addArg("-z");
+    const example_stdlib_data_zig = gen_example_stdlib_zig.captureStdOut();
+    _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
+    const example_stdlib_data_file = wf.addCopyFile(example_stdlib_data_zig, "example_stdlib_data.zig");
+
+    const mqjs_stdlib_data_mod = b.createModule(.{
+        .root_source_file = mqjs_stdlib_data_file,
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mqjs_stdlib_data_mod.addIncludePath(b.path("."));
+    mqjs_stdlib_data_mod.addIncludePath(wf.getDirectory());
+
+    const example_stdlib_data_mod = b.createModule(.{
+        .root_source_file = example_stdlib_data_file,
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    example_stdlib_data_mod.addIncludePath(b.path("."));
+    example_stdlib_data_mod.addIncludePath(wf.getDirectory());
+
     const example_exe = b.addExecutable(.{
         .name = "example",
         .root_module = b.createModule(.{
@@ -264,15 +252,12 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
             .link_libc = true,
             .root_source_file = b.path("example.zig"),
+            .imports = &.{
+                .{ .name = "example_stdlib_data", .module = example_stdlib_data_mod },
+            },
         }),
     });
-    _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
     addCommonIncludes(example_exe, b, wf);
-    example_exe.addCSourceFiles(.{
-        .files = &.{"example_stdlib_embed.c"},
-        .flags = cFlags.items,
-    });
-    addEngineCSources(example_exe, cFlags.items);
     addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj, mquickjs_parser_obj, mquickjs_gc_obj, mquickjs_builtins_obj);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
@@ -286,13 +271,11 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
             .link_libc = true,
             .root_source_file = b.path("mqjs.zig"),
+            .imports = &.{
+                .{ .name = "mqjs_stdlib_data", .module = mqjs_stdlib_data_mod },
+            },
         }),
     });
-    exe.addCSourceFiles(.{
-        .files = &.{"mqjs_stdlib_embed.c"},
-        .flags = cFlags.items,
-    });
-    addEngineCSources(exe, cFlags.items);
     addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj, mquickjs_parser_obj, mquickjs_gc_obj, mquickjs_builtins_obj);
     addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);

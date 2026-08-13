@@ -38,7 +38,7 @@ const c = @cImport({
     @cInclude("mquickjs.h");
 });
 
-extern "C" const js_stdlib: c.JSSTDLibraryDef;
+const stdlib_data = @import("example_stdlib_data");
 
 const JS_CLASS_RECTANGLE = c.JS_CLASS_USER + 0;
 const JS_CLASS_FILLED_RECTANGLE = c.JS_CLASS_USER + 1;
@@ -312,6 +312,7 @@ fn loadFile(filename: [*:0]const u8, plen: ?*c_int) [*]u8 {
 }
 
 pub fn main() void {
+    stdlib_data.relocate();
     var args = std.process.argsWithAllocator(std.heap.page_allocator) catch unreachable;
     defer args.deinit();
     _ = args.skip();
@@ -323,7 +324,7 @@ pub fn main() void {
 
     const mem_size: usize = 65536;
     const mem_buf: [*]u8 = @ptrCast(c.malloc(mem_size));
-    const ctx = c.JS_NewContext(mem_buf, mem_size, &js_stdlib);
+    const ctx = c.JS_NewContext(mem_buf, mem_size, @ptrCast(&stdlib_data.js_stdlib));
     c.JS_SetLogFunc(ctx, jsLogFunc);
 
     var buf_len: c_int = undefined;

@@ -26,6 +26,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const softfp = @import("libm_softfp.zig");
+const build_options = @import("build_options");
 
 pub const RM_RNE: c_int = 0;
 pub const RM_RTZ: c_int = 1;
@@ -34,9 +36,11 @@ pub const RM_RUP: c_int = 3;
 pub const RM_RMM: c_int = 4;
 pub const RM_RMMUP: c_int = 5;
 
-extern fn libm_cvt_sf64_i32(a: u64, rm: c_int) i32;
-extern fn libm_fmod_sf64(a: u64, b: u64) u64;
-extern fn libm_mul_u64(plow: *u64, a: u64, b: u64) u64;
+pub const use_softfloat = build_options.softfloat;
+
+const libm_cvt_sf64_i32 = softfp.libm_cvt_sf64_i32;
+const libm_fmod_sf64 = softfp.libm_fmod_sf64;
+const libm_mul_u64 = softfp.libm_mul_u64;
 
 const use_hw_sqrt = builtin.cpu.arch == .x86_64 or
     builtin.cpu.arch == .x86 or
@@ -300,6 +304,9 @@ fn js_sqrt_soft(x: f64) f64 {
 }
 
 pub fn js_sqrt(x: f64) f64 {
+    if (use_softfloat) {
+        return uint64_as_float64(softfp.sf64.sqrt_sf(float64_as_uint64(x), RM_RNE));
+    }
     if (use_hw_sqrt) {
         return @sqrt(x);
     }
@@ -507,6 +514,14 @@ fn js_rem_pio2_impl(x: f64, y: *[2]f64) c_int {
         y[0] = x;
         y[1] = 0;
         return 0;
+    }
+    if (use_softfloat) {
+        if (ix >= 0x7ff00000) {
+            y[0] = x - x;
+            y[1] = y[0];
+            return 0;
+        }
+        return rem_pio2_large(x, y);
     }
     if (ix <= 0x413921fb) {
         var t = @abs(x);
@@ -1184,4 +1199,96 @@ pub fn js_pow(x: f64, y: f64) f64 {
     z = u + v;
     w = v - (z - u);
     return s * kernel_exp(z, w, 0, z, n);
+}
+
+inline fn float_as_uint(a: f32) u32 {
+    return @bitCast(a);
+}
+
+inline fn uint_as_float(a: u32) f32 {
+    return @bitCast(a);
+}
+
+pub fn __adddf3(a: f64, b: f64) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.add_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+}
+
+pub fn __subdf3(a: f64, b: f64) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.sub_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+}
+
+pub fn __muldf3(a: f64, b: f64) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.mul_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+}
+
+pub fn __divdf3(a: f64, b: f64) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.div_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+}
+
+pub fn __eqdf2(a: f64, b: f64) callconv(.c) c_int {
+    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+}
+
+pub fn __nedf2(a: f64, b: f64) callconv(.c) c_int {
+    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    if (ret == 2) {
+        @branchHint(.unlikely);
+        return 0;
+    }
+    return ret;
+}
+
+pub fn __ledf2(a: f64, b: f64) callconv(.c) c_int {
+    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+}
+
+pub fn __ltdf2(a: f64, b: f64) callconv(.c) c_int {
+    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+}
+
+pub fn __gedf2(a: f64, b: f64) callconv(.c) c_int {
+    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    if (ret == 2) {
+        @branchHint(.unlikely);
+        return -1;
+    }
+    return ret;
+}
+
+pub fn __gtdf2(a: f64, b: f64) callconv(.c) c_int {
+    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    if (ret == 2) {
+        @branchHint(.unlikely);
+        return -1;
+    }
+    return ret;
+}
+
+pub fn __unorddf2(a: f64, b: f64) callconv(.c) c_int {
+    return @intFromBool(softfp.sf64.isnan_sf(float64_as_uint64(a)) or
+        softfp.sf64.isnan_sf(float64_as_uint64(b)));
+}
+
+pub fn __floatsidf(a: i32) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.cvt_i32_sf(a, RM_RNE));
+}
+
+pub fn __floatdidf(a: i64) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.cvt_i64_sf(a, RM_RNE));
+}
+
+pub fn __floatunsidf(a: c_uint) callconv(.c) f64 {
+    return uint64_as_float64(softfp.sf64.cvt_u32_sf(a, RM_RNE));
+}
+
+pub fn __fixdfsi(a: f64) callconv(.c) i32 {
+    return softfp.sf64.cvt_sf_i32(float64_as_uint64(a), RM_RTZ);
+}
+
+pub fn __extendsfdf2(a: f32) callconv(.c) f64 {
+    return uint64_as_float64(softfp.cvt_sf32_sf64(float_as_uint(a)));
+}
+
+pub fn __truncdfsf2(a: f64) callconv(.c) f32 {
+    return uint_as_float(softfp.cvt_sf64_sf32(float64_as_uint64(a), RM_RNE));
 }

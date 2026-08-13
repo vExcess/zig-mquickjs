@@ -118,6 +118,16 @@ const PropsKind = enum {
     object,
 };
 
+const RomFix = struct {
+    slot: u32,
+    target: u32,
+};
+
+const CFuncRomFix = struct {
+    idx: u32,
+    target: u32,
+};
+
 const BuildContext = struct {
     allocator: std.mem.Allocator,
     out: *std.Io.Writer,
@@ -129,7 +139,53 @@ const BuildContext = struct {
     cur_offset: i32,
     sorted_atom_table_offset: i32,
     global_object_offset: i32,
+    emit_zig: bool,
+    atom_as_table_word: bool,
+    word_idx: u32,
+    last_atom_rom: i32,
+    rom_fixes: std.ArrayList(RomFix),
+    cfunc_rom_fixes: std.ArrayList(CFuncRomFix),
 };
+
+fn isNumericIdent(s: []const u8) bool {
+    if (s.len == 0) return false;
+    var i: usize = 0;
+    if (s[0] == '-') i = 1;
+    if (i >= s.len) return false;
+    while (i < s.len) : (i += 1) {
+        if (s[i] < '0' or s[i] > '9') return false;
+    }
+    return true;
+}
+
+fn bumpWord(ctx: *BuildContext) void {
+    if (ctx.emit_zig) ctx.word_idx += 1;
+}
+
+fn emitTableRom(ctx: *BuildContext, offset: i32, comment: []const u8) !void {
+    if (ctx.emit_zig) {
+        try ctx.rom_fixes.append(ctx.allocator, .{
+            .slot = ctx.word_idx,
+            .target = @intCast(offset),
+        });
+        try ctx.out.print("    0, // ROM {d} {s}\n", .{ offset, comment });
+        ctx.word_idx += 1;
+    } else {
+        try ctx.out.print("  JS_ROM_VALUE({d}), /* {s} */\n", .{ offset, comment });
+    }
+}
+
+fn emitMagic(ctx: *BuildContext, magic: []const u8) !void {
+    if (ctx.emit_zig) {
+        if (isNumericIdent(magic)) {
+            try ctx.out.print("{s}", .{magic});
+        } else {
+            try ctx.out.print("ident(\"{s}\")", .{magic});
+        }
+    } else {
+        try ctx.out.print("{s}", .{magic});
+    }
+}
 
 fn minU32(a: u32, b: u32) u32 {
     return if (a < b) a else b;
@@ -236,6 +292,12 @@ fn dumpAtomDefines(out: *std.Io.Writer, jsw: u32, allocator: std.mem.Allocator) 
         .cur_offset = 0,
         .sorted_atom_table_offset = 0,
         .global_object_offset = 0,
+        .emit_zig = false,
+        .atom_as_table_word = false,
+        .word_idx = 0,
+        .last_atom_rom = -1,
+        .rom_fixes = .empty,
+        .cfunc_rom_fixes = .empty,
     };
     defer deinitContext(&ctx);
 
@@ -260,16 +322,28 @@ fn dumpAtoms(ctx: *BuildContext) !void {
         }
     }.lessThan);
 
-    try ctx.out.print("  /* atom_table */\n", .{});
+    if (ctx.emit_zig) {
+        try ctx.out.print("    // atom_table\n", .{});
+    } else {
+        try ctx.out.print("  /* atom_table */\n", .{});
+    }
     for (s.items) |e| {
         const str = e.str;
         const len: u32 = @intCast(str.len);
         const is_ascii: u32 = if (isAsciiString(str)) 1 else 0;
         const is_numeric: u32 = if (isNumericString(str)) 1 else 0;
-        try ctx.out.print(
-            "  (JS_MTAG_STRING << 1) | (1 << JS_MTAG_BITS) | ({d} << (JS_MTAG_BITS + 1)) | ({d} << (JS_MTAG_BITS + 2)) | ({d} << (JS_MTAG_BITS + 3)), /* \"{s}\" (offset={d}) */\n",
-            .{ is_ascii, is_numeric, len, str, ctx.cur_offset },
-        );
+        if (ctx.emit_zig) {
+            try ctx.out.print(
+                "    jsMbHeaderDef(3) | (1 << JS_MTAG_BITS) | ({d} << (JS_MTAG_BITS + 1)) | ({d} << (JS_MTAG_BITS + 2)) | ({d} << (JS_MTAG_BITS + 3)), // \"{s}\" offset={d}\n",
+                .{ is_ascii, is_numeric, len, str, ctx.cur_offset },
+            );
+        } else {
+            try ctx.out.print(
+                "  (JS_MTAG_STRING << 1) | (1 << JS_MTAG_BITS) | ({d} << (JS_MTAG_BITS + 1)) | ({d} << (JS_MTAG_BITS + 2)) | ({d} << (JS_MTAG_BITS + 3)), /* \"{s}\" (offset={d}) */\n",
+                .{ is_ascii, is_numeric, len, str, ctx.cur_offset },
+            );
+        }
+        bumpWord(ctx);
         const len1: u32 = (len + ctx.jsw) / ctx.jsw;
         var j: u32 = 0;
         while (j < len1) : (j += 1) {
@@ -280,10 +354,19 @@ fn dumpAtoms(ctx: *BuildContext) !void {
                 v |= @as(u64, str[j * ctx.jsw + k]) << @intCast(k * 8);
             }
             if (ctx.jsw == 8) {
-                try ctx.out.print("  0x{x:0>16},\n", .{v});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("    0x{x:0>16},\n", .{v});
+                } else {
+                    try ctx.out.print("  0x{x:0>16},\n", .{v});
+                }
             } else {
-                try ctx.out.print("  0x{x:0>8},\n", .{v});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("    0x{x:0>8},\n", .{v});
+                } else {
+                    try ctx.out.print("  0x{x:0>8},\n", .{v});
+                }
             }
+            bumpWord(ctx);
         }
         std.debug.assert(ctx.cur_offset == e.offset);
         ctx.cur_offset += @intCast(len1 + 1);
@@ -292,11 +375,17 @@ fn dumpAtoms(ctx: *BuildContext) !void {
 
     ctx.sorted_atom_table_offset = ctx.cur_offset;
 
-    try ctx.out.print("  /* sorted atom table (offset={d}) */\n", .{ctx.cur_offset});
-    try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{s.items.len});
+    if (ctx.emit_zig) {
+        try ctx.out.print("    // sorted atom table offset={d}\n", .{ctx.cur_offset});
+        try ctx.out.print("    jsValueArrayHeader({d}),\n", .{s.items.len});
+    } else {
+        try ctx.out.print("  /* sorted atom table (offset={d}) */\n", .{ctx.cur_offset});
+        try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{s.items.len});
+    }
+    bumpWord(ctx);
     var buf: [256]u8 = undefined;
     for (sorted_atoms) |e| {
-        try ctx.out.print("  JS_ROM_VALUE({d}), /* {s} */\n", .{ e.offset, cvtName(&buf, e.str) });
+        try emitTableRom(ctx, e.offset, cvtName(&buf, e.str));
     }
     ctx.cur_offset += @intCast(s.items.len + 1);
     try ctx.out.print("\n", .{});
@@ -317,7 +406,11 @@ fn dumpAtom(ctx: *BuildContext, str: []const u8, value_only: bool) !u32 {
         if (value_only) {
             return (@as(u32, str[0]) << 5) | 0x1b;
         }
-        try ctx.out.print("JS_VALUE_MAKE_SPECIAL(JS_TAG_STRING_CHAR, {d})", .{str[0]});
+        if (ctx.emit_zig) {
+            try ctx.out.print("jsValueMakeSpecial(27, {d})", .{str[0]});
+        } else {
+            try ctx.out.print("JS_VALUE_MAKE_SPECIAL(JS_TAG_STRING_CHAR, {d})", .{str[0]});
+        }
     } else {
         const idx = findAtom(&ctx.atom_list, str);
         if (idx < 0) {
@@ -327,34 +420,72 @@ fn dumpAtom(ctx: *BuildContext, str: []const u8, value_only: bool) !u32 {
         const offset = ctx.atom_list.items[@intCast(idx)].offset;
         if (value_only)
             return @as(u32, @intCast(offset)) * ctx.jsw + 1;
-        try ctx.out.print("JS_ROM_VALUE({d})", .{offset});
+        ctx.last_atom_rom = offset;
+        if (ctx.emit_zig) {
+            if (ctx.atom_as_table_word) {
+                try ctx.rom_fixes.append(ctx.allocator, .{
+                    .slot = ctx.word_idx,
+                    .target = @intCast(offset),
+                });
+            }
+            try ctx.out.print("0", .{});
+        } else {
+            try ctx.out.print("JS_ROM_VALUE({d})", .{offset});
+        }
     }
-    try ctx.out.print(" /* {s} */", .{str});
+    if (!ctx.emit_zig) {
+        try ctx.out.print(" /* {s} */", .{str});
+    }
     return 0;
 }
 
 fn dumpCfuncs(ctx: *BuildContext) !void {
-    try ctx.out.print("static const JSCFunctionDef js_c_function_table[] = {{\n", .{});
-    for (ctx.cfunc_list.items) |e| {
-        try ctx.out.print("  {{ {{ .{s} = {s} }},\n", .{ e.cproto_name, e.cfunc_name });
-        try ctx.out.print("    ", .{});
-        _ = try dumpAtom(ctx, e.name, false);
-        try ctx.out.print(",\n", .{});
-        try ctx.out.print("    JS_CFUNC_{s}, {d}, {s} }},\n", .{ e.cproto_name, e.length, e.magic });
+    if (ctx.emit_zig) {
+        try ctx.out.print("pub var js_c_function_table = [_]c.JSCFunctionDef{{\n", .{});
+    } else {
+        try ctx.out.print("static const JSCFunctionDef js_c_function_table[] = {{\n", .{});
+    }
+    for (ctx.cfunc_list.items, 0..) |e, i| {
+        ctx.last_atom_rom = -1;
+        if (ctx.emit_zig) {
+            try ctx.out.print("    .{{ .func = .{{ .{s} = @ptrCast(&{s}) }},\n", .{ e.cproto_name, e.cfunc_name });
+            try ctx.out.print("      .name = ", .{});
+            _ = try dumpAtom(ctx, e.name, false);
+            if (ctx.last_atom_rom >= 0) {
+                try ctx.cfunc_rom_fixes.append(ctx.allocator, .{
+                    .idx = @intCast(i),
+                    .target = @intCast(ctx.last_atom_rom),
+                });
+            }
+            try ctx.out.print(",\n", .{});
+            try ctx.out.print("      .def_type = @intCast(asCInt(c.JS_CFUNC_{s})), .arg_count = {d}, .magic = ", .{ e.cproto_name, e.length });
+            try emitMagic(ctx, e.magic);
+            try ctx.out.print(" }},\n", .{});
+        } else {
+            try ctx.out.print("  {{ {{ .{s} = {s} }},\n", .{ e.cproto_name, e.cfunc_name });
+            try ctx.out.print("    ", .{});
+            _ = try dumpAtom(ctx, e.name, false);
+            try ctx.out.print(",\n", .{});
+            try ctx.out.print("    JS_CFUNC_{s}, {d}, {s} }},\n", .{ e.cproto_name, e.length, e.magic });
+        }
     }
     try ctx.out.print("}};\n\n", .{});
 }
 
 fn dumpCfinalizers(ctx: *BuildContext) !void {
-    try ctx.out.print("static const JSCFinalizer js_c_finalizer_table[JS_CLASS_COUNT - JS_CLASS_USER] = {{\n", .{});
-    for (ctx.class_list.items) |e| {
-        if (e.finalizer_name) |name| {
-            if (!std.mem.eql(u8, name, "NULL")) {
-                try ctx.out.print("  [{s} - JS_CLASS_USER] = {s},\n", .{ e.class_id.?, name });
+    if (ctx.emit_zig) {
+        try ctx.out.print("pub var js_c_finalizer_table: [classCount() - @as(usize, @intCast(c.JS_CLASS_USER))]c.JSCFinalizer = @splat(null);\n\n", .{});
+    } else {
+        try ctx.out.print("static const JSCFinalizer js_c_finalizer_table[JS_CLASS_COUNT - JS_CLASS_USER] = {{\n", .{});
+        for (ctx.class_list.items) |e| {
+            if (e.finalizer_name) |name| {
+                if (!std.mem.eql(u8, name, "NULL")) {
+                    try ctx.out.print("  [{s} - JS_CLASS_USER] = {s},\n", .{ e.class_id.?, name });
+                }
             }
         }
+        try ctx.out.print("}};\n\n", .{});
     }
-    try ctx.out.print("}};\n\n", .{});
 }
 
 fn hashProp(ctx: *BuildContext, name: []const u8) !u32 {
@@ -397,8 +528,14 @@ fn defineProps(
 
     if (is_global_object) {
         props_ident = ctx.cur_offset;
-        try ctx.out.print("  /* global object properties (offset={d}) */\n", .{props_ident});
-        try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{2 * n_props});
+        if (ctx.emit_zig) {
+            try ctx.out.print("    // global object properties offset={d}\n", .{props_ident});
+            try ctx.out.print("    jsValueArrayHeader({d}),\n", .{2 * n_props});
+        } else {
+            try ctx.out.print("  /* global object properties (offset={d}) */\n", .{props_ident});
+            try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{2 * n_props});
+        }
+        bumpWord(ctx);
         ctx.cur_offset += 2 * n_props + 1;
     } else {
         var hash_size_log2: u32 = 0;
@@ -430,13 +567,27 @@ fn defineProps(
         }
 
         props_ident = ctx.cur_offset;
-        try ctx.out.print("  /* properties (offset={d}) */\n", .{props_ident});
-        try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{2 + hash_size + @as(u32, @intCast(n_props)) * 3});
-        try ctx.out.print("  {d} << 1, /* n_props */\n", .{n_props});
-        try ctx.out.print("  {d} << 1, /* hash_mask */\n", .{hash_mask});
-        for (hash_table) |h| {
-            try ctx.out.print("  {d} << 1,\n", .{h});
+        if (ctx.emit_zig) {
+            try ctx.out.print("    // properties offset={d}\n", .{props_ident});
+            try ctx.out.print("    jsValueArrayHeader({d}),\n", .{2 + hash_size + @as(u32, @intCast(n_props)) * 3});
+            try ctx.out.print("    {d} << 1, // n_props\n", .{n_props});
+            try ctx.out.print("    {d} << 1, // hash_mask\n", .{hash_mask});
+            for (hash_table) |h| {
+                try ctx.out.print("    {d} << 1,\n", .{h});
+            }
+        } else {
+            try ctx.out.print("  /* properties (offset={d}) */\n", .{props_ident});
+            try ctx.out.print("  JS_VALUE_ARRAY_HEADER({d}),\n", .{2 + hash_size + @as(u32, @intCast(n_props)) * 3});
+            try ctx.out.print("  {d} << 1, /* n_props */\n", .{n_props});
+            try ctx.out.print("  {d} << 1, /* hash_mask */\n", .{hash_mask});
+            for (hash_table) |h| {
+                try ctx.out.print("  {d} << 1,\n", .{h});
+            }
         }
+        bumpWord(ctx);
+        bumpWord(ctx);
+        bumpWord(ctx);
+        for (hash_table) |_| bumpWord(ctx);
         ctx.cur_offset += @intCast(hash_size + 3 + 3 * @as(u32, @intCast(n_props)));
     }
 
@@ -444,19 +595,43 @@ fn defineProps(
     var i: usize = 0;
     while (i < @as(usize, @intCast(n_props))) : (i += 1) {
         const d = &props_def[i];
-        try ctx.out.print("  ", .{});
+        if (ctx.emit_zig) {
+            try ctx.out.print("    ", .{});
+        } else {
+            try ctx.out.print("  ", .{});
+        }
         const name: []const u8 = if (d.def_type != .end) d.name else if (props_kind == .proto) "constructor" else "prototype";
+        ctx.atom_as_table_word = true;
+        ctx.last_atom_rom = -1;
         _ = try dumpAtom(ctx, name, false);
+        ctx.atom_as_table_word = false;
         try ctx.out.print(",\n", .{});
+        bumpWord(ctx);
 
-        try ctx.out.print("  ", .{});
+        if (ctx.emit_zig) {
+            try ctx.out.print("    ", .{});
+        } else {
+            try ctx.out.print("  ", .{});
+        }
         var prop_type: []const u8 = "NORMAL";
         switch (d.def_type) {
             .prop_double => {
                 if (ident_tab[i] >= 0) {
-                    try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                    if (ctx.emit_zig) {
+                        try ctx.rom_fixes.append(ctx.allocator, .{
+                            .slot = ctx.word_idx,
+                            .target = @intCast(ident_tab[i]),
+                        });
+                        try ctx.out.print("0,", .{});
+                    } else {
+                        try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                    }
                 } else {
-                    try ctx.out.print("{d} << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
+                    if (ctx.emit_zig) {
+                        try ctx.out.print("@as(c.JSWord, @bitCast(@as(i64, {d}))) << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
+                    } else {
+                        try ctx.out.print("{d} << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
+                    }
                 }
             },
             .cgetset => {
@@ -466,7 +641,15 @@ fn defineProps(
                 }
                 prop_type = "GETSET";
                 std.debug.assert(ident_tab[i] >= 0);
-                try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                if (ctx.emit_zig) {
+                    try ctx.rom_fixes.append(ctx.allocator, .{
+                        .slot = ctx.word_idx,
+                        .target = @intCast(ident_tab[i]),
+                    });
+                    try ctx.out.print("0,", .{});
+                } else {
+                    try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                }
             },
             .class => {
                 if (!is_global_object) {
@@ -474,16 +657,35 @@ fn defineProps(
                     std.process.exit(1);
                 }
                 std.debug.assert(ident_tab[i] >= 0);
-                try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                if (ctx.emit_zig) {
+                    try ctx.rom_fixes.append(ctx.allocator, .{
+                        .slot = ctx.word_idx,
+                        .target = @intCast(ident_tab[i]),
+                    });
+                    try ctx.out.print("0,", .{});
+                } else {
+                    try ctx.out.print("JS_ROM_VALUE({d}),", .{ident_tab[i]});
+                }
             },
             .prop_undefined => {
-                try ctx.out.print("JS_UNDEFINED,", .{});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("11,", .{});
+                } else {
+                    try ctx.out.print("JS_UNDEFINED,", .{});
+                }
             },
             .prop_null => {
-                try ctx.out.print("JS_NULL,", .{});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("7,", .{});
+                } else {
+                    try ctx.out.print("JS_NULL,", .{});
+                }
             },
             .prop_string => {
+                ctx.atom_as_table_word = true;
+                ctx.last_atom_rom = -1;
                 _ = try dumpAtom(ctx, d.u.str, false);
+                ctx.atom_as_table_word = false;
                 try ctx.out.print(",", .{});
             },
             .cfunc => {
@@ -495,20 +697,38 @@ fn defineProps(
                     d.u.func.cproto_name,
                     d.u.func.func_name,
                 );
-                try ctx.out.print("JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),", .{idx});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("jsValueMakeSpecial(19, {d}),", .{idx});
+                } else {
+                    try ctx.out.print("JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),", .{idx});
+                }
             },
             .end => {
                 if (props_kind == .proto) {
-                    try ctx.out.print("(uint32_t)(-{s} - 1) << 1,", .{class_id_str.?});
+                    if (ctx.emit_zig) {
+                        try ctx.out.print("@as(c.JSWord, @as(u32, @bitCast(@as(i32, -ident(\"{s}\") - 1)))) << 1,", .{class_id_str.?});
+                    } else {
+                        try ctx.out.print("(uint32_t)(-{s} - 1) << 1,", .{class_id_str.?});
+                    }
                 } else {
-                    try ctx.out.print("{s} << 1,", .{class_id_str.?});
+                    if (ctx.emit_zig) {
+                        try ctx.out.print("@as(c.JSWord, @intCast(ident(\"{s}\"))) << 1,", .{class_id_str.?});
+                    } else {
+                        try ctx.out.print("{s} << 1,", .{class_id_str.?});
+                    }
                 }
                 prop_type = "SPECIAL";
             },
         }
         try ctx.out.print("\n", .{});
+        bumpWord(ctx);
         if (!is_global_object) {
-            try ctx.out.print("  ({d} << 1) | (JS_PROP_{s} << 30),\n", .{ prop_hash[prop_idx], prop_type });
+            if (ctx.emit_zig) {
+                try ctx.out.print("    ({d} << 1) | (@as(c.JSWord, @intCast(asCInt(c.JS_PROP_{s}))) << 30),\n", .{ prop_hash[prop_idx], prop_type });
+            } else {
+                try ctx.out.print("  ({d} << 1) | (JS_PROP_{s} << 30),\n", .{ prop_hash[prop_idx], prop_type });
+            }
+            bumpWord(ctx);
         }
         prop_idx += 1;
     }
@@ -563,19 +783,41 @@ fn defineClass(ctx: *BuildContext, d: *const bt.ClassDef) anyerror!i32 {
     }
 
     const ident = ctx.cur_offset;
-    try ctx.out.print("  /* class (offset={d}) */\n", .{ident});
-    try ctx.out.print("  JS_MB_HEADER_DEF(JS_MTAG_OBJECT),\n", .{});
-    if (class_props_idx >= 0)
-        try ctx.out.print("  JS_ROM_VALUE({d}),\n", .{class_props_idx})
-    else
+    if (ctx.emit_zig) {
+        try ctx.out.print("    // class offset={d}\n", .{ident});
+        try ctx.out.print("    jsMbHeaderDef(1),\n", .{});
+    } else {
+        try ctx.out.print("  /* class (offset={d}) */\n", .{ident});
+        try ctx.out.print("  JS_MB_HEADER_DEF(JS_MTAG_OBJECT),\n", .{});
+    }
+    bumpWord(ctx);
+    if (class_props_idx >= 0) {
+        try emitTableRom(ctx, class_props_idx, "class_props");
+    } else if (ctx.emit_zig) {
+        try ctx.out.print("    7,\n", .{});
+        bumpWord(ctx);
+    } else {
         try ctx.out.print("  JS_NULL,\n", .{});
-    try ctx.out.print("  {d},\n", .{ctor_func_idx});
-    if (proto_props_idx >= 0)
-        try ctx.out.print("  JS_ROM_VALUE({d}),\n", .{proto_props_idx})
-    else
+    }
+    if (ctx.emit_zig) {
+        try ctx.out.print("    @as(c.JSWord, @bitCast(@as(i64, {d}))),\n", .{ctor_func_idx});
+    } else {
+        try ctx.out.print("  {d},\n", .{ctor_func_idx});
+    }
+    bumpWord(ctx);
+    if (proto_props_idx >= 0) {
+        try emitTableRom(ctx, proto_props_idx, "proto_props");
+    } else if (ctx.emit_zig) {
+        try ctx.out.print("    7,\n", .{});
+        bumpWord(ctx);
+    } else {
         try ctx.out.print("  JS_NULL,\n", .{});
+    }
     if (parent_class_idx >= 0) {
-        try ctx.out.print("  JS_ROM_VALUE({d}),\n", .{parent_class_idx});
+        try emitTableRom(ctx, parent_class_idx, "parent_class");
+    } else if (ctx.emit_zig) {
+        try ctx.out.print("    7,\n", .{});
+        bumpWord(ctx);
     } else {
         try ctx.out.print("  JS_NULL,\n", .{});
     }
@@ -604,16 +846,34 @@ fn defineValue(ctx: *BuildContext, d: *const bt.PropDef) anyerror!i32 {
         .prop_double => {
             if (!isShortInt(d.u.f64)) {
                 ident = ctx.cur_offset;
-                try ctx.out.print("  /* float64 (offset={d}) */\n", .{ident});
-                try ctx.out.print("  JS_MB_HEADER_DEF(JS_MTAG_FLOAT64),\n", .{});
+                if (ctx.emit_zig) {
+                    try ctx.out.print("    // float64 offset={d}\n", .{ident});
+                    try ctx.out.print("    jsMbHeaderDef(2),\n", .{});
+                } else {
+                    try ctx.out.print("  /* float64 (offset={d}) */\n", .{ident});
+                    try ctx.out.print("  JS_MB_HEADER_DEF(JS_MTAG_FLOAT64),\n", .{});
+                }
+                bumpWord(ctx);
                 const v = float64AsUint64(d.u.f64);
                 if (ctx.jsw == 8) {
-                    try ctx.out.print("  0x{x:0>16},\n", .{v});
+                    if (ctx.emit_zig) {
+                        try ctx.out.print("    0x{x:0>16},\n", .{v});
+                    } else {
+                        try ctx.out.print("  0x{x:0>16},\n", .{v});
+                    }
+                    bumpWord(ctx);
                     try ctx.out.print("\n", .{});
                     ctx.cur_offset += 2;
                 } else {
-                    try ctx.out.print("  0x{x:0>8},\n", .{@as(u32, @truncate(v))});
-                    try ctx.out.print("  0x{x:0>8},\n", .{@as(u32, @truncate(v >> 32))});
+                    if (ctx.emit_zig) {
+                        try ctx.out.print("    0x{x:0>8},\n", .{@as(u32, @truncate(v))});
+                        try ctx.out.print("    0x{x:0>8},\n", .{@as(u32, @truncate(v >> 32))});
+                    } else {
+                        try ctx.out.print("  0x{x:0>8},\n", .{@as(u32, @truncate(v))});
+                        try ctx.out.print("  0x{x:0>8},\n", .{@as(u32, @truncate(v >> 32))});
+                    }
+                    bumpWord(ctx);
+                    bumpWord(ctx);
                     try ctx.out.print("\n", .{});
                     ctx.cur_offset += 3;
                 }
@@ -655,16 +915,38 @@ fn defineValue(ctx: *BuildContext, d: *const bt.PropDef) anyerror!i32 {
                 );
             }
             ident = ctx.cur_offset;
-            try ctx.out.print("  /* getset (offset={d}) */\n", .{ident});
-            try ctx.out.print("  JS_VALUE_ARRAY_HEADER(2),\n", .{});
-            if (get_idx >= 0)
-                try ctx.out.print("  JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),\n", .{get_idx})
-            else
+            if (ctx.emit_zig) {
+                try ctx.out.print("    // getset offset={d}\n", .{ident});
+                try ctx.out.print("    jsValueArrayHeader(2),\n", .{});
+            } else {
+                try ctx.out.print("  /* getset (offset={d}) */\n", .{ident});
+                try ctx.out.print("  JS_VALUE_ARRAY_HEADER(2),\n", .{});
+            }
+            bumpWord(ctx);
+            if (get_idx >= 0) {
+                if (ctx.emit_zig) {
+                    try ctx.out.print("    jsValueMakeSpecial(19, {d}),\n", .{get_idx});
+                } else {
+                    try ctx.out.print("  JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),\n", .{get_idx});
+                }
+            } else if (ctx.emit_zig) {
+                try ctx.out.print("    11,\n", .{});
+            } else {
                 try ctx.out.print("  JS_UNDEFINED,\n", .{});
-            if (set_idx >= 0)
-                try ctx.out.print("  JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),\n", .{set_idx})
-            else
+            }
+            bumpWord(ctx);
+            if (set_idx >= 0) {
+                if (ctx.emit_zig) {
+                    try ctx.out.print("    jsValueMakeSpecial(19, {d}),\n", .{set_idx});
+                } else {
+                    try ctx.out.print("  JS_VALUE_MAKE_SPECIAL(JS_TAG_SHORT_FUNC, {d}),\n", .{set_idx});
+                }
+            } else if (ctx.emit_zig) {
+                try ctx.out.print("    11,\n", .{});
+            } else {
                 try ctx.out.print("  JS_UNDEFINED,\n", .{});
+            }
+            bumpWord(ctx);
             try ctx.out.print("\n", .{});
             ctx.cur_offset += 3;
         },
@@ -721,16 +1003,153 @@ fn defineAtomsProps(ctx: *BuildContext, props_def: []const bt.PropDef, props_kin
 }
 
 fn usage(out: *std.Io.Writer, name: []const u8) !u8 {
-    try out.print("usage: {s} {{-m32 | -m64}} [-a]\n", .{name});
+    try out.print("usage: {s} {{-m32 | -m64}} [-a] [-z]\n", .{name});
     try out.print(
         \\    create a ROM file for the mquickjs standard library
         \\--help       list options
         \\-m32         force generation for a 32 bit target
         \\-m64         force generation for a 64 bit target
         \\-a           generate the mquickjs_atom.h header
+        \\-z           generate Zig stdlib data instead of a C header
         \\
     , .{});
     return 1;
+}
+
+fn emitZigPreamble(out: *std.Io.Writer, zig_prelude: []const u8) !void {
+    try out.print(
+        \\// Generated by mquickjs_build_lib.zig - do not edit
+        \\
+        \\const c = @cImport({{
+        \\    @cInclude("stddef.h");
+        \\    @cInclude("mquickjs.h");
+        \\    @cInclude("mquickjs_priv.h");
+        \\}});
+        \\
+        \\
+    , .{});
+    if (zig_prelude.len > 0) {
+        try out.print("{s}\n", .{zig_prelude});
+    }
+    try out.print(
+        \\comptime {{
+        \\    @setEvalBranchQuota(1_000_000);
+        \\}}
+        \\
+        \\fn ident(comptime name: []const u8) c_int {{
+        \\    if (@hasDecl(@This(), name)) return @as(c_int, @intCast(@field(@This(), name)));
+        \\    const v = @field(c, name);
+        \\    return switch (@typeInfo(@TypeOf(v))) {{
+        \\        .@"enum" => @intFromEnum(v),
+        \\        else => @as(c_int, @intCast(v)),
+        \\    }};
+        \\}}
+        \\
+        \\fn asCInt(v: anytype) c_int {{
+        \\    return switch (@typeInfo(@TypeOf(v))) {{
+        \\        .@"enum" => @intFromEnum(v),
+        \\        else => @as(c_int, @intCast(v)),
+        \\    }};
+        \\}}
+        \\
+        \\fn classCount() usize {{
+        \\    if (@hasDecl(@This(), "JS_CLASS_COUNT")) return @intCast(@field(@This(), "JS_CLASS_COUNT"));
+        \\    return @intCast(asCInt(c.JS_CLASS_USER));
+        \\}}
+        \\
+        \\const JS_MTAG_BITS: u6 = 4;
+        \\const JS_TAG_SPECIAL_BITS: u6 = 5;
+        \\
+        \\fn jsMbHeaderDef(tag: c_int) c.JSWord {{
+        \\    return @as(c.JSWord, @intCast(tag)) << 1;
+        \\}}
+        \\fn jsValueArrayHeader(size: u32) c.JSWord {{
+        \\    return jsMbHeaderDef(5) | (@as(c.JSWord, size) << JS_MTAG_BITS);
+        \\}}
+        \\fn jsValueMakeSpecial(tag: c_int, v: i32) c.JSWord {{
+        \\    return @as(c.JSWord, @intCast(tag)) | (@as(c.JSWord, @as(u32, @intCast(v))) << JS_TAG_SPECIAL_BITS);
+        \\}}
+        \\
+        \\
+    , .{});
+}
+
+fn emitZigExterns(ctx: *BuildContext) !void {
+    var seen = std.StringHashMap(void).init(ctx.allocator);
+    defer seen.deinit();
+    for (ctx.cfunc_list.items) |e| {
+        const gop = try seen.getOrPut(e.cfunc_name);
+        if (gop.found_existing) continue;
+        const proto = e.cproto_name;
+        if (std.mem.eql(u8, proto, "f_f")) {
+            try ctx.out.print("extern fn {s}(x: f64) callconv(.c) f64;\n", .{e.cfunc_name});
+        } else if (std.mem.eql(u8, proto, "generic_magic") or std.mem.eql(u8, proto, "constructor_magic")) {
+            try ctx.out.print("extern fn {s}(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, magic: c_int) callconv(.c) c.JSValue;\n", .{e.cfunc_name});
+        } else if (std.mem.eql(u8, proto, "generic_params")) {
+            try ctx.out.print("extern fn {s}(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, params: c.JSValue) callconv(.c) c.JSValue;\n", .{e.cfunc_name});
+        } else {
+            try ctx.out.print("extern fn {s}(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) callconv(.c) c.JSValue;\n", .{e.cfunc_name});
+        }
+    }
+    for (ctx.class_list.items) |e| {
+        if (e.finalizer_name) |name| {
+            if (std.mem.eql(u8, name, "NULL")) continue;
+            const gop = try seen.getOrPut(name);
+            if (gop.found_existing) continue;
+            try ctx.out.print("extern fn {s}(ctx: *c.JSContext, opaque_ptr: ?*anyopaque) callconv(.c) void;\n", .{name});
+        }
+    }
+    try ctx.out.print("\n", .{});
+}
+
+fn emitZigRelocate(ctx: *BuildContext, stdlib_name: []const u8) !void {
+    try ctx.out.print("const RomFix = struct {{ slot: u32, target: u32 }};\n", .{});
+    try ctx.out.print("const CFuncRomFix = struct {{ idx: u32, target: u32 }};\n", .{});
+    try ctx.out.print("const stdlib_rom_fixes = [_]RomFix{{\n", .{});
+    for (ctx.rom_fixes.items) |f| {
+        try ctx.out.print("    .{{ .slot = {d}, .target = {d} }},\n", .{ f.slot, f.target });
+    }
+    try ctx.out.print("}};\n", .{});
+    try ctx.out.print("const cfunc_rom_fixes = [_]CFuncRomFix{{\n", .{});
+    for (ctx.cfunc_rom_fixes.items) |f| {
+        try ctx.out.print("    .{{ .idx = {d}, .target = {d} }},\n", .{ f.idx, f.target });
+    }
+    try ctx.out.print("}};\n\n", .{});
+
+    try ctx.out.print("pub const {s}: c.JSSTDLibraryDef = .{{\n", .{stdlib_name});
+    try ctx.out.print("    .stdlib_table = &js_stdlib_table,\n", .{});
+    try ctx.out.print("    .c_function_table = &js_c_function_table,\n", .{});
+    try ctx.out.print("    .c_finalizer_table = &js_c_finalizer_table,\n", .{});
+    try ctx.out.print("    .stdlib_table_len = {d},\n", .{ctx.cur_offset});
+    try ctx.out.print("    .stdlib_table_align = {d},\n", .{ATOM_ALIGN});
+    try ctx.out.print("    .sorted_atoms_offset = {d},\n", .{ctx.sorted_atom_table_offset});
+    try ctx.out.print("    .global_object_offset = {d},\n", .{ctx.global_object_offset});
+    try ctx.out.print("    .class_count = @intCast(classCount()),\n", .{});
+    try ctx.out.print("}};\n\n", .{});
+
+    try ctx.out.print(
+        \\var relocated: bool = false;
+        \\pub fn relocate() void {{
+        \\    if (relocated) return;
+        \\    relocated = true;
+        \\    for (stdlib_rom_fixes) |f| {{
+        \\        js_stdlib_table[f.slot] = @as(c.JSWord, @intCast(@intFromPtr(&js_stdlib_table[f.target]) + 1));
+        \\    }}
+        \\    for (cfunc_rom_fixes) |f| {{
+        \\        js_c_function_table[f.idx].name = @as(c.JSWord, @intCast(@intFromPtr(&js_stdlib_table[f.target]) + 1));
+        \\    }}
+        \\
+    , .{});
+    for (ctx.class_list.items) |e| {
+        if (e.finalizer_name) |name| {
+            if (std.mem.eql(u8, name, "NULL")) continue;
+            try ctx.out.print(
+                "    js_c_finalizer_table[@intCast(ident(\"{s}\") - c.JS_CLASS_USER)] = @ptrCast(&{s});\n",
+                .{ e.class_id.?, name },
+            );
+        }
+    }
+    try ctx.out.print("}}\n", .{});
 }
 
 fn deinitContext(ctx: *BuildContext) void {
@@ -745,6 +1164,8 @@ fn deinitContext(ctx: *BuildContext) void {
     ctx.cfunc_list.deinit(ctx.allocator);
     freeClassEntries(ctx);
     ctx.class_list.deinit(ctx.allocator);
+    ctx.rom_fixes.deinit(ctx.allocator);
+    ctx.cfunc_rom_fixes.deinit(ctx.allocator);
 }
 
 pub fn buildAtoms(
@@ -752,9 +1173,11 @@ pub fn buildAtoms(
     global_obj: []const bt.PropDef,
     c_function_decl: ?[]const bt.PropDef,
     args: []const []const u8,
+    zig_prelude: []const u8,
 ) !u8 {
     var jsw: u32 = if (@sizeOf(usize) >= 8) 8 else 4;
     var build_atom_defines = false;
+    var emit_zig = false;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -764,6 +1187,8 @@ pub fn buildAtoms(
             jsw = 4;
         } else if (std.mem.eql(u8, args[i], "-a")) {
             build_atom_defines = true;
+        } else if (std.mem.eql(u8, args[i], "-z")) {
+            emit_zig = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
             var stderr_buf: [1024]u8 = undefined;
             var stderr_w = std.fs.File.stderr().writerStreaming(&stderr_buf);
@@ -803,6 +1228,12 @@ pub fn buildAtoms(
         .cur_offset = 0,
         .sorted_atom_table_offset = 0,
         .global_object_offset = 0,
+        .emit_zig = emit_zig,
+        .atom_as_table_word = false,
+        .word_idx = 0,
+        .last_atom_rom = -1,
+        .rom_fixes = .empty,
+        .cfunc_rom_fixes = .empty,
     };
     defer deinitContext(&ctx);
 
@@ -832,12 +1263,17 @@ pub fn buildAtoms(
     try defineAtomsProps(&ctx, global_obj, .global);
     freeClassEntries(&ctx);
 
-    try out.print("/* this file is automatically generated - do not edit */\n\n", .{});
-    try out.print("#include \"mquickjs_priv.h\"\n\n", .{});
-    try out.print("static const uint{d}_t __attribute((aligned({d}))) js_stdlib_table[] = {{\n", .{
-        jsw * 8,
-        ATOM_ALIGN,
-    });
+    if (emit_zig) {
+        try emitZigPreamble(out, zig_prelude);
+        try out.print("pub var js_stdlib_table align({d}) = [_]c.JSWord{{\n", .{ATOM_ALIGN});
+    } else {
+        try out.print("/* this file is automatically generated - do not edit */\n\n", .{});
+        try out.print("#include \"mquickjs_priv.h\"\n\n", .{});
+        try out.print("static const uint{d}_t __attribute((aligned({d}))) js_stdlib_table[] = {{\n", .{
+            jsw * 8,
+            ATOM_ALIGN,
+        });
+    }
 
     try dumpAtoms(&ctx);
 
@@ -845,30 +1281,41 @@ pub fn buildAtoms(
 
     try out.print("}};\n\n", .{});
 
+    if (emit_zig) {
+        std.debug.assert(ctx.word_idx == @as(u32, @intCast(ctx.cur_offset)));
+        try emitZigExterns(&ctx);
+    }
+
     try dumpCfuncs(&ctx);
 
-    try out.print(
-        \\#ifndef JS_CLASS_COUNT
-        \\#define JS_CLASS_COUNT JS_CLASS_USER /* total number of classes */
-        \\#endif
-        \\
-        \\
-    , .{});
+    if (!emit_zig) {
+        try out.print(
+            \\#ifndef JS_CLASS_COUNT
+            \\#define JS_CLASS_COUNT JS_CLASS_USER /* total number of classes */
+            \\#endif
+            \\
+            \\
+        , .{});
+    }
 
     try dumpCfinalizers(&ctx);
 
-    freeClassEntries(&ctx);
+    if (emit_zig) {
+        try emitZigRelocate(&ctx, stdlib_name);
+    } else {
+        freeClassEntries(&ctx);
 
-    try out.print("const JSSTDLibraryDef {s} = {{\n", .{stdlib_name});
-    try out.print("  js_stdlib_table,\n", .{});
-    try out.print("  js_c_function_table,\n", .{});
-    try out.print("  js_c_finalizer_table,\n", .{});
-    try out.print("  {d},\n", .{ctx.cur_offset});
-    try out.print("  {d},\n", .{ATOM_ALIGN});
-    try out.print("  {d},\n", .{ctx.sorted_atom_table_offset});
-    try out.print("  {d},\n", .{ctx.global_object_offset});
-    try out.print("  JS_CLASS_COUNT,\n", .{});
-    try out.print("}};\n\n", .{});
+        try out.print("const JSSTDLibraryDef {s} = {{\n", .{stdlib_name});
+        try out.print("  js_stdlib_table,\n", .{});
+        try out.print("  js_c_function_table,\n", .{});
+        try out.print("  js_c_finalizer_table,\n", .{});
+        try out.print("  {d},\n", .{ctx.cur_offset});
+        try out.print("  {d},\n", .{ATOM_ALIGN});
+        try out.print("  {d},\n", .{ctx.sorted_atom_table_offset});
+        try out.print("  {d},\n", .{ctx.global_object_offset});
+        try out.print("  JS_CLASS_COUNT,\n", .{});
+        try out.print("}};\n\n", .{});
+    }
 
     return 0;
 }
