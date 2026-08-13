@@ -44,7 +44,7 @@ fn addCommonIncludes(
 ) void {
     exe.addConfigHeader(b.addConfigHeader(.{ .style = .blank }, .{}));
     exe.addIncludePath(wf.getDirectory());
-    exe.addIncludePath(b.path("."));
+    exe.addIncludePath(b.path("include"));
 }
 
 pub fn build(b: *std.Build) !void {
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) !void {
     const mqjs_stdlib_tool = b.addExecutable(.{
         .name = "mqjs_stdlib",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("mqjs_stdlib.zig"),
+            .root_source_file = b.path("src/mqjs_stdlib.zig"),
             .target = b.graph.host,
             .optimize = .ReleaseFast,
         }),
@@ -93,7 +93,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("cutils.zig"),
+            .root_source_file = b.path("src/cutils.zig"),
             .link_libc = true,
         }),
     });
@@ -104,7 +104,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("readline.zig"),
+            .root_source_file = b.path("src/readline.zig"),
             .link_libc = true,
         }),
     });
@@ -114,7 +114,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("dtoa.zig"),
+            .root_source_file = b.path("src/dtoa.zig"),
             .link_libc = true,
         }),
     });
@@ -124,21 +124,21 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("libm.zig"),
+            .root_source_file = b.path("src/libm.zig"),
             .link_libc = true,
         }),
     });
     const libm_opts = b.addOptions();
     libm_opts.addOption(bool, "softfloat", configSoftFloat);
     libm_obj.root_module.addOptions("build_options", libm_opts);
-    libm_obj.root_module.addIncludePath(b.path("."));
+    libm_obj.root_module.addIncludePath(b.path("include"));
 
     const mquickjs_utils_obj = b.addObject(.{
         .name = "mquickjs_utils",
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_utils.zig"),
+            .root_source_file = b.path("src/mquickjs_utils.zig"),
             .link_libc = true,
         }),
     });
@@ -149,7 +149,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_value.zig"),
+            .root_source_file = b.path("src/mquickjs_value.zig"),
             .link_libc = true,
         }),
     });
@@ -160,7 +160,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_runtime.zig"),
+            .root_source_file = b.path("src/mquickjs_runtime.zig"),
             .link_libc = true,
         }),
     });
@@ -171,7 +171,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_lexer.zig"),
+            .root_source_file = b.path("src/mquickjs_lexer.zig"),
             .link_libc = true,
         }),
     });
@@ -182,7 +182,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_parser.zig"),
+            .root_source_file = b.path("src/mquickjs_parser.zig"),
             .link_libc = true,
         }),
     });
@@ -193,7 +193,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_gc.zig"),
+            .root_source_file = b.path("src/mquickjs_gc.zig"),
             .link_libc = true,
         }),
     });
@@ -204,7 +204,7 @@ pub fn build(b: *std.Build) !void {
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("mquickjs_builtins.zig"),
+            .root_source_file = b.path("src/mquickjs_builtins.zig"),
             .link_libc = true,
         }),
     });
@@ -214,7 +214,7 @@ pub fn build(b: *std.Build) !void {
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("example_stdlib.zig"),
+            .root_source_file = b.path("src/example_stdlib.zig"),
             .target = b.graph.host,
             .optimize = .ReleaseFast,
         }),
@@ -233,7 +233,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .link_libc = true,
     });
-    mqjs_stdlib_data_mod.addIncludePath(b.path("."));
+    mqjs_stdlib_data_mod.addIncludePath(b.path("include"));
     mqjs_stdlib_data_mod.addIncludePath(wf.getDirectory());
 
     const example_stdlib_data_mod = b.createModule(.{
@@ -242,7 +242,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .link_libc = true,
     });
-    example_stdlib_data_mod.addIncludePath(b.path("."));
+    example_stdlib_data_mod.addIncludePath(b.path("include"));
     example_stdlib_data_mod.addIncludePath(wf.getDirectory());
 
     const example_exe = b.addExecutable(.{
@@ -251,7 +251,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
-            .root_source_file = b.path("example.zig"),
+            .root_source_file = b.path("src/example.zig"),
             .imports = &.{
                 .{ .name = "example_stdlib_data", .module = example_stdlib_data_mod },
             },
@@ -270,7 +270,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
-            .root_source_file = b.path("mqjs.zig"),
+            .root_source_file = b.path("src/mqjs.zig"),
             .imports = &.{
                 .{ .name = "mqjs_stdlib_data", .module = mqjs_stdlib_data_mod },
             },

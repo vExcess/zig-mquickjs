@@ -4,6 +4,8 @@ import re
 import sys
 
 SRC = "archive/mquickjs_monolith.c"
+OUT_C = "archive/c"
+OUT_HEADERS = "archive/headers"
 lines = open(SRC).readlines()
 LICENSE = "\n".join(open(SRC).read().split("\n")[:24]) + "\n"
 COMMON = """#include <stdlib.h>
@@ -202,15 +204,16 @@ for fname, ranges in SPLIT.items():
     content = remove_duplicate_types(content)
     if fname == "mquickjs_builtins.c":
         content = strip_builtins_dupes(content)
-    open(fname, "w").write(content)
-    print(f"{fname}: {len(content.splitlines())} lines")
+    out_path = f"{OUT_C}/{fname}"
+    open(out_path, "w").write(content)
+    print(f"{out_path}: {len(content.splitlines())} lines")
 
-utils_content = open("mquickjs_utils.c").read()
-open("mquickjs_utils.c", "w").write(add_after_include(utils_content, JS_MTAG))
-runtime_content = open("mquickjs_runtime.c").read()
-open("mquickjs_runtime.c", "w").write(add_after_include(runtime_content, OPCODE))
-builtins_content = open("mquickjs_builtins.c").read()
-open("mquickjs_builtins.c", "w").write(
+utils_content = open(f"{OUT_C}/mquickjs_utils.c").read()
+open(f"{OUT_C}/mquickjs_utils.c", "w").write(add_after_include(utils_content, JS_MTAG))
+runtime_content = open(f"{OUT_C}/mquickjs_runtime.c").read()
+open(f"{OUT_C}/mquickjs_runtime.c", "w").write(add_after_include(runtime_content, OPCODE))
+builtins_content = open(f"{OUT_C}/mquickjs_builtins.c").read()
+open(f"{OUT_C}/mquickjs_builtins.c", "w").write(
     builtins_content.replace("/* regexp */\n\n", "/* regexp */\n\n" + REOP, 1)
 )
 
@@ -285,7 +288,7 @@ bad_proto = re.compile(
     r"[\\{};]|^\s*(if|for|switch|while)\b|JS_(PUSH|POP)_|PARSE_|\\ if"
 )
 for fname in SPLIT:
-    text = open(fname).read()
+    text = open(f"{OUT_C}/{fname}").read()
     for m in proto_re.finditer(text):
         sig = re.sub(r"\s+", " ", m.group(1).strip())
         sig = re.sub(r"^inline\s+", "", sig)
@@ -346,5 +349,5 @@ extern const REOpCode reopcode_info[REOP_COUNT];
 """
 )
 
-open("mquickjs_internal.h", "w").write("".join(header_parts))
-print(f"mquickjs_internal.h: {len(protos)} prototypes")
+open(f"{OUT_HEADERS}/mquickjs_internal.h", "w").write("".join(header_parts))
+print(f"{OUT_HEADERS}/mquickjs_internal.h: {len(protos)} prototypes")

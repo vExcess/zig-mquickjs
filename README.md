@@ -2,7 +2,7 @@ MicroQuickJS
 ============
 
 ## Zigged
-I'm working on porting mquickjs to Zig. You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 later.
+MicroQuickJS ported entirely to Zig. You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
 
 Build mqjs: `zig build -Doptimize=ReleaseFast`
 
@@ -16,27 +16,6 @@ Run tests: `zig build test -Doptimize=ReleaseFast`
 
 Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
 
-The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` only if you prefer that interface (set `ZIG=/path/to/zig` if zig is not on your PATH).
-
-### Port status
-
-Faithful C→Zig port is complete: **zero compiled C translation units**. Reference `.c` files remain on disk and are not linked.
-
-| Module | Source | Status |
-|--------|--------|--------|
-| cutils | `cutils.zig`, `cutils_lib.zig` | Ported (Zig) |
-| readline | `readline.zig` | Ported (Zig) |
-| readline_tty | `readline_tty.zig` | Ported (Zig, via readline) |
-| mqjs completion hook | `mqjs.zig` | Ported (in mqjs.zig) |
-| dtoa | `dtoa.zig`, `dtoa_lib.zig` | Ported (Zig) |
-| libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.zig` | Ported (Zig; `-Dsoftfloat=true` for software float) |
-| mquickjs engine | 7 Zig modules (`mquickjs_*.zig`) | Ported (Zig) |
-| mqjs REPL | `mqjs.zig` | Ported (Zig) |
-| example | `example.zig` | Ported (Zig) |
-| stdlib codegen | `mquickjs_build_lib.zig`, `mqjs_stdlib_tables.zig` | Ported (Zig host tools) |
-
-An incomplete first port attempt lives in `archive/src-first-attempt/` and is not used by the build.
-
 ### Why use Zig over C?
 - Memory safety - Zig can detect double-frees, use-after-frees, and memory leaks
 - Speed - Because Zig does not have to maintain strict binary layouts in memory, the compiler can reorder structs to achieve better cache locality resulting in even better performance than equivelant C code
@@ -45,10 +24,19 @@ An incomplete first port attempt lives in `archive/src-first-attempt/` and is no
 - Comptime - Comptime is an objectively superior metaprogramming system compared to C macros
 - Portability - The Zig compiler can cross-compile to nearly any platform without any special setup by the programmer
 
-Much of the code was written by Gemini 3 Pro, but I have thoroughly manually reviewed any AI generated code to make sure it is correct. And it's a good thing I did too because I found a lot of bugs in the AI generated code.
+### Process
+The first ~3,000 lines were ported very manually with some assistance from Gemini 3 Pro. However, it took a lot of time to get that far and I started with the sections easiest to port. I realized manually porting would be extremely difficult and take years. So I decided to do a Bun move. Just how Bun used AI to rewrite their entire JavaScript runtime from Zig to Rust, I decided to use AI to rewrite the entire of this JavaScript runtime from C to Zig. Using a combination of Composer 2.6 and Grok 4.6 was able to port the entire project to Zig in 27,790 lines of code. The port took a few hours and used 50% of my monthly Cursor model's usage quota.
 
-First files will be ported to Zig while maintaining C ABI compatability. Later the code will be updated to be Zig-style code rather than a strict line by line translation.
+### Result
+The result is a functioning copy of mquickjs written entirely in Zig with no C code (only a few small header files are still needed).
 
+The port is a very literal line by line translation of the C code. It is nowhere close to being idiomatic Zig. Future work will convert the Zig code to be more idiomatic Zig.
+
+According to the microbenchmarks, there is a 1.7% performance decrease after having been ported to Zig. While dissapointing, this slight performance decrease will probably dissapear when the code is refactored to be more idiomatic.
+
+I pretty much guarentee you that the AI introduced more bugs into the Zig port than are in the original mquickjs. I would not use the vibe coded Zig port if you want anything that is stable to use.
+
+# Unmodified original MicroQuickJS readme below
 ## Introduction
 
 MicroQuickJS (aka. MQuickJS) is a JavaScript engine targeted at
