@@ -23,11 +23,11 @@ The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` onl
 | cutils | `cutils.zig`, `cutils_lib.zig` | Ported (Zig) |
 | readline | `readline.zig` | Ported (Zig) |
 | readline_tty | `readline_tty.zig` | Ported (Zig, via readline) |
-| mqjs completion hook | `mqjs.zig` | Stub only (not a full `mqjs.c` port) |
+| mqjs completion hook | `mqjs.zig` | Ported (in mqjs.zig) |
 | dtoa | `dtoa.zig`, `dtoa_lib.zig` | Ported (Zig) |
 | libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.c` | Ported (Zig) |
 | mquickjs | `mquickjs.c` | C |
-| mqjs REPL | `mqjs.c` | C |
+| mqjs REPL | `mqjs.zig` | Ported (Zig) |
 | example | `example.zig` | Ported (Zig) |
 | stdlib codegen | `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c` | C (host tools) |
 

@@ -207,10 +207,11 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .root_source_file = b.path("mqjs.zig"),
         }),
     });
     exe.addCSourceFiles(.{
-        .files = &.{"mqjs.c"},
+        .files = &.{"mqjs_stdlib_embed.c"},
         .flags = cFlags.items,
     });
     addEngineCSources(exe, cFlags.items);

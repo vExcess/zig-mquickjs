@@ -245,7 +245,7 @@ pub fn term_flush() void {
     _= c.fflush(c.stdout);
 }
 
-export fn readline_tty(s: *ReadlineState, prompt: [*c]const u8, multi_line: BOOL) [*c]const u8 {
+pub export fn readline_tty(s: *ReadlineState, prompt: [*c]const u8, multi_line: BOOL) [*c]const u8 {
     _ = multi_line; // Appears unused in the original code as well
     var buf: [128]u8 = undefined;
     var ret_str: ?[*]const u8 = null;
@@ -305,7 +305,7 @@ export fn readline_tty(s: *ReadlineState, prompt: [*c]const u8, multi_line: BOOL
     return if (ret_str) |ptr| ptr else null;
 }
 
-export fn readline_is_interrupted() BOOL {
+pub export fn readline_is_interrupted() BOOL {
     const ret: BOOL = if (ctrl_c_pressed != 0) TRUE else FALSE;
     ctrl_c_pressed = 0;
     return ret;

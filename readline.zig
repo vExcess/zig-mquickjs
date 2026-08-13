@@ -26,7 +26,6 @@
 // Ported from C to Zig by VExcess
 
 const std = @import("std");
-const mqjs = @import("./mqjs.zig");
 const readline_tty = @import("./readline_tty.zig");
 const cutils = @import("./cutils_lib.zig");
 
@@ -90,7 +89,7 @@ const COLOR_BRIGHT_MAGENTA = 14;
 const COLOR_BRIGHT_CYAN    = 15;
 const COLOR_BRIGHT_WHITE   = 16;
 
-export const term_colors = [_][*c]const u8{
+pub export const term_colors = [_][*c]const u8{
     "\x1b[0m",
     "\x1b[30m",
     "\x1b[31m",
@@ -148,7 +147,6 @@ pub export fn readline_start(s: *ReadlineState, prompt: [*c]const u8, is_passwor
 }
 
 // the following functions must be provided
-const readline_find_completion = mqjs.readline_find_completion;
 const term_printf = readline_tty.term_printf;
 const term_flush = readline_tty.term_flush;
 
