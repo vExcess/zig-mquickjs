@@ -4,7 +4,7 @@
 // Copyright (c) 2017-2025 Fabrice Bellard
 // Copyright (c) 2017-2025 Charlie Gordon
 //
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 //
 
 const lib = @import("mquickjs_parser_lib.zig");

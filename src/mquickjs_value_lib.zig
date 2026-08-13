@@ -23,7 +23,7 @@
 // THE SOFTWARE.
 //
 
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
@@ -919,7 +919,7 @@ pub fn JS_MakeUniqueString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     const items = vt.valueArrayItems(arr2);
     const nmove: usize = @intCast(x.unique_strings_len - a);
     if (nmove > 0) {
-        std.mem.copyBackwards(c.JSValue, items[@intCast(a + 1) ..][0..nmove], items[@intCast(a)..][0..nmove]);
+        std.mem.copyBackwards(c.JSValue, items[@intCast(a + 1)..][0..nmove], items[@intCast(a)..][0..nmove]);
     }
     items[@intCast(a)] = val;
     p = @ptrCast(@alignCast(mc.valueToPtr(val)));
@@ -938,10 +938,8 @@ pub fn JS_ToBool(ctx: *c.JSContext, val: c.JSValue) c_int {
         return @intFromBool(!std.math.isNan(d) and d != 0);
     } else if (!mc.isPtr(val)) {
         switch (mc.valueGetSpecialTag(val)) {
-            c.JS_TAG_BOOL, c.JS_TAG_NULL, c.JS_TAG_UNDEFINED =>
-                return mc.valueGetSpecialValue(val),
-            c.JS_TAG_SHORT_FUNC, c.JS_TAG_STRING_CHAR =>
-                return c.TRUE,
+            c.JS_TAG_BOOL, c.JS_TAG_NULL, c.JS_TAG_UNDEFINED => return mc.valueGetSpecialValue(val),
+            c.JS_TAG_SHORT_FUNC, c.JS_TAG_STRING_CHAR => return c.TRUE,
             else => return c.FALSE,
         }
     } else {
@@ -1331,34 +1329,33 @@ pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue
                     const arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pbuffer.u.array_buffer.byte_buffer)));
                     const buf = vt.byteArrayBuf(arr);
                     switch (class_id) {
-                        c.JS_CLASS_UINT8C_ARRAY, c.JS_CLASS_UINT8_ARRAY =>
-                            return JS_NewShortInt(buf[idx]),
+                        c.JS_CLASS_UINT8C_ARRAY, c.JS_CLASS_UINT8_ARRAY => return JS_NewShortInt(buf[idx]),
                         c.JS_CLASS_INT8_ARRAY => {
                             const v: *const i8 = @ptrCast(&buf[idx]);
                             return JS_NewShortInt(v.*);
                         },
                         c.JS_CLASS_INT16_ARRAY => {
-                            const v: *const i16 = @alignCast(@ptrCast(&buf[idx * 2]));
+                            const v: *const i16 = @ptrCast(@alignCast(&buf[idx * 2]));
                             return JS_NewShortInt(v.*);
                         },
                         c.JS_CLASS_UINT16_ARRAY => {
-                            const v: *const u16 = @alignCast(@ptrCast(&buf[idx * 2]));
+                            const v: *const u16 = @ptrCast(@alignCast(&buf[idx * 2]));
                             return JS_NewShortInt(@intCast(v.*));
                         },
                         c.JS_CLASS_INT32_ARRAY => {
-                            const v: *const i32 = @alignCast(@ptrCast(&buf[idx * 4]));
+                            const v: *const i32 = @ptrCast(@alignCast(&buf[idx * 4]));
                             return JS_NewInt32(ctx, v.*);
                         },
                         c.JS_CLASS_UINT32_ARRAY => {
-                            const v: *const u32 = @alignCast(@ptrCast(&buf[idx * 4]));
+                            const v: *const u32 = @ptrCast(@alignCast(&buf[idx * 4]));
                             return JS_NewUint32(ctx, v.*);
                         },
                         c.JS_CLASS_FLOAT32_ARRAY => {
-                            const v: *const f32 = @alignCast(@ptrCast(&buf[idx * 4]));
+                            const v: *const f32 = @ptrCast(@alignCast(&buf[idx * 4]));
                             return JS_NewFloat64(ctx, v.*);
                         },
                         c.JS_CLASS_FLOAT64_ARRAY => {
-                            const v: *const f64 = @alignCast(@ptrCast(&buf[idx * 8]));
+                            const v: *const f64 = @ptrCast(@alignCast(&buf[idx * 8]));
                             return JS_NewFloat64(ctx, v.*);
                         },
                         else => return JS_NewShortInt(buf[idx]),
@@ -1640,8 +1637,8 @@ pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*
                 const nmove: usize = @intCast(first_free - (2 + hash_mask + 1));
                 std.mem.copyBackwards(
                     c.JSValue,
-                    items[@intCast(2 + (new_hash_mask + 1)) ..][0..nmove],
-                    items[@intCast(2 + (hash_mask + 1)) ..][0..nmove],
+                    items[@intCast(2 + (new_hash_mask + 1))..][0..nmove],
+                    items[@intCast(2 + (hash_mask + 1))..][0..nmove],
                 );
                 first_free += new_hash_mask - hash_mask;
                 hash_mask = new_hash_mask;
@@ -1927,22 +1924,21 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
             const arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pbuffer.u.array_buffer.byte_buffer)));
             const buf = vt.byteArrayBuf(arr);
             switch (mc.objectClassId(p)) {
-                c.JS_CLASS_UINT8C_ARRAY, c.JS_CLASS_INT8_ARRAY, c.JS_CLASS_UINT8_ARRAY =>
-                    buf[idx] = @truncate(@as(u32, @bitCast(v))),
+                c.JS_CLASS_UINT8C_ARRAY, c.JS_CLASS_INT8_ARRAY, c.JS_CLASS_UINT8_ARRAY => buf[idx] = @truncate(@as(u32, @bitCast(v))),
                 c.JS_CLASS_INT16_ARRAY, c.JS_CLASS_UINT16_ARRAY => {
-                    const dest: *u16 = @alignCast(@ptrCast(&buf[idx * 2]));
+                    const dest: *u16 = @ptrCast(@alignCast(&buf[idx * 2]));
                     dest.* = @truncate(@as(u32, @bitCast(v)));
                 },
                 c.JS_CLASS_INT32_ARRAY, c.JS_CLASS_UINT32_ARRAY => {
-                    const dest: *u32 = @alignCast(@ptrCast(&buf[idx * 4]));
+                    const dest: *u32 = @ptrCast(@alignCast(&buf[idx * 4]));
                     dest.* = @bitCast(v);
                 },
                 c.JS_CLASS_FLOAT32_ARRAY => {
-                    const dest: *f32 = @alignCast(@ptrCast(&buf[idx * 4]));
+                    const dest: *f32 = @ptrCast(@alignCast(&buf[idx * 4]));
                     dest.* = @floatCast(d);
                 },
                 c.JS_CLASS_FLOAT64_ARRAY => {
-                    const dest: *f64 = @alignCast(@ptrCast(&buf[idx * 8]));
+                    const dest: *f64 = @ptrCast(@alignCast(&buf[idx * 8]));
                     dest.* = d;
                 },
                 else => buf[idx] = @truncate(@as(u32, @bitCast(v))),

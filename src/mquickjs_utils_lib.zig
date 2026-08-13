@@ -23,7 +23,7 @@
 // THE SOFTWARE.
 //
 
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
@@ -72,7 +72,7 @@ fn min_size_t(a: usize, b: usize) usize {
 }
 
 fn cstr(s: [*:0]const u8) [*c]u8 {
-    return @constCast(@ptrCast(s));
+    return @ptrCast(@constCast(s));
 }
 
 fn max_size_t(a: usize, b: usize) usize {
@@ -80,8 +80,8 @@ fn max_size_t(a: usize, b: usize) usize {
 }
 
 pub const js_mtag_name = [_][*:0]const u8{
-    "free",         "object",       "float64",      "string",
-    "func_bytecode", "value_array", "byte_array",   "varref",
+    "free",          "object",      "float64",    "string",
+    "func_bytecode", "value_array", "byte_array", "varref",
 };
 
 pub fn JS_PushGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) *c.JSValue {
@@ -135,7 +135,7 @@ fn jsPopValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
 
 pub fn js_get_atom(ctx: *c.JSContext, a: c_int) c.JSValue {
     const table = cx(ctx).atom_table;
-    return mc.valueFromPtr(@constCast(@ptrCast(&table[@intCast(a)])));
+    return mc.valueFromPtr(@ptrCast(@constCast(&table[@intCast(a)])));
 }
 
 pub fn JS_IsExceptionOrTailCall(v: c.JSValue) c.JS_BOOL {
@@ -642,27 +642,27 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
                                 js_printf(ctx, "%d", v.*);
                             },
                             c.JS_CLASS_INT16_ARRAY => {
-                                const v: *const i16 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const i16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_printf(ctx, "%d", v.*);
                             },
                             c.JS_CLASS_UINT16_ARRAY => {
-                                const v: *const u16 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const u16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_printf(ctx, "%d", v.*);
                             },
                             c.JS_CLASS_INT32_ARRAY => {
-                                const v: *const i32 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const i32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_printf(ctx, "%d", v.*);
                             },
                             c.JS_CLASS_UINT32_ARRAY => {
-                                const v: *const u32 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const u32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_printf(ctx, "%u", v.*);
                             },
                             c.JS_CLASS_FLOAT32_ARRAY => {
-                                const v: *const f32 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const f32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_dump_float64(ctx, v.*);
                             },
                             c.JS_CLASS_FLOAT64_ARRAY => {
-                                const v: *const f64 = @alignCast(@ptrCast(&byte_buf[@intCast(idx)]));
+                                const v: *const f64 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
                                 js_dump_float64(ctx, v.*);
                             },
                             else => {},
@@ -809,12 +809,9 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
         js_dump_float64(ctx, js_get_short_float(val));
     } else if (!mc.isPtr(val)) {
         switch (mc.valueGetSpecialTag(val)) {
-            c.JS_TAG_NULL, c.JS_TAG_UNDEFINED, c.JS_TAG_UNINITIALIZED, c.JS_TAG_BOOL =>
-                js_printf(ctx, "%" ++ mc.JSValue_PRI, val),
-            c.JS_TAG_EXCEPTION =>
-                js_printf(ctx, "[exception %d]", mc.valueGetSpecialValue(val)),
-            c.JS_TAG_CATCH_OFFSET =>
-                js_printf(ctx, "[catch_offset %d]", mc.valueGetSpecialValue(val)),
+            c.JS_TAG_NULL, c.JS_TAG_UNDEFINED, c.JS_TAG_UNINITIALIZED, c.JS_TAG_BOOL => js_printf(ctx, "%" ++ mc.JSValue_PRI, val),
+            c.JS_TAG_EXCEPTION => js_printf(ctx, "[exception %d]", mc.valueGetSpecialValue(val)),
+            c.JS_TAG_CATCH_OFFSET => js_printf(ctx, "[catch_offset %d]", mc.valueGetSpecialValue(val)),
             c.JS_TAG_SHORT_FUNC => {
                 const idx = mc.valueGetSpecialValue(val);
                 js_printf(ctx, "function ");

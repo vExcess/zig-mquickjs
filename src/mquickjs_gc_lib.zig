@@ -4,7 +4,7 @@
 // Copyright (c) 2017-2025 Fabrice Bellard
 // Copyright (c) 2017-2025 Charlie Gordon
 //
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 //
 
 const std = @import("std");
@@ -856,7 +856,7 @@ pub fn bc_reloc_value(s: *gt.BCRelocState, pval: *c.JSValue) void {
 
         if (s.update_atoms != 0) {
             const p: *const vt.JSStringExt = @ptrCast(@alignCast(mc.valueToPtr(val)));
-            if (mc.mbGetMtag(@constCast(@ptrCast(p))) == mc.JS_MTAG_STRING and vt.stringIsUnique(p)) {
+            if (mc.mbGetMtag(@ptrCast(@constCast(p))) == mc.JS_MTAG_STRING and vt.stringIsUnique(p)) {
                 const x = cx(ctx);
                 var i: u8 = 0;
                 while (i < x.n_rom_atom_tables) : (i += 1) {

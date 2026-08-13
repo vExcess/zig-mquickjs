@@ -4,7 +4,7 @@
 // Copyright (c) 2017-2025 Fabrice Bellard
 // Copyright (c) 2017-2025 Charlie Gordon
 //
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 //
 
 const std = @import("std");
@@ -1200,7 +1200,7 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
 
     if (ext_vars_len > 0) {
         const refs = rt.closureVarRefs(p);
-        @memset(@as([*]u8, @ptrCast(refs))[0..@as(usize, @intCast(ext_vars_len)) * @sizeOf(c.JSValue)], 0);
+        @memset(@as([*]u8, @ptrCast(refs))[0 .. @as(usize, @intCast(ext_vars_len)) * @sizeOf(c.JSValue)], 0);
         const pfirst_var_ref: ?*c.JSValue = if (fp) |f| rt.slot(f, rt.FRAME_OFFSET_FIRST_VARREF) else null;
         var i: c_int = 0;
         while (i < ext_vars_len) : (i += 1) {
@@ -1824,11 +1824,11 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp[0] = vt.valueArrayItems(cpool)[get_u16(pc)];
                         pc += 2;
                     },
-                    OP.@"undefined" => {
+                    OP.undefined => {
                         sp -= 1;
                         sp[0] = c.JS_UNDEFINED;
                     },
-                    OP.@"null" => {
+                    OP.null => {
                         sp -= 1;
                         sp[0] = c.JS_NULL;
                     },

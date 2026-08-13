@@ -4,7 +4,7 @@
 // Copyright (c) 2017-2025 Fabrice Bellard
 // Copyright (c) 2017-2025 Charlie Gordon
 //
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 //
 
 const std = @import("std");
@@ -209,7 +209,7 @@ pub fn pc2line_put_bits_short(s: *JSParseState, n: c_int, bits: u32) void {
     const p = vt.byteArrayBuf(arr) + pos;
     var val = get_be32(p);
     const shift: u5 = @intCast(32 - @as(c_int, @intCast(index & 7)) - n);
-    val &= ~((( @as(u32, 1) << @intCast(n)) - 1) << shift);
+    val &= ~(((@as(u32, 1) << @intCast(n)) - 1) << shift);
     val |= bits << shift;
     put_be32(p, val);
     s.pc2line_bit_len = index + @as(u32, @intCast(n));
@@ -830,7 +830,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                 },
                 lt.TOK_FUNCTION => js_parse_function_decl(s, pt.JS_PARSE_FUNC_EXPR, c.JS_NULL),
                 lt.TOK_NULL => {
-                    emit_op(s, @intCast(OP.@"null"));
+                    emit_op(s, @intCast(OP.null));
                     next_token(s);
                 },
                 lt.TOK_THIS => {
@@ -1219,7 +1219,7 @@ pub fn js_parse_unary(s: *JSParseState, state: c_int, parse_flags_in: c_int) cal
         },
         1 => {
             emit_op(s, @intCast(OP.drop));
-            emit_op(s, @intCast(OP.@"undefined"));
+            emit_op(s, @intCast(OP.undefined));
             return pt.PARSE_STATE_RET;
         },
         2 => {
@@ -1479,9 +1479,9 @@ pub fn js_parse_assign_expr(s: *JSParseState, state: c_int, parse_flags_in: c_in
             op = parsePopInt(s);
             if (op != '=') {
                 const assign_opcodes = [_]u8{
-                    @intCast(OP.mul), @intCast(OP.div), @intCast(OP.mod), @intCast(OP.add), @intCast(OP.sub),
-                    @intCast(OP.shl), @intCast(OP.sar), @intCast(OP.shr), @intCast(OP.@"and"), @intCast(OP.xor), @intCast(OP.@"or"),
-                    @intCast(OP.pow),
+                    @intCast(OP.mul),   @intCast(OP.div), @intCast(OP.mod), @intCast(OP.add),    @intCast(OP.sub),
+                    @intCast(OP.shl),   @intCast(OP.sar), @intCast(OP.shr), @intCast(OP.@"and"), @intCast(OP.xor),
+                    @intCast(OP.@"or"), @intCast(OP.pow),
                 };
                 emit_op_pos(s, assign_opcodes[@intCast(op - lt.TOK_MUL_ASSIGN)], op_source_pos);
             }
@@ -1587,7 +1587,7 @@ fn emit_return(s: *JSParseState, hasval_in: bool, source_pos: u32) void {
         drop_count += vt.valueGetInt(top.drop_count);
         if (!label_is_none(top.label_finally)) {
             if (!hasval) {
-                emit_op(s, @intCast(OP.@"undefined"));
+                emit_op(s, @intCast(OP.undefined));
                 hasval = true;
             }
             var i: c_int = 0;
@@ -1622,7 +1622,7 @@ fn emit_break(s: *JSParseState, label_name: c.JSValue, is_cont: c_int) void {
         while (i < vt.valueGetInt(top.drop_count)) : (i += 1)
             emit_op(s, @intCast(OP.drop));
         if (!label_is_none(top.label_finally)) {
-            emit_op(s, @intCast(OP.@"undefined"));
+            emit_op(s, @intCast(OP.undefined));
             emit_goto(s, OP.gosub, &top.label_finally);
             emit_op(s, @intCast(OP.drop));
         }
@@ -1706,7 +1706,7 @@ fn js_parse_var(s: *JSParseState, in_accepted: bool) void {
 
 fn set_eval_ret_undefined(s: *JSParseState) void {
     if (s.eval_ret_idx >= 0) {
-        emit_op(s, @intCast(OP.@"undefined"));
+        emit_op(s, @intCast(OP.undefined));
         emit_var(s, OP.put_loc, s.eval_ret_idx, s.pc2line_source_pos);
     }
 }
@@ -2108,7 +2108,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
             label_finally = be.label_finally;
             pop_break_entry(s);
             emit_op(s, @intCast(OP.drop));
-            emit_op(s, @intCast(OP.@"undefined"));
+            emit_op(s, @intCast(OP.undefined));
             emit_goto(s, OP.gosub, &label_finally);
             emit_op(s, @intCast(OP.drop));
             label_end = new_label(s);
@@ -2152,7 +2152,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
             label_finally = be.label_finally;
             pop_break_entry(s);
             emit_op(s, @intCast(OP.drop));
-            emit_op(s, @intCast(OP.@"undefined"));
+            emit_op(s, @intCast(OP.undefined));
             emit_goto(s, OP.gosub, &label_finally);
             emit_op(s, @intCast(OP.drop));
             emit_goto(s, OP.goto, &label_end);

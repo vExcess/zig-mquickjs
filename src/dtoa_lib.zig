@@ -22,7 +22,7 @@
 // THE SOFTWARE.
 //
 
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
@@ -637,18 +637,18 @@ var atod_max_digits_table = [JS_RADIX_MAX - 1]u8{
 
 const max_exponent = [JS_RADIX_MAX - 1]i16{
     1024, 647, 512, 442, 397, 365, 342, 324,
-    309, 297, 286, 277, 269, 263, 256, 251,
-    246, 242, 237, 234, 230, 227, 224, 221,
-    218, 216, 214, 211, 209, 207, 205, 203,
-    202, 200, 199,
+    309,  297, 286, 277, 269, 263, 256, 251,
+    246,  242, 237, 234, 230, 227, 224, 221,
+    218,  216, 214, 211, 209, 207, 205, 203,
+    202,  200, 199,
 };
 
 const min_exponent = [JS_RADIX_MAX - 1]i16{
     -1075, -679, -538, -463, -416, -383, -359, -340,
-    -324, -311, -300, -291, -283, -276, -269, -263,
-    -258, -254, -249, -245, -242, -238, -235, -232,
-    -229, -227, -224, -222, -220, -217, -215, -214,
-    -212, -210, -208,
+    -324,  -311, -300, -291, -283, -276, -269, -263,
+    -258,  -254, -249, -245, -242, -238, -235, -232,
+    -229,  -227, -224, -222, -220, -217, -215, -214,
+    -212,  -210, -208,
 };
 
 fn output_digits(
@@ -1348,4 +1348,3 @@ fn js_atod_overflow(pnext: ?*[*c]const u8, p: [*c]const u8, is_neg: c_int, tmp0:
 fn js_atod_underflow(pnext: ?*[*c]const u8, p: [*c]const u8, is_neg: c_int, tmp0: *mpb_t) f64 {
     return js_atod_done(pnext, p, is_neg, 0, tmp0);
 }
-

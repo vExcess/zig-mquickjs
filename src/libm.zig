@@ -22,7 +22,7 @@
 // THE SOFTWARE.
 //
 
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const lib = @import("libm_lib.zig");
 

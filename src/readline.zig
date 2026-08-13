@@ -23,7 +23,7 @@
 // THE SOFTWARE.
 //
 
-// Ported from C to Zig by VExcess
+// Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
 const readline_tty = @import("./readline_tty.zig");
@@ -39,8 +39,8 @@ const BOOL = cutils.BOOL;
 const FALSE = cutils.FALSE;
 const TRUE = cutils.TRUE;
 
-const ReadLineFunc = *const fn(*anyopaque, [*c]const u8) callconv(.c) void;
-const ReadLineGetColor = *const fn([*c]c_int, [*c]const u8, c_int, c_int) callconv(.c) c_int;
+const ReadLineFunc = *const fn (*anyopaque, [*c]const u8) callconv(.c) void;
+const ReadLineGetColor = *const fn ([*c]c_int, [*c]const u8, c_int, c_int) callconv(.c) c_int;
 
 pub const ReadlineState = extern struct {
     term_cmd_buf_index: c_int, // byte position in the command line
@@ -71,23 +71,23 @@ pub const ReadlineState = extern struct {
     get_color: ?ReadLineGetColor, // NULL if no colorization
 };
 
-const COLOR_NONE           =  0;
-const COLOR_BLACK          =  1;
-const COLOR_RED            =  2;
-const COLOR_GREEN          =  3;
-const COLOR_YELLOW         =  4;
-const COLOR_BLUE           =  5;
-const COLOR_MAGENTA        =  6;
-const COLOR_CYAN           =  7;
-const COLOR_WHITE          =  8;
-const COLOR_GRAY           =  9;
-const COLOR_BRIGHT_RED     = 10;
-const COLOR_BRIGHT_GREEN   = 11;
-const COLOR_BRIGHT_YELLOW  = 12;
-const COLOR_BRIGHT_BLUE    = 13;
+const COLOR_NONE = 0;
+const COLOR_BLACK = 1;
+const COLOR_RED = 2;
+const COLOR_GREEN = 3;
+const COLOR_YELLOW = 4;
+const COLOR_BLUE = 5;
+const COLOR_MAGENTA = 6;
+const COLOR_CYAN = 7;
+const COLOR_WHITE = 8;
+const COLOR_GRAY = 9;
+const COLOR_BRIGHT_RED = 10;
+const COLOR_BRIGHT_GREEN = 11;
+const COLOR_BRIGHT_YELLOW = 12;
+const COLOR_BRIGHT_BLUE = 13;
 const COLOR_BRIGHT_MAGENTA = 14;
-const COLOR_BRIGHT_CYAN    = 15;
-const COLOR_BRIGHT_WHITE   = 16;
+const COLOR_BRIGHT_CYAN = 15;
+const COLOR_BRIGHT_WHITE = 16;
 
 pub export const term_colors = [_][*c]const u8{
     "\x1b[0m",
@@ -109,10 +109,10 @@ pub export const term_colors = [_][*c]const u8{
     "\x1b[37;1m",
 };
 
-pub const READLINE_RET_EXIT        = -1; 
-pub const READLINE_RET_NOT_HANDLED =  0; // command not handled
-pub const READLINE_RET_HANDLED     =  1; // command handled
-pub const READLINE_RET_ACCEPTED    =  2; // return pressed
+pub const READLINE_RET_EXIT = -1;
+pub const READLINE_RET_NOT_HANDLED = 0; // command not handled
+pub const READLINE_RET_HANDLED = 1; // command handled
+pub const READLINE_RET_ACCEPTED = 2; // return pressed
 // return READLINE_RET_x
 // return > 0 if command handled, -1 if exit */
 // XXX: could process buffers to avoid redisplaying at each char input (copy paste case)
@@ -149,7 +149,6 @@ pub export fn readline_start(s: *ReadlineState, prompt: [*c]const u8, is_passwor
 // the following functions must be provided
 const term_printf = readline_tty.term_printf;
 const term_flush = readline_tty.term_flush;
-
 
 const IS_NORM = 0;
 const IS_ESC = 1;
@@ -220,8 +219,7 @@ fn char_width(ch: c_int) c_int {
     // XXX: complete or find a way to use wcwidth()
     if (ch < 0x100) {
         return 1;
-    } else if (
-        (ch >= 0x4E00 and ch <= 0x9FFF) or // CJK
+    } else if ((ch >= 0x4E00 and ch <= 0x9FFF) or // CJK
         (ch >= 0xFF01 and ch <= 0xFF5E) or // fullwidth ASCII
         (ch >= 0x1F600 and ch <= 0x1F64F) // emoji
     ) {
@@ -242,7 +240,7 @@ fn term_update(s: *ReadlineState) void {
         s.term_cursor_pos = 0;
         var last_color: c_int = COLOR_NONE;
         var color_len: c_int = 0;
-        
+
         s.term_cmd_buf[@as(usize, @intCast(s.term_cmd_buf_len))] = 0; // add a trailing '\0' to ease colorization
 
         var i: c_int = 0;
@@ -250,7 +248,7 @@ fn term_update(s: *ReadlineState) void {
             if (i == s.term_cmd_buf_index) {
                 new_cursor_pos = s.term_cursor_pos;
             }
-            
+
             const c = utf8_get(s.term_cmd_buf + @as(usize, @intCast(i)), &c_len);
             var len: c_int = undefined;
 
@@ -280,12 +278,7 @@ fn term_update(s: *ReadlineState) void {
             }
             if (s.term_is_password == FALSE and s.get_color != null) {
                 if (color_len == 0) {
-                    const new_color = s.get_color.?(
-                        &color_len,
-                        @as([*c]const u8, @ptrCast(s.term_cmd_buf)),
-                        i,
-                        s.term_cmd_buf_len
-                    );
+                    const new_color = s.get_color.?(&color_len, @as([*c]const u8, @ptrCast(s.term_cmd_buf)), i, s.term_cmd_buf_len);
                     if (new_color != last_color) {
                         last_color = new_color;
                         print_color(COLOR_NONE); // reset last color
@@ -304,10 +297,10 @@ fn term_update(s: *ReadlineState) void {
         }
         if (s.term_cursor_x == 0) {
             // show the cursor on the next line
-            term_printf(" \x08"); 
+            term_printf(" \x08");
         }
         // remove the trailing characters
-        print_csi(1, 'J'); 
+        print_csi(1, 'J');
         s.term_cmd_updated = FALSE;
     } else {
         // compute the new cursor pos without display
@@ -347,7 +340,7 @@ fn term_kill_region(s: *ReadlineState, to: c_int, kill: c_int) void {
     } else {
         end = to;
     }
-    
+
     if (end > s.term_cmd_buf_len) {
         end = s.term_cmd_buf_len;
     }
@@ -394,8 +387,9 @@ fn is_utf8_ext(ch: c_int) bool {
 fn term_backward_char(s: *ReadlineState) void {
     if (s.term_cmd_buf_index > 0) {
         s.term_cmd_buf_index -= 1;
-        while (s.term_cmd_buf_index > 0 and 
-               is_utf8_ext(s.term_cmd_buf[@as(usize, @intCast(s.term_cmd_buf_index))])) {
+        while (s.term_cmd_buf_index > 0 and
+            is_utf8_ext(s.term_cmd_buf[@as(usize, @intCast(s.term_cmd_buf_index))]))
+        {
             s.term_cmd_buf_index -= 1;
         }
     }
@@ -447,12 +441,12 @@ fn skip_word_forward(s: *ReadlineState) c_int {
     while (pos < s.term_cmd_buf_len and std.ascii.isWhitespace(s.term_cmd_buf[@as(usize, @intCast(pos))])) {
         pos += 1;
     }
-    
+
     // skip word
     while (pos < s.term_cmd_buf_len and !std.ascii.isWhitespace(s.term_cmd_buf[@as(usize, @intCast(pos))])) {
         pos += 1;
     }
-    
+
     return pos;
 }
 
@@ -500,7 +494,7 @@ fn term_up_char(s: *ReadlineState) void {
     if (s.term_hist_entry == 0) {
         return;
     }
-    
+
     // move to previous entry
     var idx = s.term_hist_entry - 1;
     while (idx > 0 and s.term_history[@as(usize, @intCast(idx - 1))] != 0) {
@@ -512,7 +506,7 @@ fn term_up_char(s: *ReadlineState) void {
 
 fn term_down_char(s: *ReadlineState) void {
     if (s.term_hist_entry == -1) return;
-    
+
     const hist_entry_size = @as(c_int, @intCast(strlen(s.term_history + @as(usize, @intCast(s.term_hist_entry))))) + 1;
     if (s.term_hist_entry + hist_entry_size < s.term_history_size) {
         s.term_hist_entry += hist_entry_size;
@@ -525,10 +519,10 @@ fn term_down_char(s: *ReadlineState) void {
 
 fn term_hist_add(s: *ReadlineState, cmdline: [*c]const u8) void {
     if (cmdline[0] == 0) return;
-    
+
     const cmdline_size = @as(c_int, @intCast(strlen(cmdline))) + 1;
     const cmdline_size_usize = @as(usize, @intCast(cmdline_size));
-    
+
     var remove_idx: c_int = -1;
     var remove_size: c_int = 0;
 
@@ -537,11 +531,10 @@ fn term_hist_add(s: *ReadlineState, cmdline: [*c]const u8) void {
         const idx = s.term_hist_entry;
         const hist_entry = s.term_history + @as(usize, @intCast(idx));
         const hist_entry_size = @as(c_int, @intCast(strlen(hist_entry))) + 1;
-        
-        if (
-            hist_entry_size == cmdline_size and 
-            std.mem.eql(u8, hist_entry[0..cmdline_size_usize], cmdline[0..cmdline_size_usize])
-        ) {
+
+        if (hist_entry_size == cmdline_size and
+            std.mem.eql(u8, hist_entry[0..cmdline_size_usize], cmdline[0..cmdline_size_usize]))
+        {
             // schedule removing identical entry
             remove_idx = idx;
             remove_size = hist_entry_size;
@@ -554,11 +547,10 @@ fn term_hist_add(s: *ReadlineState, cmdline: [*c]const u8) void {
         while (idx < s.term_history_size) {
             const hist_entry = s.term_history + @as(usize, @intCast(idx));
             const hist_entry_size = @as(c_int, @intCast(strlen(hist_entry))) + 1;
-            
-            if (
-                hist_entry_size == cmdline_size and 
-                std.mem.eql(u8, hist_entry[0..cmdline_size_usize], cmdline[0..cmdline_size_usize])
-            ) {
+
+            if (hist_entry_size == cmdline_size and
+                std.mem.eql(u8, hist_entry[0..cmdline_size_usize], cmdline[0..cmdline_size_usize]))
+            {
                 // schedule removing identical entry
                 remove_idx = idx;
                 remove_size = hist_entry_size;
@@ -572,7 +564,7 @@ fn term_hist_add(s: *ReadlineState, cmdline: [*c]const u8) void {
         // remove the identical entry
         const cpyAmt = @as(usize, @intCast(s.term_history_size - (remove_idx + remove_size)));
         @memmove(
-            s.term_history[(@intCast(remove_idx))..][0..cpyAmt], 
+            s.term_history[(@intCast(remove_idx))..][0..cpyAmt],
             s.term_history[(@intCast(remove_idx + remove_size))..][0..cpyAmt],
         );
         s.term_history_size -= remove_size;
@@ -584,17 +576,14 @@ fn term_hist_add(s: *ReadlineState, cmdline: [*c]const u8) void {
             const hist_entry_size = @as(c_int, @intCast(strlen(s.term_history))) + 1;
             const cpyAmt = @as(usize, @intCast(s.term_history_size - hist_entry_size));
             @memmove(
-                s.term_history[0..cpyAmt], 
+                s.term_history[0..cpyAmt],
                 s.term_history[(@intCast(hist_entry_size))..][0..cpyAmt],
             );
             s.term_history_size -= hist_entry_size;
         }
 
         // add the cmdline
-        @memcpy(
-            s.term_history[@as(usize, @intCast(s.term_history_size))..][0..cmdline_size_usize], 
-            cmdline[0..cmdline_size_usize]
-        );
+        @memcpy(s.term_history[@as(usize, @intCast(s.term_history_size))..][0..cmdline_size_usize], cmdline[0..cmdline_size_usize]);
         s.term_history_size += cmdline_size;
     }
     s.term_hist_entry = -1;
@@ -610,7 +599,7 @@ fn term_return(s: *ReadlineState) void {
 
 fn readline_handle_char(s: *ReadlineState, ch: c_int) c_int {
     var ret: c_int = READLINE_RET_HANDLED;
-    
+
     switch (s.term_esc_state) {
         IS_NORM => {
             switch (ch) {
