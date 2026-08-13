@@ -5,7 +5,6 @@
 const std = @import("std");
 
 const engine_c_sources = [_][]const u8{
-    "mquickjs_lexer.c",
     "mquickjs_parser.c",
     "mquickjs_gc.c",
     "mquickjs_builtins.c",
@@ -27,10 +26,12 @@ fn addRuntimeObjects(
     mquickjs_utils_obj: *std.Build.Step.Compile,
     mquickjs_value_obj: *std.Build.Step.Compile,
     mquickjs_runtime_obj: *std.Build.Step.Compile,
+    mquickjs_lexer_obj: *std.Build.Step.Compile,
 ) void {
     exe.addObject(mquickjs_utils_obj);
     exe.addObject(mquickjs_value_obj);
     exe.addObject(mquickjs_runtime_obj);
+    exe.addObject(mquickjs_lexer_obj);
     exe.addObject(cutils_obj);
     if (dtoa_obj) |dtoa| {
         exe.addObject(dtoa);
@@ -210,6 +211,21 @@ pub fn build(b: *std.Build) !void {
     });
     addCommonIncludes(mquickjs_runtime_obj, b, wf);
 
+    const mquickjs_lexer_obj = b.addObject(.{
+        .name = "mquickjs_lexer",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("mquickjs_lexer.zig"),
+            .link_libc = true,
+        }),
+    });
+    addCommonIncludes(mquickjs_lexer_obj, b, wf);
+    mquickjs_lexer_obj.root_module.addCSourceFiles(.{
+        .files = &.{"mquickjs_lexer_va.c"},
+        .flags = cFlags.items,
+    });
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -241,7 +257,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(example_exe, cFlags.items);
-    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj);
+    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -261,7 +277,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(exe, cFlags.items);
-    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj);
+    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj);
     addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);
 
