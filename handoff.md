@@ -3,7 +3,7 @@
 Last updated: 2026-08-13  
 Zig version: **0.15.2** (see `.zigversion`)  
 Zig path used in session: `/home/vexcess/zig-x86_64-linux-0.15.2/zig`  
-Last known-good: **handoff 10 (parser port)** — uncommitted; parent commit **`a219b2f` (handoff 8 — runtime port)**
+Last known-good: **handoff 11 (gc port)** — uncommitted (staged); parent commit **`e9f3f08` (handoff 10 — parser port)**
 
 ---
 
@@ -24,12 +24,13 @@ Last known-good: **handoff 10 (parser port)** — uncommitted; parent commit **`
 | **Step 6 (3/7)** | Port `mquickjs_runtime.c` → Zig | **Complete** |
 | **Step 6 (4/7)** | Port `mquickjs_lexer.c` → Zig | **Complete** |
 | **Step 6 (5/7)** | Port `mquickjs_parser.c` → Zig | **Complete** |
+| **Step 6 (6/7)** | Port `mquickjs_gc.c` → Zig | **Complete** |
 
 ### In progress / not yet started
 
 | Plan step | Description | Status |
 |-----------|-------------|--------|
-| **Step 6 (6/7–7/7)** | Port remaining engine modules to Zig | **Next: `mquickjs_gc.c`** |
+| **Step 6 (7/7)** | Port `mquickjs_builtins.c` → Zig | **Next** |
 | **Step 2 Phase 2b** | Softfloat (`-Dsoftfloat=true`) | **Not started** |
 | **Steps 7–8** | Host tools, idiomatic refactor | **Not started** |
 
@@ -39,28 +40,28 @@ Last known-good: **handoff 10 (parser port)** — uncommitted; parent commit **`
 mqjs / example
 ├── Zig: mqjs.zig or example.zig (executable roots)
 ├── C embed: mqjs_stdlib_embed.c or example_stdlib_embed.c (generated stdlib tables)
-├── C engine (2 files):
-│     mquickjs_gc.c, mquickjs_builtins.c
-├── Zig engine (5 modules):
+├── C engine (1 file):
+│     mquickjs_builtins.c
+├── Zig engine (6 modules):
 │     mquickjs_utils   — utils.zig + utils_lib.zig + utils_types.zig (+ utils_va.c shim)
 │     mquickjs_value   — value.zig + value_lib.zig + value_types.zig
 │     mquickjs_runtime — runtime.zig + runtime_lib.zig + runtime_types.zig
 │     mquickjs_lexer   — lexer.zig + lexer_lib.zig + lexer_types.zig (+ lexer_va.c shim)
 │     mquickjs_parser  — parser.zig + parser_lib.zig + parser_types.zig
+│     mquickjs_gc      — gc.zig + gc_lib.zig + gc_types.zig
 ├── Shared engine header: mquickjs_internal.h
 ├── Zig objects: cutils, dtoa, libm, mquickjs_utils, mquickjs_value, mquickjs_runtime,
-│                mquickjs_lexer, mquickjs_parser, readline
+│                mquickjs_lexer, mquickjs_parser, mquickjs_gc, readline
 └── Generated headers: mquickjs_atom.h, mqjs_stdlib.h, example_stdlib.h
 ```
 
-**On Zig:** cutils, dtoa, libm, readline, readline_tty, example, mqjs, **mquickjs_utils**, **mquickjs_value**, **mquickjs_runtime**, **mquickjs_lexer**, **mquickjs_parser**.  
-**Still C:** 2 engine `.c` files (gc, builtins) + stdlib codegen (`mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c`).  
-**Reference only (not compiled):** `archive/mquickjs_monolith.c`, `mquickjs_utils.c`, `mquickjs_value.c`, `mquickjs_runtime.c`, `mquickjs_lexer.c`, **`mquickjs_parser.c`**, `example.c`, `mqjs.c`, `dtoa.c`, `libm.c`.
+**On Zig:** cutils, dtoa, libm, readline, readline_tty, example, mqjs, **mquickjs_utils**, **mquickjs_value**, **mquickjs_runtime**, **mquickjs_lexer**, **mquickjs_parser**, **mquickjs_gc**.  
+**Still C:** 1 engine `.c` file (builtins) + stdlib codegen (`mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c`).  
+**Reference only (not compiled):** `archive/mquickjs_monolith.c`, `mquickjs_utils.c`, `mquickjs_value.c`, `mquickjs_runtime.c`, `mquickjs_lexer.c`, `mquickjs_parser.c`, **`mquickjs_gc.c`**, `example.c`, `mqjs.c`, `dtoa.c`, `libm.c`.
 
 ### Recommended port order (remaining)
 
-1. **`mquickjs_gc.c`** (~1,198 lines) ← **NEXT**
-2. **`mquickjs_builtins.c`** (~5,311 lines) — largest file overall
+1. **`mquickjs_builtins.c`** (~5,311 lines) ← **NEXT** — last engine module; all `js_*` builtins + regexp engine
 
 ---
 
@@ -197,6 +198,26 @@ Mechanical split of monolith into 7 linkable C TUs. Regenerate with `python3 spl
 
 **Link surface beyond public API:** builtins still call `emit_insert`, `js_parse_push_val`, `js_parse_pop_val` — exported from `mquickjs_parser.zig`.
 
+### Step 6 (6/7) — port mquickjs_gc.c to Zig
+
+| File | Lines | Role |
+|------|-------|------|
+| [`mquickjs_gc_types.zig`](mquickjs_gc_types.zig) | ~141 | `GCMarkState`, `BCRelocState`, bytecode headers, 32-bit shrink layouts; re-exports `lt`/`rt`/`vt`/`mc`/`c`; header-bit helpers |
+| [`mquickjs_gc_lib.zig`](mquickjs_gc_lib.zig) | ~968 | Mark/compact GC, Jonkers threading, bytecode save/load/relocate, 64→32 shrink |
+| [`mquickjs_gc.zig`](mquickjs_gc.zig) | ~67 | Thin `export fn` wrappers |
+
+**Build:** `mquickjs_gc.c` removed from `engine_c_sources`; `mquickjs_gc_obj` added to `addRuntimeObjects` (after parser). No new `*_va.c` shim.
+
+**Exports:** `get_mblock_size`, `JS_GC`, `JS_GC2`, `JS_LoadBytecode`, `JS_IsBytecode`, `JS_RelocateBytecode`, `JS_RelocateBytecode2`, `JS_PrepareBytecode`, `JS_PrepareBytecode64to32`.
+
+**Imports:** `gc_lib` → `@import utils_lib`, `@import gc_types`; `extern fn` for value (`js_rehash_props`, `find_atom`, `js_get_short_float`). **`set_free_block` stays in utils** — gc calls via `utils.set_free_block`.
+
+**GC-ref macros:** `JS_PUSH_VALUE`/`JS_POP_VALUE` inlined using `utils.JS_PushGCRef`/`JS_PopGCRef`.
+
+**64→32 bytecode:** when reading 64-bit `JSFunctionBytecode`, use `gt.bytecodeHasArguments` / `gt.bytecodeHasLocalFuncName` / `rt.bytecodeHasColumn` / `rt.bytecodeArgCount` on packed `header` word — not separate C bitfield names.
+
+**DEBUG_GC/DUMP_GC:** omitted (both commented out in `mquickjs_priv.h`; matches ReleaseFast C build).
+
 ---
 
 ## 3. Discoveries / Decisions
@@ -226,10 +247,11 @@ Established by utils/value/runtime/lexer ports:
 runtime_lib  → @import utils_lib, runtime_types (which re-exports value_types)
 runtime_lib  → extern fn for ~30 value symbols (resolves against mquickjs_value.zig exports)
 value_lib    → extern fn for ~12 runtime symbols (JS_Call, JS_ToString, etc.)
-utils_lib    → extern fn for value/runtime/gc/builtins symbols still in C
+utils_lib    → extern fn for value/runtime/builtins symbols (gc now Zig — resolves against mquickjs_gc.zig)
 lexer_lib    → @import utils_lib, cutils_lib; extern fn for value/dtoa/builtins
 parser_lib   → @import utils_lib, cutils_lib, parser_types; extern fn for lexer/value/runtime/builtins/dtoa
-gc_lib       → @import utils_lib, gc_types; extern fn for value (js_rehash_props, js_get_mtag, …); set_free_block stays in utils
+gc_lib       → @import utils_lib, gc_types; extern fn for value (js_rehash_props, find_atom, js_get_short_float); set_free_block via utils_lib
+builtins_lib → (next) @import utils_lib, builtins_types; extern fn for lexer/parser/value/runtime/gc/dtoa/libm
 ```
 
 **Prefer `mquickjs_value_types.zig` layouts** over `mquickjs_utils_types.zig` where they differ (utils has extra words on some structs — e.g. wrong `JSCFunctionDefExt`, `JSFunctionBytecodeExt`).
@@ -266,6 +288,10 @@ gc_lib       → @import utils_lib, gc_types; extern fn for value (js_rehash_pro
 | **JSON `for(;;)` → labeled switch** | Update loop cursor (`s.buf_pos`) before every `continue :sw` back to the loop head |
 | **Builtins parser helpers** | Export `emit_insert`, `js_parse_push_val`, `js_parse_pop_val` even if not in public `mquickjs.h` |
 | **Negative short ints in parser** | Use `vt.valueGetInt` / `vt.newShortInt`; use `vt.isExactException` for exception checks |
+| **Bitwise NOT on alignment masks** | Use `~@as(usize, c.JSW - 1)` not `~(c.JSW - 1)` — comptime_int negation fails in Zig 0.15.2 |
+| **Local shadows function name** | Don't name locals `gc_mark` when `gc_mark()` exists in same module |
+| **GC compaction + parse_state** | After `memmove`, refresh `ps.source_buf = vt.stringBuf(p)` if parse in progress |
+| **GC 64→32 function bytecode** | Read flags from `rt.JSFunctionBytecodeExt.header` via helper fns; write separate fields on `JSFunctionBytecode_32` |
 
 ### App port pattern (example, mqjs)
 
@@ -284,7 +310,7 @@ Unchanged from prior handoff: Zig executable + `*_stdlib_embed.c` + `*_host_decl
 
 ### Architectural decisions
 
-- **Engine port order:** utils → value → runtime → lexer → parser → **gc** → builtins.
+- **Engine port order:** utils → value → runtime → lexer → parser → gc → **builtins**.
 - **Makefile:** Legacy; `zig build` is source of truth.
 - **Optimize mode:** Must use `-Doptimize=ReleaseFast` or `-Doptimize=ReleaseSmall`.
 - **Do not use** `archive/src-first-attempt/`.
@@ -295,14 +321,14 @@ Unchanged from prior handoff: Zig executable + `*_stdlib_embed.c` + `*_host_decl
 ```
 dtoa_lib.zig              →  cutils_lib.zig
 libm_lib.zig              →  libm_softfp.c
-mquickjs_utils_lib.zig    →  cutils_lib.zig, mquickjs_utils_types.zig; extern value/runtime/gc/builtins
+mquickjs_utils_lib.zig    →  cutils_lib.zig, mquickjs_utils_types.zig; extern value/runtime/builtins (gc via mquickjs_gc.zig)
 mquickjs_utils.zig        →  mquickjs_utils_lib.zig
 mquickjs_utils_va.c       →  mqjs_vprintf/mqjs_vsnprintf (Zig exports)
 mquickjs_value_types.zig  →  mquickjs_utils_types.zig (mc, c)
 mquickjs_value_lib.zig    →  value_types; extern runtime/utils/dtoa/builtins
 mquickjs_value.zig        →  mquickjs_value_lib.zig
 mquickjs_runtime_types.zig → value_types (re-exported as vt)
-mquickjs_runtime_lib.zig  →  runtime_types, utils_lib, dtoa_lib; extern value/gc/builtins (~30 symbols)
+mquickjs_runtime_lib.zig  →  runtime_types, utils_lib, dtoa_lib; extern value/builtins (~30 symbols); get_mblock_size from gc
 mquickjs_runtime.zig      →  mquickjs_runtime_lib.zig; export const opcode_info
 mquickjs_lexer_types.zig  →  value_types (re-exported as vt)
 mquickjs_lexer_lib.zig    →  lexer_types, utils_lib, cutils_lib; extern value/dtoa/builtins
@@ -311,9 +337,11 @@ mquickjs_lexer_va.c       →  js_vsnprintf (utils_va.c) + longjmp
 mquickjs_parser_types.zig →  lexer_types + runtime_types (re-exported as lt/rt/vt)
 mquickjs_parser_lib.zig   →  parser_types, utils_lib, cutils_lib; extern lexer/value/runtime/builtins/dtoa
 mquickjs_parser.zig       →  mquickjs_parser_lib.zig
-mquickjs_gc.c             →  (next) gc_types + gc_lib + gc.zig; extern value/utils; set_free_block from utils
-example.zig / mqjs.zig      →  link 2 engine .c (gc, builtins) + 5 Zig engine modules + embed + leaf objects
-mquickjs_builtins.c       →  mquickjs_internal.h; last C engine TU
+mquickjs_gc_types.zig     →  lexer_types + runtime_types (re-exported as lt/rt/vt/mc/c)
+mquickjs_gc_lib.zig       →  gc_types, utils_lib; extern value (js_rehash_props, find_atom, js_get_short_float)
+mquickjs_gc.zig           →  mquickjs_gc_lib.zig
+example.zig / mqjs.zig      →  link 1 engine .c (builtins) + 6 Zig engine modules + embed + leaf objects
+mquickjs_builtins.c       →  (next) builtins_types + builtins_lib + builtins.zig; last C engine TU
 ```
 
 ---
@@ -333,7 +361,7 @@ $ZIG build microbench -Doptimize=ReleaseFast
 bash run-tests.sh
 ```
 
-**Results after Step 6 parser port (2026-08-13, uncommitted handoff 10):**
+**Results after Step 6 gc port (2026-08-13, uncommitted handoff 11):**
 
 - `zig build` — pass
 - `zig build test` — pass (bytecode `-o` / `-b` round-trip)
@@ -343,97 +371,93 @@ bash run-tests.sh
 
 Pay special attention after future ports:
 
-- **`tests/test_closure.js`** — closures, varrefs, GC compaction
-- **`tests/test_builtin.js`** — JSON.parse, builtins, parser + regexp
-- **Bytecode `-o`/`-b`** — `JS_PrepareBytecode*`, `JS_RelocateBytecode*`, `JS_LoadBytecode`, `JS_IsBytecode` (all in `mquickjs_gc.c` today)
+- **`tests/test_builtin.js`** — JSON.parse, all builtins, regexp (`js_parse_regexp`, `re_parse_*`)
+- **`tests/test_closure.js`** — closures, varrefs, GC compaction (exercises ported gc)
+- **Bytecode `-o`/`-b`** — `JS_PrepareBytecode*`, `JS_RelocateBytecode*`, `JS_LoadBytecode`, `JS_IsBytecode` (now in `mquickjs_gc.zig`)
 - **`mqjs` REPL `-gc` flag** — calls `JS_GC`
 
 **Not run / not done:**
 
 - `zig build -Dsoftfloat=true` — Phase 2b not implemented
 - `zig build octane` — requires [mquickjs-extras](https://bellard.org/mquickjs/mquickjs-extras.tar.xz)
-- Git commit for parser port — not created (awaiting user request)
+- Git commit for gc port — not created (awaiting user request)
+- README port-status table — not updated
 
 ---
 
 ## 5. Next Steps
 
-### Step 6 (6/7) — port mquickjs_gc.c to Zig ← **NEXT**
+### Step 6 (7/7) — port mquickjs_builtins.c to Zig ← **NEXT**
 
-**Goal:** Port `mquickjs_gc.c` (~1,198 lines) following the established three-file engine pattern.
+**Goal:** Port `mquickjs_builtins.c` (~5,311 lines) following the established three-file engine pattern. This is the **last engine C file** — after it, the runtime engine is fully Zig (stdlib codegen `.c` files remain).
 
-**Why gc is next:** Parser is Zig; gc is the smaller remaining engine file. It owns mark/compact, heap threading during compaction, and the entire bytecode save/load/relocate pipeline.
+**Pattern:** `mquickjs_builtins_types.zig` + `mquickjs_builtins_lib.zig` + `mquickjs_builtins.zig`
 
-**Do not:** port builtins simultaneously; change behavior; touch app files unless build breaks. **`set_free_block` stays in utils** — gc calls it via `extern fn`; do not move it.
+#### Scope (major sections in `mquickjs_builtins.c`)
 
-#### Scope (functions in `mquickjs_gc.c`)
+| Section | ~Lines | Contents |
+|---------|--------|----------|
+| Function builtins | 40–240 | `js_function_*` (constructor, call, apply, bind, …) |
+| Number/Boolean/String | 241–719 | `js_number_*`, `js_boolean_*`, `js_string_*` |
+| Object/Error/Array | 720–1960 | `js_object_*`, `js_error_*`, `js_array_*` (includes sort, reduce, every) |
+| Math/TypedArray/Date/Global | 1961–2474 | `js_math_*`, typed arrays, `js_date_*`, `js_global_*` |
+| JSON | 2475–2925 | `js_json_parse`, `js_json_stringify` |
+| Regexp parser | 2926–4508 | `re_parse_*`, `re_parse_char_class`, `re_parse_quantifier`, … |
+| Regexp runtime | 4509–5311 | `js_parse_regexp`, `js_parse_regexp_flags`, `js_regexp_*`, `js_string_replace`/`split`/`match`/`search` |
 
-| Category | Functions |
-|----------|-----------|
-| **Heap sizing** | `get_mblock_size`, `mtag_has_references` |
-| **Mark phase** | `gc_mark`, `gc_mark_flush`, `gc_mark_root`, `gc_mark_all`, `gc_mb_is_marked` |
-| **Threaded pointers** | `js_value_from_pval`, `js_value_to_pval`, `gc_thread_pointer`, `gc_update_threaded_pointers`, `gc_thread_block` |
-| **Compact phase** | `gc_compact_heap` |
-| **Public GC** | `JS_GC`, `JS_GC2` |
-| **Bytecode (64-bit)** | `JS_PrepareBytecode`, `JS_IsBytecode`, `JS_RelocateBytecode`, `JS_RelocateBytecode2`, `bc_reloc_value`, `JS_LoadBytecode` |
-| **Bytecode (64→32)** | `convert_mblock_64to32`, `get_mblock_size_32`, `gc_compact_heap_64to32`, `expand_short_float`, `expand_short_floats`, `JS_PrepareBytecode64to32` |
+#### Critical cross-module dependencies (grep before declaring done)
 
-#### Required exports (link surface)
-
-**Public API (`mquickjs.h`):** `JS_GC`, `JS_LoadBytecode`
-
-**Already consumed via `extern fn` (resolve after port):**
-
-- `mquickjs_utils_lib.zig`: `JS_GC`, **`get_mblock_size`**
-- `mquickjs_runtime_lib.zig`: **`get_mblock_size`**
-
-**Host app (`mqjs.zig`):** `JS_GC`, `JS_IsBytecode`, `JS_RelocateBytecode`, `JS_PrepareBytecode`, `JS_PrepareBytecode64to32`, `JS_RelocateBytecode2`, `JS_LoadBytecode`
-
-**Internal (export if linker demands; may stay module-private):** `gc_mark*`, `gc_compact_heap`, `gc_mb_is_marked`, `gc_thread*`, `JS_GC2`
-
-Grep before declaring done:
+Many Zig modules still `extern fn` builtins symbols:
 
 ```sh
-rg 'extern fn (JS_GC|get_mblock_size|JS_LoadBytecode|JS_IsBytecode|JS_RelocateBytecode|JS_PrepareBytecode)' --glob '*.zig'
-rg '\b(JS_GC|get_mblock_size|JS_LoadBytecode)\b' mquickjs_builtins.c
+rg 'extern fn (js_|re_parse)' --glob '*_lib.zig'
 ```
 
-#### Types to mirror in `mquickjs_gc_types.zig`
+| Consumer | Key builtins symbols |
+|----------|---------------------|
+| `parser_lib` | `js_parse_regexp`, `re_parse_alternative`, `re_parse_disjunction`, `js_atod` |
+| `lexer_lib` | `js_parse_regexp_flags` |
+| `runtime_lib` | `js_object_keys`, `js_set_prototype_internal`, `js_get_object_class`, `js_lrint`, `js_fmod`, `js_pow`, … |
+| `value_lib` | `js_string_charAt`, `js_new_c_function_proto`, `js_atod`, `js_dtoa` |
+| `utils_lib` | `js_dtoa`, `js_lrint`, `js_get_short_float` (some may move to value after port) |
 
-- `GCMarkState`, `BCRelocState` — from `mquickjs_internal.h`
-- `JSBytecodeHeader`, `JSBytecodeHeader32` — from `mquickjs.h` (mqjs uses both for `-o`/`-b`)
-- Re-export `vt`/`rt`/`mc`/`c` like parser; heap block layouts from `value_types` / `utils_types`
-- `#if JSW == 8` block at bottom of gc.c defines 32-bit heap layouts for bytecode shrink — preserve `#comptime` gating on `c.JSW`
+**Parser regexp coroutines:** `parse_func_table` last two entries are `re_parse_alternative` / `re_parse_disjunction` — must export with `callconv(.c)` and same PARSE coroutine ABI as parser.
 
-#### Imports gc will need (`extern fn`)
+**Lexer:** `js_parse_regexp_flags` called from `lexer_lib` — currently C-only export.
 
-- **utils:** `set_free_block`, `js_printf` (DEBUG_GC / DUMP_GC), GC-ref macros via utils helpers
-- **value:** `js_rehash_props`, `js_get_mtag`
-- **runtime/parser:** none directly — gc updates `ctx->parse_state->source_buf` after compaction if parse in progress
+#### Types to mirror in `mquickjs_builtins_types.zig`
+
+- Re-export `lt`/`pt`/`rt`/`vt`/`mc`/`c` like other engine modules
+- Any regexp-specific structs from `mquickjs_internal.h` if needed (most are internal to builtins)
+- Do **not** `@cImport` `mquickjs_internal.h` wholesale
 
 #### Build changes
 
-1. Remove `mquickjs_gc.c` from `engine_c_sources` (leaves only `mquickjs_builtins.c`).
-2. Add `mquickjs_gc_obj` after parser; extend `addRuntimeObjects(..., mquickjs_gc_obj)`.
-3. Keep `mquickjs_gc.c` on disk as reference.
+1. Remove `mquickjs_builtins.c` from `engine_c_sources` (engine C goes to **zero** files).
+2. Add `mquickjs_builtins_obj` after gc; extend `addRuntimeObjects(..., mquickjs_builtins_obj)`.
+3. Keep `mquickjs_builtins.c` on disk as reference.
+4. **`engine_c_sources` becomes empty** — consider removing `addEngineCSources` call or leaving empty array until Step 7.
 
-#### GC-specific pitfalls
+#### Builtins-specific pitfalls (anticipated)
 
 | Issue | Mitigation |
 |-------|------------|
-| **`get_mblock_size` moves to gc** | Must export from `mquickjs_gc.zig` — utils/runtime already `extern fn` it |
-| **`set_free_block` ownership** | Implemented in utils; gc only calls it |
-| **Compaction + parse_state** | After `memmove`, refresh `ps->source_buf` from relocated string (see C lines ~614–621) |
-| **Post-compact rehash** | Walk heap; `js_rehash_props(ctx, p, TRUE)` for every `JS_MTAG_OBJECT` |
-| **Threaded pointers** | `gc_thread_pointer` / `gc_update_threaded_pointers` mirror C exactly — closure varrefs, stack slots |
-| **Bytecode magic/version** | `JS_BYTECODE_MAGIC`, `JS_BYTECODE_VERSION` — wrong values break `-o`/`-b` round-trip |
-| **64→32 path** | Large `#if JSW == 8` section; test with `zig build test` bytecode flags |
+| **Largest single file** | Faithful port first; consider sub-section comments matching C order; don't refactor until Step 8 |
+| **Regexp PARSE coroutines** | Same labeled-switch pattern as parser; `re_parse_alternative`/`re_parse_disjunction` use PARSE_START macros |
+| **`js_array_sort`** | Complex; uses parser emit helpers in C — grep for `emit_`/`js_parse_` calls |
+| **`js_json_parse`** | Delegates to parser `JS_Parse` path in C — verify call chain |
+| **Math builtins** | Use `libm` exports (`js_pow`, `js_fmod`, etc.) via extern or `@import libm_lib` if acyclic |
+| **Circular imports** | `builtins_lib` → `@import utils_lib`; `extern fn` for parser/lexer/value/runtime/gc symbols |
+| **Export surface** | Export every symbol referenced by grep across Zig modules; builtins has ~80+ public `js_*` functions |
 
-### After gc
+#### Suggested approach
 
-| Module | ~Lines | Notes |
-|--------|--------|-------|
-| `mquickjs_builtins.c` | 5,311 | All `js_*` builtins + regexp engine; calls parser `emit_*`, `js_parse_call`, `js_parse_push_val`/`pop_val`; regexp via `re_parse_*` (still C until builtins port) |
+1. Read full `mquickjs_builtins.c` and grep all `extern fn` references from other Zig modules.
+2. Create `mquickjs_builtins_types.zig` (minimal — mostly re-exports).
+3. Port `mquickjs_builtins_lib.zig` in C file order (function → number → string → object → array → math → typed array → json → regexp).
+4. Create `mquickjs_builtins.zig` with all required exports.
+5. Remove C from build; fix link errors one symbol at a time.
+6. Full test gate — **`test_builtin.js`** is the critical regression test.
 
 ### Step 2 Phase 2b — libm softfloat (optional parallel track)
 
@@ -442,7 +466,7 @@ Make `zig build -Dsoftfloat=true` work. Extend `libm_softfp.c` with `-DUSE_SOFTF
 ### Steps 7–8
 
 - Port stdlib codegen (`mquickjs_build.c`)
-- Idiomatic Zig refactor; collapse `extern fn` → `@import` where acyclic
+- Idiomatic Zig refactor; collapse `extern fn` → `@import` where acyclic; update README port table
 
 ---
 
@@ -482,45 +506,40 @@ Continue the microquickjs C→Zig port.
 
 Read handoff.md first — it has full context from prior sessions.
 
-Done: Steps 0–5, plus Step 6 modules 1–5/7 (utils, value, runtime, lexer, parser).
+Done: Steps 0–5, plus Step 6 modules 1–6/7 (utils, value, runtime, lexer, parser, gc).
 - Leaf modules cutils, dtoa, libm, readline are on Zig.
 - Host apps example and mqjs are on Zig.
-- Engine: 5 Zig modules (utils, value, runtime, lexer, parser); 2 C modules remain (gc, builtins).
-- Reference C kept but not compiled: mquickjs_utils.c, mquickjs_value.c, mquickjs_runtime.c, mquickjs_lexer.c, mquickjs_parser.c.
-- Last green: uncommitted handoff 10 (parser port); parent commit a219b2f.
+- Engine: 6 Zig modules (utils, value, runtime, lexer, parser, gc); 1 C module remains (builtins).
+- Reference C kept but not compiled: mquickjs_utils.c, mquickjs_value.c, mquickjs_runtime.c, mquickjs_lexer.c, mquickjs_parser.c, mquickjs_gc.c.
+- Last green: uncommitted handoff 11 (gc port); parent commit e9f3f08.
 - Tests pass with Zig 0.15.2 and -Doptimize=ReleaseFast.
 
-Your task: Step 6 module 6/7 — port mquickjs_gc.c to Zig
+Your task: Step 6 module 7/7 — port mquickjs_builtins.c to Zig
 
-Goal: Port mquickjs_gc.c (~1,198 lines) following the established engine pattern:
-  mquickjs_gc_types.zig + mquickjs_gc_lib.zig + mquickjs_gc.zig
+Goal: Port mquickjs_builtins.c (~5,311 lines) following the established engine pattern:
+  mquickjs_builtins_types.zig + mquickjs_builtins_lib.zig + mquickjs_builtins.zig
 One module at a time; zero behavior change; full test gate after port.
 
 Read first:
-- handoff.md (Sections 1, 2 Step 6 parser + gc sketch, 3 cross-module rules + pitfalls)
-- mquickjs_gc.c (full file — mark, compact, bytecode, 64→32 shrink)
-- mquickjs_internal.h — GCMarkState, BCRelocState
-- mquickjs.h — JSBytecodeHeader, JSBytecodeHeader32
-- mquickjs_value_types.zig / mquickjs_runtime_types.zig (heap layouts, JSFunctionBytecodeExt)
-- Grep: extern fn JS_GC / get_mblock_size in utils_lib, runtime_lib; mqjs.zig bytecode path
+- handoff.md (Sections 1, 2 Step 6 gc + builtins sketch, 3 cross-module rules + pitfalls, 5 builtins next steps)
+- mquickjs_builtins.c (full file — largest engine module; builtins + regexp engine)
+- mquickjs_internal.h — regexp PARSE func declarations, js_* prototypes
+- Grep: extern fn (js_|re_parse) across *_lib.zig — full export surface needed
 - build.zig (engine_c_sources, addRuntimeObjects)
 
 Implementation:
-1. Create mquickjs_gc_types.zig — GCMarkState, BCRelocState, bytecode headers; re-export vt/rt/mc/c.
-2. Create mquickjs_gc_lib.zig — faithful port of mquickjs_gc.c (~1,198 lines).
-3. Create mquickjs_gc.zig — export at minimum:
-     JS_GC, get_mblock_size, JS_LoadBytecode,
-     JS_IsBytecode, JS_RelocateBytecode, JS_RelocateBytecode2,
-     JS_PrepareBytecode, JS_PrepareBytecode64to32
-   (add others if link step fails)
-4. Remove mquickjs_gc.c from engine_c_sources; add mquickjs_gc_obj to addRuntimeObjects; addCommonIncludes.
-5. Do NOT move set_free_block to gc (stays in utils). Do NOT port builtins.
-6. Do NOT touch example.zig, mqjs.zig, or already-ported modules unless build breaks.
+1. Create mquickjs_builtins_types.zig — re-export lt/pt/rt/vt/mc/c; any regexp-specific types from internal.h.
+2. Create mquickjs_builtins_lib.zig — faithful port of mquickjs_builtins.c (~5,311 lines) in C file order.
+3. Create mquickjs_builtins.zig — export all js_* / re_parse_* / js_parse_regexp* symbols consumed by other modules.
+4. Remove mquickjs_builtins.c from engine_c_sources; add mquickjs_builtins_obj to addRuntimeObjects; addCommonIncludes.
+5. Do NOT touch example.zig, mqjs.zig, or already-ported modules unless build breaks.
 
 Critical rules (from prior ports):
 - Use vt.valueGetInt for all JS_VALUE_GET_INT semantics (negative short ints).
 - Prefer mquickjs_value_types.zig heap layouts over mquickjs_utils_types.zig where they differ.
-- Circular imports: new module → @import types + utils_lib; existing modules keep extern fn for new exports.
+- Circular imports: new module → @import utils_lib + types; existing modules keep extern fn for new exports.
+- Regexp PARSE coroutines (re_parse_alternative/disjunction): same labeled-switch + PARSE_CALL pattern as parser.
+- Export js_parse_regexp_flags for lexer_lib.
 - Do not use archive/src-first-attempt/.
 
 Constraints:
@@ -537,10 +556,11 @@ Test gate:
   ./zig-out/bin/example tests/test_rect.js
   $ZIG build microbench -Doptimize=ReleaseFast
   bash run-tests.sh
+
+Pay special attention: test_builtin.js (JSON, all builtins, regexp), test_closure.js (GC still green).
 ```
 
 **Alternative tasks:**
 
-- **Skip gc:** port `mquickjs_builtins.c` (Step 6 module 7/7) — largest remaining file; gc first is recommended.
 - **Softfloat:** Step 2 Phase 2b — read handoff Section 5 Phase 2b sketch.
-- **Docs only:** update README port-status table; commit parser port if user asks.
+- **Docs only:** update README port-status table; commit gc port if user asks.
