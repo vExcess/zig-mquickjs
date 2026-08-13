@@ -5,7 +5,13 @@
 const std = @import("std");
 
 const engine_c_sources = [_][]const u8{
-    "mquickjs.c",
+    "mquickjs_utils.c",
+    "mquickjs_value.c",
+    "mquickjs_runtime.c",
+    "mquickjs_lexer.c",
+    "mquickjs_parser.c",
+    "mquickjs_gc.c",
+    "mquickjs_builtins.c",
 };
 
 fn addEngineCSources(exe: *std.Build.Step.Compile, c_flags: []const []const u8) void {

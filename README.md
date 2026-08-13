@@ -26,7 +26,7 @@ The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` onl
 | mqjs completion hook | `mqjs.zig` | Ported (in mqjs.zig) |
 | dtoa | `dtoa.zig`, `dtoa_lib.zig` | Ported (Zig) |
 | libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.c` | Ported (Zig) |
-| mquickjs | `mquickjs.c` | C |
+| mquickjs | 7 C files (`mquickjs_*.c`) | C |
 | mqjs REPL | `mqjs.zig` | Ported (Zig) |
 | example | `example.zig` | Ported (Zig) |
 | stdlib codegen | `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c` | C (host tools) |
