@@ -27,7 +27,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const readline = @import("./readline.zig");
-const cutils = @import("./cutils.zig");
+const cutils = @import("./cutils_lib.zig");
 const c = @cImport({
     @cInclude("stdio.h");
     @cInclude("stdarg.h");

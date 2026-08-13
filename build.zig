@@ -4,6 +4,43 @@
 
 const std = @import("std");
 
+const engine_c_sources = [_][]const u8{
+    "mquickjs.c",
+    "libm.c",
+};
+
+fn addEngineCSources(exe: *std.Build.Step.Compile, c_flags: []const []const u8) void {
+    exe.addCSourceFiles(.{
+        .files = &engine_c_sources,
+        .flags = c_flags,
+    });
+}
+
+fn addRuntimeObjects(
+    exe: *std.Build.Step.Compile,
+    cutils_obj: *std.Build.Step.Compile,
+    dtoa_obj: ?*std.Build.Step.Compile,
+    readline_obj: ?*std.Build.Step.Compile,
+) void {
+    exe.addObject(cutils_obj);
+    if (dtoa_obj) |dtoa| {
+        exe.addObject(dtoa);
+    }
+    if (readline_obj) |rl| {
+        exe.addObject(rl);
+    }
+}
+
+fn addCommonIncludes(
+    exe: *std.Build.Step.Compile,
+    b: *std.Build,
+    wf: *std.Build.Step.WriteFile,
+) void {
+    exe.addConfigHeader(b.addConfigHeader(.{ .style = .blank }, .{}));
+    exe.addIncludePath(wf.getDirectory());
+    exe.addIncludePath(b.path("."));
+}
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -99,6 +136,16 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    const dtoa_obj = b.addObject(.{
+        .name = "dtoa",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("dtoa.zig"),
+            .link_libc = true,
+        }),
+    });
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -123,21 +170,13 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
-    example_exe.addConfigHeader(
-        b.addConfigHeader(.{.style = .blank }, .{})
-    );
-    example_exe.addIncludePath(wf.getDirectory());
-    example_exe.addIncludePath(b.path("."));
+    addCommonIncludes(example_exe, b, wf);
     example_exe.addCSourceFiles(.{
-        .files = &.{
-            "example.c",
-            "mquickjs.c",
-            "dtoa.c",
-            "libm.c",
-        },
+        .files = &.{"example.c"},
         .flags = cFlags.items,
     });
-    example_exe.addObject(cutils_obj);
+    addEngineCSources(example_exe, cFlags.items);
+    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, null);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -152,23 +191,12 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     exe.addCSourceFiles(.{
-        .files = &.{
-            "mqjs.c",
-            // "readline_tty.c",
-            // "readline.c",
-            "mquickjs.c",
-            "dtoa.c",
-            "libm.c",
-        },
+        .files = &.{"mqjs.c"},
         .flags = cFlags.items,
     });
-    // exe.addObject(cutils_obj);
-    exe.addObject(readline_obj);
-    exe.addConfigHeader(
-        b.addConfigHeader(.{.style = .blank }, .{})
-    );
-    exe.addIncludePath(wf.getDirectory());
-    exe.addIncludePath(b.path("."));
+    addEngineCSources(exe, cFlags.items);
+    addRuntimeObjects(exe, cutils_obj, dtoa_obj, readline_obj);
+    addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);
 
     // make test

@@ -28,7 +28,7 @@
 const std = @import("std");
 const mqjs = @import("./mqjs.zig");
 const readline_tty = @import("./readline_tty.zig");
-const cutils = @import("./cutils.zig");
+const cutils = @import("./cutils_lib.zig");
 
 const strlen = cutils.strlen;
 const min_int = cutils.min_int;

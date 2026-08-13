@@ -2,17 +2,36 @@ MicroQuickJS
 ============
 
 ## Zigged
-I'm working on porting mquickjs to Zig. I've only got a few files ported so far. You can build the project using the Zig build system right now. Currently using Zig 0.15.2. Will port to 0.16.0 later.
+I'm working on porting mquickjs to Zig. You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 later.
 
-Build mqjs: `zig build`
+Build mqjs: `zig build -Doptimize=ReleaseFast`
 
-Build example: `zig build example`
+Build example: `zig build example -Doptimize=ReleaseFast`
 
-Run microbenchmark: `zig build microbench`
+Run microbenchmark: `zig build microbench -Doptimize=ReleaseFast`
 
-Run octane benchmark: `zig build octane`
+Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`
 
-Run tests: `zig build test`
+Run tests: `zig build test -Doptimize=ReleaseFast`
+
+The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` only if you prefer that interface (set `ZIG=/path/to/zig` if zig is not on your PATH).
+
+### Port status
+
+| Module | Source | Status |
+|--------|--------|--------|
+| cutils | `cutils.zig`, `cutils_lib.zig` | Ported (Zig) |
+| readline | `readline.zig` | Ported (Zig) |
+| readline_tty | `readline_tty.zig` | Ported (Zig, via readline) |
+| mqjs completion hook | `mqjs.zig` | Stub only (not a full `mqjs.c` port) |
+| dtoa | `dtoa.zig`, `dtoa_lib.zig` | Ported (Zig) |
+| libm | `libm.c` | C |
+| mquickjs | `mquickjs.c` | C |
+| mqjs REPL | `mqjs.c` | C |
+| example | `example.c` | C |
+| stdlib codegen | `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c` | C (host tools) |
+
+An incomplete first port attempt lives in `archive/src-first-attempt/` and is not used by the build.
 
 ### Why use Zig over C?
 - Memory safety - Zig can detect double-frees, use-after-frees, and memory leaks
