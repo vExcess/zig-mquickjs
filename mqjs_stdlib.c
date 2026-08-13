@@ -308,8 +308,13 @@ static const JSPropDef js_date[] = {
     JS_PROP_END,
 };
 
+static const JSPropDef js_date_proto[] = {
+    JS_CFUNC_DEF("valueOf", 0, js_date_valueOf),
+    JS_PROP_END,
+};
+
 static const JSClassDef js_date_class =
-    JS_CLASS_DEF("Date", 7, js_date_constructor, JS_CLASS_DATE, js_date, NULL, NULL, NULL);
+    JS_CLASS_DEF("Date", 7, js_date_constructor, JS_CLASS_DATE, js_date, js_date_proto, NULL, NULL);
 
 static const JSPropDef js_console[] = {
     JS_CFUNC_DEF("log", 1, js_print),
