@@ -5,7 +5,6 @@
 const std = @import("std");
 
 const engine_c_sources = [_][]const u8{
-    "mquickjs_utils.c",
     "mquickjs_value.c",
     "mquickjs_runtime.c",
     "mquickjs_lexer.c",
@@ -27,7 +26,9 @@ fn addRuntimeObjects(
     dtoa_obj: ?*std.Build.Step.Compile,
     libm_obj: ?*std.Build.Step.Compile,
     readline_obj: ?*std.Build.Step.Compile,
+    mquickjs_utils_obj: *std.Build.Step.Compile,
 ) void {
+    exe.addObject(mquickjs_utils_obj);
     exe.addObject(cutils_obj);
     if (dtoa_obj) |dtoa| {
         exe.addObject(dtoa);
@@ -170,6 +171,21 @@ pub fn build(b: *std.Build) !void {
     });
     libm_obj.root_module.addIncludePath(b.path("."));
 
+    const mquickjs_utils_obj = b.addObject(.{
+        .name = "mquickjs_utils",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .root_source_file = b.path("mquickjs_utils.zig"),
+            .link_libc = true,
+        }),
+    });
+    addCommonIncludes(mquickjs_utils_obj, b, wf);
+    mquickjs_utils_obj.root_module.addCSourceFiles(.{
+        .files = &.{"mquickjs_utils_va.c"},
+        .flags = cFlags.items,
+    });
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -201,7 +217,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(example_exe, cFlags.items);
-    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null);
+    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_utils_obj);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -221,7 +237,7 @@ pub fn build(b: *std.Build) !void {
         .flags = cFlags.items,
     });
     addEngineCSources(exe, cFlags.items);
-    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj);
+    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_utils_obj);
     addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);
 
