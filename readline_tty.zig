@@ -28,10 +28,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const readline = @import("./readline.zig");
 const cutils = @import("./cutils.zig");
-const c = @cImport({
-    @cInclude("stdio.h");
-    @cInclude("stdarg.h");
-});
+const c = @import("translate_c");
+// const c = @cImport({
+//     @cInclude("stdio.h");
+//     @cInclude("stdarg.h");
+// });
 
 extern "c" fn printf(fmt: [*c]const u8, ...) c_int;
 extern "c" fn atexit(func: ?*const fn () callconv(.c) void) c_int;
@@ -64,7 +65,7 @@ extern "c" fn _get_osfhandle(fd: c_int) isize;
 extern "c" fn _setmode(fd: c_int, mode: c_int) c_int;
 extern "system" fn SetConsoleMode(hConsoleHandle: isize, dwMode: u32) c_int;
 extern "system" fn GetConsoleMode(hConsoleHandle: isize, lpMode: *u32) c_int;
-extern "system" fn SetConsoleCtrlHandler(HandlerRoutine: ?*const fn (u32) callconv(.WINAPI) c_int, Add: c_int) c_int;
+extern "system" fn SetConsoleCtrlHandler(HandlerRoutine: ?*const fn (u32) callconv(.winapi) c_int, Add: c_int) c_int;
 
 const COORD = extern struct { X: i16, Y: i16 };
 const SMALL_RECT = extern struct { Left: i16, Top: i16, Right: i16, Bottom: i16 };
@@ -81,9 +82,9 @@ extern "system" fn GetConsoleScreenBufferInfo(hConsoleOutput: isize, lpConsoleSc
 const __ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
 const __ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
 
-pub const ctrl_handler = switch(builtin.os.tag) {
+pub const ctrl_handler = switch (builtin.os.tag) {
     .windows => (struct {
-        fn ctrl_handler(dwCtrlType: u32) callconv(.WINAPI) BOOL {
+        fn ctrl_handler(dwCtrlType: u32) callconv(.winapi) BOOL {
             if (dwCtrlType == CTRL_C_EVENT) {
                 ctrl_c_pressed += 1;
                 if (ctrl_c_pressed >= 4) {
@@ -101,13 +102,13 @@ pub const ctrl_handler = switch(builtin.os.tag) {
 };
 
 // if processed input is enabled, Ctrl-C is handled by ctrl_handler()
-pub const set_processed_input = switch(builtin.os.tag) {
+pub const set_processed_input = switch (builtin.os.tag) {
     .windows => (struct {
         fn set_processed_input(enable: BOOL) void {
             var mode: u32 = 0;
             const handle = _get_osfhandle(0);
             if (GetConsoleMode(handle, &mode) == 0) return;
-            
+
             if (enable != 0) {
                 mode |= ENABLE_PROCESSED_INPUT;
             } else {
@@ -126,7 +127,7 @@ pub const set_processed_input = switch(builtin.os.tag) {
 var oldtty: std.posix.termios = undefined;
 var old_fd0_flags: i32 = 0;
 
-pub const term_exit = switch(builtin.os.tag) {
+pub const term_exit = switch (builtin.os.tag) {
     .windows => @panic("posix only function"),
     else => (struct {
         fn term_exit() callconv(.c) void {
@@ -136,7 +137,7 @@ pub const term_exit = switch(builtin.os.tag) {
     }).term_exit,
 };
 
-pub const sigint_handler = switch(builtin.os.tag) {
+pub const sigint_handler = switch (builtin.os.tag) {
     .windows => @panic("posix only function"),
     else => (struct {
         fn sigint_handler(signo: c_int) callconv(.c) void {
@@ -146,7 +147,7 @@ pub const sigint_handler = switch(builtin.os.tag) {
                 // just to be able to stop the process if it is hanged
                 const SIGINT = 2;
                 const SIG_DFL = 0;
-                _ = signal(SIGINT, @as(?*const fn(c_int) callconv(.c) void, @ptrFromInt(SIG_DFL))); 
+                _ = signal(SIGINT, @as(?*const fn (c_int) callconv(.c) void, @ptrFromInt(SIG_DFL)));
             }
         }
     }).sigint_handler,
@@ -154,7 +155,7 @@ pub const sigint_handler = switch(builtin.os.tag) {
 
 // ---------- END posix implementation END ----------
 
-pub export const readline_tty_init = switch(builtin.os.tag) {
+pub export const readline_tty_init = switch (builtin.os.tag) {
     .windows => (struct {
         // windows implementation
         fn readline_tty_init() callconv(.c) c_int {
@@ -193,9 +194,9 @@ pub export const readline_tty_init = switch(builtin.os.tag) {
             tty.iflag.IGNCR = false; // Ignore CR.
             tty.iflag.ICRNL = false; // Map CR to NL on input.
             tty.iflag.IXON = false; // Enable start/stop output control.
-            
+
             tty.oflag.OPOST = true;
-            
+
             tty.lflag.ECHO = false;
             tty.lflag.ECHONL = false;
             tty.lflag.ICANON = false;
@@ -222,11 +223,10 @@ pub export const readline_tty_init = switch(builtin.os.tag) {
             //    fcntl(0, F_SETFL, O_NONBLOCK);
             var n_cols: c_int = 80;
             var ws: P.winsize = undefined;
-            
-            if (
-                P.system.ioctl(0, P.T.IOCGWINSZ, @intFromPtr(&ws)) == 0 and
-                ws.col >= 4 and ws.row >= 4            
-            ) {
+
+            if (P.system.ioctl(0, P.T.IOCGWINSZ, @intFromPtr(&ws)) == 0 and
+                ws.col >= 4 and ws.row >= 4)
+            {
                 n_cols = ws.col;
             }
             return n_cols;
@@ -235,14 +235,17 @@ pub export const readline_tty_init = switch(builtin.os.tag) {
 };
 
 pub fn term_printf(fmt: [*c]const u8, ...) callconv(.c) void {
-    var ap = @cVaStart();
-    const c_ap: [*c]c.struct___va_list_tag_1 = @ptrCast(&ap);
-    _ = c.vprintf(fmt, c_ap);
-    @cVaEnd(&ap);
+    // var ap = @cVaStart();
+    // const c_ap: [*c]c.struct___va_list_tag_1 = @ptrCast(&ap);
+    // _ = c.vprintf(fmt, c_ap);
+    // @cVaEnd(&ap);
+
+    const str = std.mem.span(fmt);
+    std.debug.print("{s}", .{str});
 }
 
 pub fn term_flush() void {
-    _= c.fflush(c.stdout);
+    _ = c.fflush(null);
 }
 
 export fn readline_tty(s: *ReadlineState, prompt: [*c]const u8, multi_line: BOOL) [*c]const u8 {
@@ -260,13 +263,16 @@ export fn readline_tty(s: *ReadlineState, prompt: [*c]const u8, multi_line: BOOL
     var exit_loop = false;
 
     while (ret_str == null and !exit_loop) {
-        const len_result = std.posix.read(0, &buf) catch 0;
+        const len_result = switch (builtin.os.tag) {
+            .windows => std.c.read(std.Io.File.stdin().handle, &buf, buf.len),
+            else => std.posix.read(0, &buf) catch 0,
+        };
         if (len_result == 0) break;
 
         var i: usize = 0;
         while (i < len_result) : (i += 1) {
             const ch: c_int = buf[i];
-            
+
             if (builtin.os.tag == .windows and ch == 3) {
                 // ctrl-C
                 ctrl_c_pressed += 1;
