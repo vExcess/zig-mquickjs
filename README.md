@@ -28,7 +28,7 @@ The legacy `Makefile` is deprecated and delegates to `zig build`. Use `make` onl
 | libm | `libm.zig`, `libm_lib.zig`, `libm_softfp.c` | Ported (Zig) |
 | mquickjs | `mquickjs.c` | C |
 | mqjs REPL | `mqjs.c` | C |
-| example | `example.c` | C |
+| example | `example.zig` | Ported (Zig) |
 | stdlib codegen | `mquickjs_build.c`, `mqjs_stdlib.c`, `example_stdlib.c` | C (host tools) |
 
 An incomplete first port attempt lives in `archive/src-first-attempt/` and is not used by the build.

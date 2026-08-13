@@ -185,12 +185,13 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .root_source_file = b.path("example.zig"),
         }),
     });
     _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
     addCommonIncludes(example_exe, b, wf);
     example_exe.addCSourceFiles(.{
-        .files = &.{"example.c"},
+        .files = &.{"example_stdlib_embed.c"},
         .flags = cFlags.items,
     });
     addEngineCSources(example_exe, cFlags.items);
