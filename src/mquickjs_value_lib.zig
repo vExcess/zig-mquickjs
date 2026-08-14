@@ -28,6 +28,9 @@
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
+const dtoa = @import("dtoa_lib.zig");
+const runtime = @import("mquickjs_runtime_lib.zig");
+const builtins = @import("mquickjs_builtins_lib.zig");
 const vt = @import("mquickjs_value_types.zig");
 const mc = vt.mc;
 pub const c = vt.c;
@@ -35,19 +38,6 @@ pub const c = vt.c;
 inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
     return mc.ctxExt(ctx);
 }
-
-extern fn JS_ThrowError(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*:0]const u8, ...) callconv(.c) c.JSValue;
-extern fn JS_ToString(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_ToPropertyKey(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_Call(ctx: *c.JSContext, call_flags: c_int) c.JSValue;
-extern fn js_new_c_function_proto(ctx: *c.JSContext, func_idx: c_int, proto: c.JSValue, has_params: c.JS_BOOL, params: c.JSValue) c.JSValue;
-extern fn js_string_charAt(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: *c.JSValue, magic: c_int) c.JSValue;
-extern fn js_dtoa(buf: [*c]u8, d: f64, radix: c_int, n_digits: c_int, flags: c_int, tmp_mem: *c.JSDTOATempMem) c_int;
-extern fn js_atod(str: [*c]const u8, pnext: [*c][*c]const u8, radix: c_int, flags: c_int, tmp_mem: *c.JSATODTempMem) f64;
-extern fn JS_PushArg(ctx: *c.JSContext, val: c.JSValue) void;
-extern fn JS_ToUint8Clamp(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int;
-extern fn JS_ToNumber(ctx: *c.JSContext, pres: *f64, val: c.JSValue) c_int;
-extern fn JS_ToInt32(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int;
 
 fn max_int(a: c_int, b: c_int) c_int {
     return if (a > b) a else b;
@@ -252,7 +242,7 @@ pub fn JS_IsString(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL {
 
 pub fn js_alloc_string(ctx: *c.JSContext, buf_len: u32) ?*vt.JSStringExt {
     if (buf_len > vt.JS_STRING_LEN_MAX) {
-        _ = JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
+        _ = utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
         return null;
     }
     const p: *vt.JSStringExt = @ptrCast(@alignCast(
@@ -608,7 +598,7 @@ pub fn string_buffer_concat_str(ctx: *c.JSContext, s: *vt.StringBuffer, val2_in:
 
     var len = len1 + len2;
     if (len > vt.JS_STRING_LEN_MAX) {
-        s.buffer_ref.val = JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
+        s.buffer_ref.val = utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
         return -1;
     }
 
@@ -671,7 +661,7 @@ pub fn string_buffer_concat_utf16(ctx: *c.JSContext, s: *vt.StringBuffer, str: c
 }
 
 pub fn string_buffer_concat(ctx: *c.JSContext, s: *vt.StringBuffer, val2: c.JSValue) c_int {
-    const str = JS_ToString(ctx, val2);
+    const str = runtime.JS_ToString(ctx, val2);
     if (vt.isExactException(str)) {
         s.buffer_ref.val = c.JS_EXCEPTION;
         return -1;
@@ -844,13 +834,13 @@ pub fn js_is_numeric_string(ctx: *c.JSContext, val_in: c.JSValue) c_int {
         return -1;
     p = @ptrCast(@alignCast(mc.valueToPtr(val)));
     var r: [*c]const u8 = undefined;
-    const d = js_atod(vt.stringBuf(p), @ptrCast(&r), 10, 0, @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr.?))));
+    const d = dtoa.js_atod(vt.stringBuf(p), @ptrCast(&r), 10, 0, @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr.?))));
     if (@intFromPtr(r) - @intFromPtr(vt.stringBuf(p)) != vt.stringLen(p)) {
         utils.js_free(ctx, tmp_arr);
         return c.FALSE;
     }
     var nbuf: [32]u8 = undefined;
-    const nlen = js_dtoa(&nbuf, d, 10, 0, c.JS_DTOA_FORMAT_FREE, @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr.?))));
+    const nlen = dtoa.js_dtoa(&nbuf, d, 10, 0, c.JS_DTOA_FORMAT_FREE, @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr.?))));
     utils.js_free(ctx, tmp_arr);
     return boolVal(vt.stringLen(p) == @as(usize, @intCast(nlen)) and
         std.mem.eql(u8, nbuf[0..@intCast(nlen)], vt.stringBuf(p)[0..@intCast(nlen)]));
@@ -959,7 +949,7 @@ pub fn JS_ToBool(ctx: *c.JSContext, val: c.JSValue) c_int {
 }
 
 pub fn JS_ToCStringLen(ctx: *c.JSContext, plen: ?*usize, val: c.JSValue, buf: *c.JSCStringBuf) ?[*:0]const u8 {
-    const converted = JS_ToString(ctx, val);
+    const converted = runtime.JS_ToString(ctx, val);
     if (vt.isExactException(converted))
         return null;
     var p: [*:0]const u8 = undefined;
@@ -994,12 +984,12 @@ pub fn JS_GetException(ctx: *c.JSContext) c.JSValue {
 
 pub fn JS_ToStringCheckObject(ctx: *c.JSContext, val: c.JSValue) c.JSValue {
     if (val == c.JS_NULL or val == c.JS_UNDEFINED)
-        return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "null or undefined are forbidden");
-    return JS_ToString(ctx, val);
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "null or undefined are forbidden");
+    return runtime.JS_ToString(ctx, val);
 }
 
 pub fn JS_ThrowTypeErrorNotAnObject(ctx: *c.JSContext) c.JSValue {
-    return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "not an object");
+    return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "not an object");
 }
 
 pub fn is_num_string(ctx: *c.JSContext, pval: *i32, val: c.JSValue) c.JS_BOOL {
@@ -1282,9 +1272,9 @@ pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue
                 c.JS_TAG_BOOL => p = protoObject(x, c.JS_CLASS_BOOLEAN),
                 c.JS_TAG_SHORT_FUNC => p = protoObject(x, c.JS_CLASS_CLOSURE),
                 c.JS_TAG_STRING_CHAR => handle_string = true,
-                c.JS_TAG_NULL => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of null", prop),
-                c.JS_TAG_UNDEFINED => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of undefined", prop),
-                else => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of value", prop),
+                c.JS_TAG_NULL => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of null", prop),
+                c.JS_TAG_UNDEFINED => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of undefined", prop),
+                else => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of value", prop),
             }
         }
     } else {
@@ -1295,13 +1285,14 @@ pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue
         switch (mc.mbGetMtag(p)) {
             mc.JS_MTAG_FLOAT64 => p = protoObject(x, c.JS_CLASS_NUMBER),
             mc.JS_MTAG_STRING => handle_string = true,
-            else => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of value", prop),
+            else => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot read property '%lo' of value", prop),
         }
     }
     if (handle_string) {
         if (mc.isInt(prop)) {
             var obj_mut = obj;
-            const ret = js_string_charAt(ctx, &obj_mut, 1, @constCast(&prop), vt.magic_internalAt);
+            var prop_mut = prop;
+            const ret = builtins.js_string_charAt(ctx, &obj_mut, 1, @ptrCast(&prop_mut), vt.magic_internalAt);
             if (!vt.isUndefined(ret))
                 return ret;
         }
@@ -1398,9 +1389,9 @@ pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue
                     getter_mut = popValue(ctx, &getter_ref);
                     if (err != 0)
                         return c.JS_EXCEPTION;
-                    JS_PushArg(ctx, getter_mut);
-                    JS_PushArg(ctx, obj_mut);
-                    return JS_Call(ctx, 0);
+                    runtime.JS_PushArg(ctx, getter_mut);
+                    runtime.JS_PushArg(ctx, obj_mut);
+                    return runtime.JS_Call(ctx, 0);
                 }
             }
         }
@@ -1422,7 +1413,7 @@ pub fn JS_GetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const
     pushValue(ctx, &this_obj_ref, this_mut);
     var prop = JS_NewString(ctx, str);
     if (!vt.isExactException(prop))
-        prop = JS_ToPropertyKey(ctx, prop);
+        prop = runtime.JS_ToPropertyKey(ctx, prop);
     this_mut = popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
         return prop;
@@ -1431,7 +1422,7 @@ pub fn JS_GetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const
 
 pub fn JS_GetPropertyUint32(ctx: *c.JSContext, obj: c.JSValue, idx: u32) c.JSValue {
     if (idx > @as(u32, @intCast(vt.JS_SHORTINT_MAX)))
-        return JS_ThrowError(ctx, c.JS_CLASS_RANGE_ERROR, "invalid array index");
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_RANGE_ERROR, "invalid array index");
     return JS_GetProperty(ctx, obj, JS_NewInt32(ctx, @intCast(idx)));
 }
 
@@ -1700,11 +1691,11 @@ pub fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSVa
                     const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(pr.value)));
                     pv.u.value = val_mut;
                 } else {
-                    return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot modify getter/setter/value kind");
+                    return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot modify getter/setter/value kind");
                 }
             } else if (flags & (vt.JS_DEF_PROP_HAS_GET | vt.JS_DEF_PROP_HAS_SET) != 0) {
                 if (vt.propType(pr) != vt.JS_PROP_GETSET)
-                    return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot modify getter/setter/value kind");
+                    return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot modify getter/setter/value kind");
                 var arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pr.value)));
                 if (vt.jsIsRomPtr(ctx, arr)) {
                     pushValue(ctx, &obj_ref, obj_mut);
@@ -1799,7 +1790,7 @@ pub fn add_global_var(ctx: *c.JSContext, prop: c.JSValue, define_flag: c.JS_BOOL
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(cx(ctx).global_obj)));
     if (find_own_property(ctx, p, prop)) |pr| {
         if (vt.propType(pr) != vt.JS_PROP_VARREF)
-            return JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "global variable '%lo' must be a reference", prop);
+            return utils.JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "global variable '%lo' must be a reference", prop);
         if (define_flag != 0) {
             const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(pr.value)));
             if (pv.u.value == c.JS_UNINITIALIZED)
@@ -1843,9 +1834,9 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
                     p = protoObject(x, c.JS_CLASS_STRING);
                     return setPropertyProtoLookup(ctx, this_mut, prop, val_mut, allow_tail_call, p, is_obj);
                 },
-                c.JS_TAG_NULL => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of null", prop),
-                c.JS_TAG_UNDEFINED => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of undefined", prop),
-                else => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of value", prop),
+                c.JS_TAG_NULL => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of null", prop),
+                c.JS_TAG_UNDEFINED => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of undefined", prop),
+                else => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of value", prop),
             }
         }
     } else {
@@ -1863,7 +1854,7 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
                 p = protoObject(x, c.JS_CLASS_STRING);
                 return setPropertyProtoLookup(ctx, this_mut, prop, val_mut, allow_tail_call, p, is_obj);
             },
-            else => return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of value", prop),
+            else => return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot set property '%lo' of value", prop),
         }
     }
 
@@ -1892,10 +1883,10 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
                 p.u.array.len += 1;
                 return c.JS_UNDEFINED;
             } else {
-                return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
+                return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
             }
         } else if (JS_IsNumericProperty(ctx, prop) != 0) {
-            return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
+            return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
         }
     } else if (class_id >= c.JS_CLASS_UINT8C_ARRAY and class_id <= c.JS_CLASS_FLOAT64_ARRAY) {
         if (mc.isInt(prop)) {
@@ -1908,9 +1899,9 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
             pushValue(ctx, &this_obj_ref, this_mut);
             pushValue(ctx, &val_ref, val_mut);
             switch (class_id) {
-                c.JS_CLASS_UINT8C_ARRAY => conv_ret = JS_ToUint8Clamp(ctx, &v, val_mut),
-                c.JS_CLASS_FLOAT32_ARRAY, c.JS_CLASS_FLOAT64_ARRAY => conv_ret = JS_ToNumber(ctx, &d, val_mut),
-                else => conv_ret = JS_ToInt32(ctx, &v, val_mut),
+                c.JS_CLASS_UINT8C_ARRAY => conv_ret = runtime.JS_ToUint8Clamp(ctx, &v, val_mut),
+                c.JS_CLASS_FLOAT32_ARRAY, c.JS_CLASS_FLOAT64_ARRAY => conv_ret = runtime.JS_ToNumber(ctx, &d, val_mut),
+                else => conv_ret = runtime.JS_ToInt32(ctx, &v, val_mut),
             }
             val_mut = popValue(ctx, &val_ref);
             this_mut = popValue(ctx, &this_obj_ref);
@@ -1918,7 +1909,7 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
                 return c.JS_EXCEPTION;
             p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
             if (idx >= p.u.typed_array.len)
-                return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
+                return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
             idx += p.u.typed_array.offset;
             const pbuffer: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(p.u.typed_array.buffer)));
             const arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pbuffer.u.array_buffer.byte_buffer)));
@@ -1945,7 +1936,7 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
             }
             return c.JS_UNDEFINED;
         } else if (JS_IsNumericProperty(ctx, prop) != 0) {
-            return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
+            return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "invalid array subscript");
         }
     }
 
@@ -1978,10 +1969,10 @@ fn setPropertyGetSet(ctx: *c.JSContext, this_obj: c.JSValue, val: c.JSValue, all
         val_mut = popValue(ctx, &val_ref);
         if (err != 0)
             return c.JS_EXCEPTION;
-        JS_PushArg(ctx, val_mut);
-        JS_PushArg(ctx, setter_mut);
-        JS_PushArg(ctx, this_mut);
-        return JS_Call(ctx, 1);
+        runtime.JS_PushArg(ctx, val_mut);
+        runtime.JS_PushArg(ctx, setter_mut);
+        runtime.JS_PushArg(ctx, this_mut);
+        return runtime.JS_Call(ctx, 1);
     }
 }
 
@@ -2068,7 +2059,7 @@ pub fn JS_SetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const
     pushValue(ctx, &val_ref, val_mut);
     var prop = JS_NewString(ctx, str);
     if (!vt.isExactException(prop))
-        prop = JS_ToPropertyKey(ctx, prop);
+        prop = runtime.JS_ToPropertyKey(ctx, prop);
     val_mut = popValue(ctx, &val_ref);
     this_mut = popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
@@ -2078,7 +2069,7 @@ pub fn JS_SetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const
 
 pub fn JS_SetPropertyUint32(ctx: *c.JSContext, this_obj: c.JSValue, idx: u32, val: c.JSValue) c.JSValue {
     if (idx > @as(u32, @intCast(vt.JS_SHORTINT_MAX)))
-        return JS_ThrowError(ctx, c.JS_CLASS_RANGE_ERROR, "invalid array index");
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_RANGE_ERROR, "invalid array index");
     return JS_SetPropertyInternal(ctx, this_obj, JS_NewShortInt(@intCast(idx)), val, c.FALSE);
 }
 
@@ -2086,7 +2077,7 @@ pub fn JS_DeleteProperty(ctx: *c.JSContext, this_obj: c.JSValue, prop_in: c.JSVa
     var this_obj_ref: c.JSGCRef = undefined;
     var this_mut = this_obj;
     pushValue(ctx, &this_obj_ref, this_mut);
-    const prop = JS_ToPropertyKey(ctx, prop_in);
+    const prop = runtime.JS_ToPropertyKey(ctx, prop_in);
     this_mut = popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
         return prop;
@@ -2185,7 +2176,7 @@ pub fn stdlib_init_class(ctx: *c.JSContext, class_def: *const vt.JSROMClassExt) 
 
         if (mc.isNull(parent_class))
             parent_class = vt.classProto(x, c.JS_CLASS_CLOSURE).*;
-        obj = js_new_c_function_proto(ctx, ctor_idx, parent_class, c.FALSE, c.JS_NULL);
+        obj = runtime.js_new_c_function_proto(ctx, ctor_idx, parent_class, c.FALSE, c.JS_NULL);
         vt.classObj(x, class_id).* = obj;
     } else {
         obj = JS_NewObject(ctx);

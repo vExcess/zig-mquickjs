@@ -10,6 +10,9 @@
 const std = @import("std");
 const dtoa = @import("dtoa_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
+const gc = @import("mquickjs_gc_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
+const builtins = @import("mquickjs_builtins_lib.zig");
 const rt = @import("mquickjs_runtime_types.zig");
 const vt = rt.vt;
 const mc = vt.mc;
@@ -21,55 +24,21 @@ inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
     return mc.ctxExt(ctx);
 }
 
-extern fn JS_ThrowError(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*:0]const u8, ...) callconv(.c) c.JSValue;
-extern fn get_mblock_size(ptr: *const anyopaque) c_int;
-extern fn JS_NewObject(ctx: *c.JSContext) c.JSValue;
-extern fn JS_NewArray(ctx: *c.JSContext, initial_len: c_int) c.JSValue;
-extern fn JS_NewObjectClass(ctx: *c.JSContext, class_id: c_int, extra_size: c_int) c.JSValue;
-extern fn JS_NewObjectPrealloc(ctx: *c.JSContext, n: c_int) c.JSValue;
-extern fn JS_NewObjectProtoClass(ctx: *c.JSContext, proto: c.JSValue, class_id: c_int, extra_size: c_int) c.JSValue;
-extern fn JS_NewObjectProtoClass1(ctx: *c.JSContext, proto: c.JSValue, class_id: c_int, extra_size: c_int) ?*anyopaque;
-extern fn JS_GetProperty(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) c.JSValue;
-extern fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, allow_tail_call: c.JS_BOOL) c.JSValue;
-extern fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValue, val: c.JSValue, allow_tail_call: c.JS_BOOL) c.JSValue;
-extern fn JS_DeleteProperty(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValue) c.JSValue;
-extern fn JS_DefinePropertyValue(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, val: c.JSValue) c.JSValue;
-extern fn JS_DefinePropertyGetSet(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, getter: c.JSValue, setter: c.JSValue, flags: c_int) c.JSValue;
-extern fn JS_HasProperty(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) c.JS_BOOL;
-extern fn JS_IsPrimitive(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsObject(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsFunction(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsFunctionObject(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsError(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsNumber(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsString(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_NewString(ctx: *c.JSContext, buf: [*:0]const u8) c.JSValue;
-extern fn JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue;
-extern fn JS_NewInt32(ctx: *c.JSContext, val: i32) c.JSValue;
-extern fn JS_NewUint32(ctx: *c.JSContext, val: u32) c.JSValue;
-extern fn JS_NewShortInt(val: i32) c.JSValue;
-extern fn js_alloc_float64(ctx: *c.JSContext, d: f64) c.JSValue;
-extern fn js_get_short_float(v: c.JSValue) f64;
-extern fn js_to_short_float(d: f64) c.JSValue;
-extern fn js_alloc_value_array(ctx: *c.JSContext, init_base: c_int, new_size: c_int) ?*anyopaque;
-extern fn js_alloc_byte_array(ctx: *c.JSContext, size: c_int) ?*anyopaque;
-extern fn js_byte_array_to_string(ctx: *c.JSContext, val: c.JSValue, len: c_int, is_ascii: c.JS_BOOL) c.JSValue;
-extern fn JS_ConcatString(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JSValue;
-extern fn js_string_eq(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JS_BOOL;
-extern fn js_string_compare(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c_int;
-extern fn js_string_utf8_to_utf16_pos(ctx: *c.JSContext, val: c.JSValue, utf8_pos: u32) u32;
-extern fn is_num_string(ctx: *c.JSContext, pval: *i32, val: c.JSValue) c.JS_BOOL;
-extern fn JS_MakeUniqueString(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_ToCString(ctx: *c.JSContext, val: c.JSValue, buf: *c.JSCStringBuf) ?[*:0]const u8;
-extern fn JS_ToBool(ctx: *c.JSContext, val: c.JSValue) c_int;
-extern fn add_global_var(ctx: *c.JSContext, prop: c.JSValue, define_flag: c.JS_BOOL) c.JSValue;
-extern fn stdlib_init(ctx: *c.JSContext, arr: *const anyopaque) void;
-extern fn js_get_object_class(ctx: *c.JSContext, val: c.JSValue, class_id: c_int) ?*anyopaque;
-extern fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, argv: *c.JSValue) c.JSValue;
-extern fn js_set_prototype_internal(ctx: *c.JSContext, obj: c.JSValue, proto: c.JSValue) c.JSValue;
 extern fn js_lrint(x: f64) c_long;
 extern fn js_fmod(x: f64, y: f64) f64;
 extern fn js_pow(x: f64, y: f64) f64;
+
+fn jsGetShortFloat(v: c.JSValue) f64 {
+    return @call(.never_inline, value.js_get_short_float, .{v});
+}
+
+fn jsNewInt32(ctx: *c.JSContext, v: i32) c.JSValue {
+    return @call(.never_inline, value.JS_NewInt32, .{ctx, v});
+}
+
+fn jsNewUint32(ctx: *c.JSContext, v: u32) c.JSValue {
+    return @call(.never_inline, value.JS_NewUint32, .{ctx, v});
+}
 
 fn max_int(a: c_int, b: c_int) c_int {
     return if (a > b) a else b;
@@ -85,11 +54,11 @@ fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
 }
 
 fn throwTypeError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
-    return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, msg);
+    return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, msg);
 }
 
 fn throwInternalError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
-    return JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, msg);
+    return utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, msg);
 }
 
 fn get_u32(pc: [*]const u8) u32 {
@@ -160,7 +129,7 @@ pub fn JS_NewContext2(mem_start: *anyopaque, mem_size_in: usize, stdlib_def: *co
             @as([*]const c.JSWord, @ptrCast(stdlib_def.stdlib_table)) + atom_table_len,
         )));
         const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(
-            js_alloc_value_array(ctx, 0, vt.valueArraySize(arr1)).?,
+            value.js_alloc_value_array(ctx, 0, vt.valueArraySize(arr1)).?,
         ));
         x.unique_strings = mc.valueFromPtr(arr);
         const items = vt.valueArrayItems(arr);
@@ -188,7 +157,7 @@ pub fn JS_NewContext2(mem_start: *anyopaque, mem_size_in: usize, stdlib_def: *co
 
     x.current_exception = c.JS_UNINITIALIZED;
 
-    const empty: *vt.JSValueArrayExt = @ptrCast(@alignCast(js_alloc_value_array(ctx, 0, 3).?));
+    const empty: *vt.JSValueArrayExt = @ptrCast(@alignCast(value.js_alloc_value_array(ctx, 0, 3).?));
     const empty_items = vt.valueArrayItems(empty);
     empty_items[0] = vt.newShortInt(0);
     empty_items[1] = vt.newShortInt(0);
@@ -202,13 +171,13 @@ pub fn JS_NewContext2(mem_start: *anyopaque, mem_size_in: usize, stdlib_def: *co
     while (i < x.class_count) : (i += 1) {
         vt.classObj(x, i).* = c.JS_NULL;
     }
-    vt.classProto(x, c.JS_CLASS_OBJECT).* = JS_NewObject(ctx);
-    vt.classProto(x, c.JS_CLASS_CLOSURE).* = JS_NewObject(ctx);
-    x.global_obj = JS_NewObject(ctx);
-    x.minus_zero = js_alloc_float64(ctx, -0.0);
+    vt.classProto(x, c.JS_CLASS_OBJECT).* = value.JS_NewObject(ctx);
+    vt.classProto(x, c.JS_CLASS_CLOSURE).* = value.JS_NewObject(ctx);
+    x.global_obj = value.JS_NewObject(ctx);
+    x.minus_zero = value.js_alloc_float64(ctx, -0.0);
 
     if (prepare_compilation == 0) {
-        stdlib_init(ctx, @ptrCast(@as([*]const c.JSWord, @ptrCast(stdlib_def.stdlib_table)) +
+        value.stdlib_init(ctx, @ptrCast(@as([*]const c.JSWord, @ptrCast(stdlib_def.stdlib_table)) +
             @as(usize, @intCast(stdlib_def.global_object_offset))));
     }
     return ctx;
@@ -222,7 +191,7 @@ pub fn JS_FreeContext(ctx: *c.JSContext) void {
     const x = cx(ctx);
     var ptr: [*]u8 = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
-        const size = get_mblock_size(ptr);
+        const size = gc.get_mblock_size(ptr);
         const p: *mc.JSObjectExt = @ptrCast(@alignCast(ptr));
         const class_id = mc.objectClassId(p);
         if (mc.mbGetMtag(p) == mc.JS_MTAG_OBJECT and class_id >= c.JS_CLASS_USER) {
@@ -453,7 +422,7 @@ pub fn get_func_name(ctx: *c.JSContext, func_obj: c.JSValue, str_buf: *c.JSCStri
     const val = js_function_get_length_name1(ctx, &func, 1, pb);
     if (val == c.JS_NULL)
         return null;
-    return JS_ToCString(ctx, val, str_buf);
+    return value.JS_ToCString(ctx, val, str_buf);
 }
 
 fn cprintf(pp: *[*]u8, buf_end: [*]u8, fmt: [*:0]const u8, args: anytype) void {
@@ -467,7 +436,7 @@ fn cprintf(pp: *[*]u8, buf_end: [*]u8, fmt: [*:0]const u8, args: anytype) void {
 }
 
 pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]const u8, line_num: c_int, col_num: c_int, skip_level_in: c_int) void {
-    if (JS_IsError(ctx, error_obj) == 0)
+    if (value.JS_IsError(ctx, error_obj) == 0)
         return;
     var buf: [128]u8 = undefined;
     var p: [*]u8 = &buf;
@@ -491,7 +460,7 @@ pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]
                 str = "<anonymous>";
             cprintf(&p, buf_end, "    at %s", .{str.?});
             if (b) |bb| {
-                const filename2 = JS_ToCString(ctx, bb.filename, &str_buf).?;
+                const filename2 = value.JS_ToCString(ctx, bb.filename, &str_buf).?;
                 const pc_off = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).*) - 1;
                 var col2: c_int = 0;
                 const line2 = find_line_col(&col2, bb, @intCast(pc_off));
@@ -518,7 +487,7 @@ pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]
     var error_obj_ref: c.JSGCRef = undefined;
     var error_obj_mut = error_obj;
     pushValue(ctx, &error_obj_ref, error_obj_mut);
-    const stack_str = JS_NewString(ctx, @ptrCast(&buf));
+    const stack_str = value.JS_NewString(ctx, @ptrCast(&buf));
     error_obj_mut = popValue(ctx, &error_obj_ref);
     const p1: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(error_obj_mut)));
     p1.u.err.stack = stack_str;
@@ -526,18 +495,18 @@ pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]
 
 pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSValue {
     var val = val_in;
-    if (JS_IsPrimitive(ctx, val) != 0)
+    if (value.JS_IsPrimitive(ctx, val) != 0)
         return val;
     var i: c_int = 0;
     while (i < 2) : (i += 1) {
         const atom: c_int = if ((i ^ hint) == 0) c.JS_ATOM_toString else c.JS_ATOM_valueOf;
         var val_ref: c.JSGCRef = undefined;
         pushValue(ctx, &val_ref, val);
-        const method = JS_GetProperty(ctx, val, utils.js_get_atom(ctx, atom));
+        const method = value.JS_GetProperty(ctx, val, utils.js_get_atom(ctx, atom));
         val = popValue(ctx, &val_ref);
         if (vt.isExactException(method))
             return method;
-        if (JS_IsFunction(ctx, method) != 0) {
+        if (value.JS_IsFunction(ctx, method) != 0) {
             var method_ref: c.JSGCRef = undefined;
             pushValue(ctx, &method_ref, method);
             pushValue(ctx, &val_ref, val);
@@ -554,7 +523,7 @@ pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSVal
             val = popValue(ctx, &val_ref);
             if (vt.isExactException(ret))
                 return ret;
-            if (JS_IsObject(ctx, ret) == 0)
+            if (value.JS_IsObject(ctx, ret) == 0)
                 return ret;
         }
     }
@@ -563,11 +532,11 @@ pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSVal
 
 pub fn js_dtoa2(ctx: *c.JSContext, d: f64, radix: c_int, n_digits: c_int, flags: c_int) c.JSValue {
     const len_max = dtoa.js_dtoa_max_len(d, radix, n_digits, flags);
-    const p0 = js_alloc_byte_array(ctx, len_max + 1) orelse return c.JS_EXCEPTION;
+    const p0 = value.js_alloc_byte_array(ctx, len_max + 1) orelse return c.JS_EXCEPTION;
     var str = mc.valueFromPtr(p0);
     var str_ref: c.JSGCRef = undefined;
     pushValue(ctx, &str_ref, str);
-    const tmp_arr = js_alloc_byte_array(ctx, @sizeOf(c.JSDTOATempMem));
+    const tmp_arr = value.js_alloc_byte_array(ctx, @sizeOf(c.JSDTOATempMem));
     str = popValue(ctx, &str_ref);
     if (tmp_arr == null)
         return c.JS_EXCEPTION;
@@ -581,7 +550,7 @@ pub fn js_dtoa2(ctx: *c.JSContext, d: f64, radix: c_int, n_digits: c_int, flags:
         @ptrCast(@alignCast(vt.byteArrayBuf(@ptrCast(@alignCast(tmp_arr.?))))),
     );
     utils.js_free(ctx, tmp_arr);
-    return js_byte_array_to_string(ctx, str, len, 1);
+    return value.js_byte_array_to_string(ctx, str, len, 1);
 }
 
 pub fn JS_ToString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
@@ -591,9 +560,9 @@ pub fn JS_ToString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
         if (mc.isInt(val)) {
             const len = dtoa.i32toa(&buf, vt.valueGetInt(val));
             buf[len] = 0;
-            return JS_NewString(ctx, @ptrCast(&buf));
+            return value.JS_NewString(ctx, @ptrCast(&buf));
         } else if (mc.isShortFloat(val)) {
-            return js_dtoa2(ctx, js_get_short_float(val), 10, 0, c.JS_DTOA_FORMAT_FREE);
+            return js_dtoa2(ctx, jsGetShortFloat(val), 10, 0, c.JS_DTOA_FORMAT_FREE);
         } else if (mc.isPtr(val)) {
             const ptr = mc.valueToPtr(val);
             const mtag = utils.js_get_mtag(ptr);
@@ -611,7 +580,7 @@ pub fn JS_ToString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
                 },
                 else => {
                     _ = utils.js_snprintf(@ptrCast(&buf), buf.len, "[mtag %d]", mtag);
-                    return JS_NewString(ctx, @ptrCast(&buf));
+                    return value.JS_NewString(ctx, @ptrCast(&buf));
                 },
             }
         } else {
@@ -629,7 +598,7 @@ pub fn JS_ToString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
                         return val;
                     continue :redo;
                 },
-                else => return JS_NewString(ctx, "?"),
+                else => return value.JS_NewString(ctx, "?"),
             }
         }
     }
@@ -642,10 +611,10 @@ pub fn JS_ToPropertyKey(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     if (vt.isExactException(val))
         return val;
     var n: i32 = undefined;
-    if (is_num_string(ctx, &n, val) != 0)
+    if (value.is_num_string(ctx, &n, val) != 0)
         return vt.newShortInt(n)
     else
-        return JS_MakeUniqueString(ctx, val);
+        return value.JS_MakeUniqueString(ctx, val);
 }
 
 pub fn skip_spaces(p1: [*:0]const u8) c_int {
@@ -673,7 +642,7 @@ pub fn js_atod1(ctx: *c.JSContext, pres: *f64, val: c.JSValue, radix: c_int, fla
     var val_ref: c.JSGCRef = undefined;
     var val_mut = val;
     pushValue(ctx, &val_ref, val_mut);
-    const tmp_arr = js_alloc_byte_array(ctx, @sizeOf(c.JSATODTempMem));
+    const tmp_arr = value.js_alloc_byte_array(ctx, @sizeOf(c.JSATODTempMem));
     val_mut = popValue(ctx, &val_ref);
     if (tmp_arr == null) {
         pres.* = std.math.nan(f64);
@@ -705,7 +674,7 @@ pub fn JS_ToNumber(ctx: *c.JSContext, pres: *f64, val_in: c.JSValue) c_int {
             pres.* = @floatFromInt(vt.valueGetInt(val));
             return 0;
         } else if (mc.isShortFloat(val)) {
-            pres.* = js_get_short_float(val);
+            pres.* = jsGetShortFloat(val);
             return 0;
         } else if (mc.isPtr(val)) {
             const ptr = mc.valueToPtr(val);
@@ -755,7 +724,7 @@ pub fn JS_ToInt32Internal(ctx: *c.JSContext, pres: *c_int, val: c.JSValue, sat_f
     if (mc.isInt(val)) {
         ret = vt.valueGetInt(val);
     } else if (mc.isShortFloat(val)) {
-        d = js_get_short_float(val);
+        d = jsGetShortFloat(val);
         ret = intFromFloat(d, sat_flag);
     } else if (mc.isPtr(val)) {
         if (JS_ToNumber(ctx, &d, val) != 0) {
@@ -790,7 +759,7 @@ fn intFromFloat(d: f64, sat_flag: c.JS_BOOL) i32 {
         if (e <= (1023 + 30 + 53)) {
             var v = (u & ((@as(u64, 1) << 52) - 1)) | (@as(u64, 1) << 52);
             v = v << @as(u6, @intCast(e - 1023 - 52 + 32));
-            var ret: i32 = @intCast(v >> 32);
+            var ret: i32 = @bitCast(@as(u32, @truncate(v >> 32)));
             if (u >> 63 != 0)
                 ret = -ret;
             return ret;
@@ -814,7 +783,11 @@ pub fn JS_ToInt32(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int {
 }
 
 pub fn JS_ToUint32(ctx: *c.JSContext, pres: *u32, val: c.JSValue) c_int {
-    return JS_ToInt32Internal(ctx, @ptrCast(pres), val, 0);
+    var tmp: c_int = undefined;
+    const res = JS_ToInt32Internal(ctx, &tmp, val, 0);
+    if (res == 0)
+        pres.* = @bitCast(tmp);
+    return res;
 }
 
 pub fn JS_ToInt32Sat(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int {
@@ -846,7 +819,7 @@ pub fn JS_ToUint8Clamp(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int {
         else if (ret > 255)
             ret = 255;
     } else if (mc.isShortFloat(val)) {
-        d = js_get_short_float(val);
+        d = jsGetShortFloat(val);
         ret = uint8FromFloat(d);
     } else if (mc.isPtr(val)) {
         if (JS_ToNumber(ctx, &d, val) != 0) {
@@ -882,7 +855,7 @@ fn uint8FromFloat(d: f64) i32 {
 }
 
 pub fn js_get_length32(ctx: *c.JSContext, pres: *u32, obj: c.JSValue) c_int {
-    const len_val = JS_GetProperty(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length));
+    const len_val = value.JS_GetProperty(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length));
     if (vt.isExactException(len_val)) {
         pres.* = 0;
         return -1;
@@ -898,14 +871,14 @@ pub fn js_add_slow(ctx: *c.JSContext) c.JSValue {
     sp[0] = JS_ToPrimitive(ctx, sp[0], rt.HINT_NONE);
     if (vt.isExactException(sp[0]))
         return c.JS_EXCEPTION;
-    if (JS_IsString(ctx, sp[1]) != 0 or JS_IsString(ctx, sp[0]) != 0) {
+    if (value.JS_IsString(ctx, sp[1]) != 0 or value.JS_IsString(ctx, sp[0]) != 0) {
         sp[1] = JS_ToString(ctx, sp[1]);
         if (vt.isExactException(sp[1]))
             return c.JS_EXCEPTION;
         sp[0] = JS_ToString(ctx, sp[0]);
         if (vt.isExactException(sp[0]))
             return c.JS_EXCEPTION;
-        return JS_ConcatString(ctx, sp[1], sp[0]);
+        return value.JS_ConcatString(ctx, sp[1], sp[0]);
     } else {
         var d1: f64 = undefined;
         var d2: f64 = undefined;
@@ -913,7 +886,7 @@ pub fn js_add_slow(ctx: *c.JSContext) c.JSValue {
             return c.JS_EXCEPTION;
         if (JS_ToNumber(ctx, &d2, sp[0]) != 0)
             return c.JS_EXCEPTION;
-        return JS_NewFloat64(ctx, d1 + d2);
+        return value.JS_NewFloat64(ctx, d1 + d2);
     }
 }
 
@@ -935,7 +908,7 @@ pub fn js_binary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
             c_abort();
         },
     };
-    return JS_NewFloat64(ctx, r);
+    return value.JS_NewFloat64(ctx, r);
 }
 
 pub fn js_unary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
@@ -950,7 +923,7 @@ pub fn js_unary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
         OP.neg => d = -d,
         else => c_abort(),
     }
-    return JS_NewFloat64(ctx, d);
+    return value.JS_NewFloat64(ctx, d);
 }
 
 pub fn js_post_inc_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
@@ -959,11 +932,11 @@ pub fn js_post_inc_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     if (JS_ToNumber(ctx, &d, sp[0]) != 0)
         return c.JS_EXCEPTION;
     const r = d + 2 * @as(f64, @floatFromInt(op - OP.post_dec)) - 1;
-    const val = JS_NewFloat64(ctx, d);
+    const val = value.JS_NewFloat64(ctx, d);
     if (vt.isExactException(val))
         return val;
     sp[0] = val;
-    return JS_NewFloat64(ctx, r);
+    return value.JS_NewFloat64(ctx, r);
 }
 
 pub fn js_binary_logic_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
@@ -975,15 +948,15 @@ pub fn js_binary_logic_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     if (JS_ToUint32(ctx, &v2, sp[0]) != 0)
         return c.JS_EXCEPTION;
     switch (op) {
-        OP.shl => return JS_NewInt32(ctx, @bitCast(v1 << @as(u5, @intCast(v2 & 0x1f)))),
+        OP.shl => return jsNewInt32(ctx, @bitCast(v1 << @as(u5, @intCast(v2 & 0x1f)))),
         OP.sar => {
             const r: i32 = @as(i32, @bitCast(v1)) >> @as(u5, @intCast(v2 & 0x1f));
-            return JS_NewInt32(ctx, r);
+            return jsNewInt32(ctx, r);
         },
-        OP.shr => return JS_NewUint32(ctx, v1 >> @as(u5, @intCast(v2 & 0x1f))),
-        OP.@"and" => return JS_NewInt32(ctx, @bitCast(v1 & v2)),
-        OP.@"or" => return JS_NewInt32(ctx, @bitCast(v1 | v2)),
-        OP.xor => return JS_NewInt32(ctx, @bitCast(v1 ^ v2)),
+        OP.shr => return jsNewUint32(ctx, v1 >> @as(u5, @intCast(v2 & 0x1f))),
+        OP.@"and" => return jsNewInt32(ctx, @bitCast(v1 & v2)),
+        OP.@"or" => return jsNewInt32(ctx, @bitCast(v1 | v2)),
+        OP.xor => return jsNewInt32(ctx, @bitCast(v1 ^ v2)),
         else => c_abort(),
     }
 }
@@ -993,7 +966,7 @@ pub fn js_not_slow(ctx: *c.JSContext) c.JSValue {
     const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
     if (JS_ToUint32(ctx, &r, sp[0]) != 0)
         return c.JS_EXCEPTION;
-    return JS_NewInt32(ctx, @bitCast(~r));
+    return jsNewInt32(ctx, @bitCast(~r));
 }
 
 pub fn js_relational_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
@@ -1005,8 +978,8 @@ pub fn js_relational_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     if (vt.isExactException(sp[0]))
         return c.JS_EXCEPTION;
     var res: c_int = undefined;
-    if (JS_IsString(ctx, sp[1]) != 0 and JS_IsString(ctx, sp[0]) != 0) {
-        const cmp = js_string_compare(ctx, sp[1], sp[0]);
+    if (value.JS_IsString(ctx, sp[1]) != 0 and value.JS_IsString(ctx, sp[0]) != 0) {
+        const cmp = value.js_string_compare(ctx, sp[1], sp[0]);
         res = switch (op) {
             OP.lt => @intFromBool(cmp < 0),
             OP.lte => @intFromBool(cmp <= 0),
@@ -1031,18 +1004,18 @@ pub fn js_relational_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
 }
 
 pub fn js_strict_eq(ctx: *c.JSContext, op1: c.JSValue, op2: c.JSValue) c.JS_BOOL {
-    if (JS_IsNumber(ctx, op1) != 0) {
-        if (JS_IsNumber(ctx, op2) == 0)
+    if (value.JS_IsNumber(ctx, op1) != 0) {
+        if (value.JS_IsNumber(ctx, op2) == 0)
             return 0;
         var d1: f64 = undefined;
         var d2: f64 = undefined;
         _ = JS_ToNumber(ctx, &d1, op1);
         _ = JS_ToNumber(ctx, &d2, op2);
         return @intFromBool(d1 == d2);
-    } else if (JS_IsString(ctx, op1) != 0) {
-        if (JS_IsString(ctx, op2) == 0)
+    } else if (value.JS_IsString(ctx, op1) != 0) {
+        if (value.JS_IsString(ctx, op2) == 0)
             return 0;
-        return js_string_eq(ctx, op1, op2);
+        return value.js_string_eq(ctx, op1, op2);
     } else {
         return @intFromBool(op1 == op2);
     }
@@ -1133,7 +1106,7 @@ pub fn js_operator_in(ctx: *c.JSContext) c.JSValue {
     const prop = JS_ToPropertyKey(ctx, sp[1]);
     if (vt.isExactException(prop))
         return prop;
-    const res = JS_HasProperty(ctx, sp[0], prop);
+    const res = value.JS_HasProperty(ctx, sp[0], prop);
     return rt.newBool(res != 0);
 }
 
@@ -1141,12 +1114,12 @@ pub fn js_operator_instanceof(ctx: *c.JSContext) c.JSValue {
     const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
     const op1 = sp[1];
     const op2 = sp[0];
-    if (JS_IsFunctionObject(ctx, op2) == 0)
+    if (value.JS_IsFunctionObject(ctx, op2) == 0)
         return throwTypeError(ctx, "invalid 'instanceof' right operand");
-    const proto = JS_GetProperty(ctx, op2, utils.js_get_atom(ctx, c.JS_ATOM_prototype));
+    const proto = value.JS_GetProperty(ctx, op2, utils.js_get_atom(ctx, c.JS_ATOM_prototype));
     if (vt.isExactException(proto))
         return proto;
-    if (JS_IsObject(ctx, op1) == 0)
+    if (value.JS_IsObject(ctx, op1) == 0)
         return rt.newBool(false);
     var p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(op1)));
     while (true) {
@@ -1164,7 +1137,7 @@ pub fn js_operator_typeof(ctx: *c.JSContext, val: c.JSValue) c.JSValue {
         rt.JS_ETAG_NUMBER => c.JS_ATOM_number,
         rt.JS_ETAG_STRING => c.JS_ATOM_string,
         c.JS_TAG_BOOL => c.JS_ATOM_boolean,
-        rt.JS_ETAG_OBJECT => if (JS_IsFunction(ctx, val) != 0) c.JS_ATOM_function else c.JS_ATOM_object,
+        rt.JS_ETAG_OBJECT => if (value.JS_IsFunction(ctx, val) != 0) c.JS_ATOM_function else c.JS_ATOM_object,
         c.JS_TAG_NULL => c.JS_ATOM_object,
         else => c.JS_ATOM_undefined,
     };
@@ -1191,7 +1164,7 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
     var bfunc_ref: c.JSGCRef = undefined;
     pushValue(ctx, &bfunc_ref, bfunc);
     const extra: c_int = @intCast(@sizeOf(c.JSValue) + @as(usize, @intCast(ext_vars_len)) * @sizeOf(c.JSValue));
-    var closure = JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), c.JS_CLASS_CLOSURE).*, c.JS_CLASS_CLOSURE, extra);
+    var closure = value.JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), c.JS_CLASS_CLOSURE).*, c.JS_CLASS_CLOSURE, extra);
     bfunc = popValue(ctx, &bfunc_ref);
     if (vt.isExactException(closure))
         return c.JS_EXCEPTION;
@@ -1220,7 +1193,7 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
                     const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp.?, rt.FRAME_OFFSET_FUNC_OBJ).*)));
                     break :blk rt.closureVarRefs(po)[@intCast(var_idx)];
                 },
-                rt.JS_VARREF_KIND_GLOBAL => add_global_var(ctx, items[@intCast(2 * i)], @intFromBool(var_idx != 0)),
+                rt.JS_VARREF_KIND_GLOBAL => value.add_global_var(ctx, items[@intCast(2 * i)], @intFromBool(var_idx != 0)),
                 else => {
                     c_abort();
                 },
@@ -1239,13 +1212,13 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
 pub fn js_for_of_start(ctx: *c.JSContext, is_for_in: c.JS_BOOL) c.JSValue {
     const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
     if (is_for_in != 0) {
-        sp[0] = js_object_keys(ctx, null, 1, @ptrCast(sp));
+        sp[0] = builtins.js_object_keys(ctx, null, 1, @ptrCast(sp));
         if (vt.isExactException(sp[0]))
             return c.JS_EXCEPTION;
     }
-    if (js_get_object_class(ctx, sp[0], c.JS_CLASS_ARRAY) == null)
+    if (value.js_get_object_class(ctx, sp[0], c.JS_CLASS_ARRAY) == null)
         return throwTypeError(ctx, "unsupported type in for...of");
-    const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(js_alloc_value_array(ctx, 0, 2) orelse return c.JS_EXCEPTION));
+    const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(value.js_alloc_value_array(ctx, 0, 2) orelse return c.JS_EXCEPTION));
     const items = vt.valueArrayItems(arr);
     items[0] = sp[0];
     items[1] = vt.newShortInt(0);
@@ -1278,7 +1251,7 @@ pub fn js_new_c_function_proto(ctx: *c.JSContext, func_idx: c_int, proto: c.JSVa
         @intCast(@sizeOf(mc.JSCFunctionDataExt) - @sizeOf(c.JSValue))
     else
         @intCast(@sizeOf(mc.JSCFunctionDataExt));
-    const p0 = JS_NewObjectProtoClass1(ctx, proto, c.JS_CLASS_C_FUNCTION, extra);
+    const p0 = value.JS_NewObjectProtoClass1(ctx, proto, c.JS_CLASS_C_FUNCTION, extra);
     params = popValue(ctx, &params_ref);
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(p0 orelse return c.JS_EXCEPTION));
     p.u.cfunc.idx = @intCast(func_idx);
@@ -1292,12 +1265,12 @@ pub fn JS_NewCFunctionParams(ctx: *c.JSContext, func_idx: c_int, params: c.JSVal
 }
 
 pub fn js_call_constructor_start(ctx: *c.JSContext, func: c.JSValue) c.JSValue {
-    var proto = JS_GetProperty(ctx, func, utils.js_get_atom(ctx, c.JS_ATOM_prototype));
+    var proto = value.JS_GetProperty(ctx, func, utils.js_get_atom(ctx, c.JS_ATOM_prototype));
     if (vt.isExactException(proto))
         return proto;
-    if (JS_IsObject(ctx, proto) == 0)
+    if (value.JS_IsObject(ctx, proto) == 0)
         proto = vt.classProto(cx(ctx), c.JS_CLASS_OBJECT).*;
-    return JS_NewObjectProtoClass(ctx, proto, c.JS_CLASS_OBJECT, 0);
+    return value.JS_NewObjectProtoClass(ctx, proto, c.JS_CLASS_OBJECT, 0);
 }
 
 pub fn __js_poll_interrupt(ctx: *c.JSContext) c.JSValue {
@@ -1402,7 +1375,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
             .get_field, .get_length, .get_array_el => unreachable,
             .float_result => {
                 if (@abs(dr) >= 0x1p-127 and @abs(dr) <= 0x1p+128) {
-                    val = js_to_short_float(dr);
+                    val = value.js_to_short_float(dr);
                 } else if (dr == 0.0) {
                     const bits: u64 = @bitCast(dr);
                     if (bits != 0) {
@@ -1412,7 +1385,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     }
                 } else {
                     saveFrame(ctx, fp, sp, pc, b.?);
-                    val = js_alloc_float64(ctx, dr);
+                    val = value.js_alloc_float64(ctx, dr);
                     const restored = restorePc(fp);
                     b = restored.b;
                     pc = restored.pc;
@@ -1608,7 +1581,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             } else {
                                 const fn_ptr: rt.JSCFunctionFF = @ptrCast(fd.func.?);
                                 d = fn_ptr(d);
-                                val = JS_NewFloat64(ctx, d);
+                                val = value.JS_NewFloat64(ctx, d);
                             }
                         },
                         else => c_abort(),
@@ -1759,7 +1732,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 }
                 call_flags = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CALL_FLAGS).*);
                 if ((call_flags & rt.FRAME_CF_CTOR) != 0) {
-                    if (!vt.isExactException(val) and JS_IsObject(ctx, val) == 0) {
+                    if (!vt.isExactException(val) and value.JS_IsObject(ctx, val) == 0) {
                         val = rt.slot(fp, rt.FRAME_OFFSET_THIS_OBJ).*;
                     }
                 }
@@ -1847,7 +1820,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     OP.object => {
                         const nn: c_int = @intCast(get_u16(pc));
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_NewObjectPrealloc(ctx, nn);
+                        val = value.JS_NewObjectPrealloc(ctx, nn);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -1861,7 +1834,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.regexp => {
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_NewObjectClass(ctx, c.JS_CLASS_REGEXP, @sizeOf(rt.JSRegExpExt));
+                        val = value.JS_NewObjectClass(ctx, c.JS_CLASS_REGEXP, @sizeOf(rt.JSRegExpExt));
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -1880,7 +1853,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     OP.array_from => {
                         argc = @intCast(get_u16(pc));
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_NewArray(ctx, argc);
+                        val = value.JS_NewArray(ctx, argc);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -1907,7 +1880,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     OP.arguments => {
                         argc = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CALL_FLAGS).*) & rt.FRAME_CF_ARGC_MASK;
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_NewArray(ctx, argc);
+                        val = value.JS_NewArray(ctx, argc);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -2183,7 +2156,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         if (val == c.JS_UNINITIALIZED and opcode == OP.get_var_ref) {
                             const ext_vars: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.ext_vars)));
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "variable '%lo' is not defined", vt.valueArrayItems(ext_vars)[@intCast(2 * idx)]);
+                            val = utils.JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "variable '%lo' is not defined", vt.valueArrayItems(ext_vars)[@intCast(2 * idx)]);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2202,7 +2175,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         if (pval.* == c.JS_UNINITIALIZED and opcode == OP.put_var_ref) {
                             const ext_vars: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.ext_vars)));
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "variable '%lo' is not defined", vt.valueArrayItems(ext_vars)[@intCast(2 * idx)]);
+                            val = utils.JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "variable '%lo' is not defined", vt.valueArrayItems(ext_vars)[@intCast(2 * idx)]);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2231,7 +2204,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.if_false, OP.if_true => {
                         pc += 4;
-                        const res = JS_ToBool(ctx, sp[0]);
+                        const res = value.JS_ToBool(ctx, sp[0]);
                         sp += 1;
                         if ((res ^ (OP.if_true - opcode)) != 0) {
                             const diff: i32 = @bitCast(get_u32(pc - 4));
@@ -2251,7 +2224,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         }
                     },
                     OP.lnot => {
-                        const res = JS_ToBool(ctx, sp[0]);
+                        const res = value.JS_ToBool(ctx, sp[0]);
                         sp[0] = rt.newBool(res == 0);
                     },
                     OP.get_field2 => {
@@ -2291,7 +2264,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         }
                         if (slow) {
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_GetPropertyInternal(ctx, obj, prop, 1);
+                            val = value.JS_GetPropertyInternal(ctx, obj, prop, 1);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2328,7 +2301,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 if (vt.stringIsAscii(ps))
                                     val = vt.newShortInt(@intCast(vt.stringLen(ps)))
                                 else
-                                    val = vt.newShortInt(@intCast(js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
+                                    val = vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
                                 slow = false;
                             }
                         } else if (rt.valueGetSpecialTag(val) == c.JS_TAG_STRING_CHAR) {
@@ -2337,7 +2310,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         }
                         if (slow) {
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_GetPropertyInternal(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length), 1);
+                            val = value.JS_GetPropertyInternal(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length), 1);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2371,7 +2344,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             val = sp[0];
                             sp += 1;
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_SetPropertyInternal(ctx, sp[0], prop, val, 1);
+                            val = value.JS_SetPropertyInternal(ctx, sp[0], prop, val, 1);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2420,7 +2393,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 continue :outer;
                             }
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_GetPropertyInternal(ctx, sp[0], prop, 1);
+                            val = value.JS_GetPropertyInternal(ctx, sp[0], prop, 1);
                             restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2473,7 +2446,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             prop = sp[0];
                             sp += 1;
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_SetPropertyInternal(ctx, sp[0], prop, val, 1);
+                            val = value.JS_SetPropertyInternal(ctx, sp[0], prop, val, 1);
                             restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2491,11 +2464,11 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const prop = vt.valueArrayItems(cpool)[idx];
                         saveFrame(ctx, fp, sp, pc, b.?);
                         if (opcode == OP.define_field) {
-                            val = JS_DefinePropertyValue(ctx, sp[1], prop, sp[0]);
+                            val = value.JS_DefinePropertyValue(ctx, sp[1], prop, sp[0]);
                         } else if (opcode == OP.define_getter) {
-                            val = JS_DefinePropertyGetSet(ctx, sp[1], prop, sp[0], c.JS_UNDEFINED, vt.JS_DEF_PROP_HAS_GET);
+                            val = value.JS_DefinePropertyGetSet(ctx, sp[1], prop, sp[0], c.JS_UNDEFINED, vt.JS_DEF_PROP_HAS_GET);
                         } else {
-                            val = JS_DefinePropertyGetSet(ctx, sp[1], prop, c.JS_UNDEFINED, sp[0], vt.JS_DEF_PROP_HAS_SET);
+                            val = value.JS_DefinePropertyGetSet(ctx, sp[1], prop, c.JS_UNDEFINED, sp[0], vt.JS_DEF_PROP_HAS_SET);
                         }
                         const restored = restorePc(fp);
                         b = restored.b;
@@ -2508,9 +2481,9 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp += 1;
                     },
                     OP.set_proto => {
-                        if (JS_IsObject(ctx, sp[0]) != 0 or sp[0] == c.JS_NULL) {
+                        if (value.JS_IsObject(ctx, sp[0]) != 0 or sp[0] == c.JS_NULL) {
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = js_set_prototype_internal(ctx, sp[1], sp[0]);
+                            val = builtins.js_set_prototype_internal(ctx, sp[1], sp[0]);
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2532,7 +2505,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             }
                             sp[1] = rt.storeU32(@bitCast(ov[0]));
                         } else if (rt.isBothShortFloat(op1, op2)) {
-                            dr = js_get_short_float(op1) + js_get_short_float(op2);
+                            dr = jsGetShortFloat(op1) + jsGetShortFloat(op2);
                             sp += 1;
                             state = .float_result;
                             continue :outer;
@@ -2553,7 +2526,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             }
                             sp[1] = rt.storeU32(@bitCast(ov[0]));
                         } else if (rt.isBothShortFloat(op1, op2)) {
-                            dr = js_get_short_float(op1) - js_get_short_float(op2);
+                            dr = jsGetShortFloat(op1) - jsGetShortFloat(op2);
                             sp += 1;
                             state = .float_result;
                             continue :outer;
@@ -2582,7 +2555,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 sp[1] = rt.storeU32(@bitCast(@as(i32, @truncate(r))));
                             }
                         } else if (rt.isBothShortFloat(op1, op2)) {
-                            dr = js_get_short_float(op1) * js_get_short_float(op2);
+                            dr = jsGetShortFloat(op1) * jsGetShortFloat(op2);
                             sp += 1;
                             state = .float_result;
                             continue :outer;
@@ -2599,7 +2572,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             const v1 = vt.valueGetInt(op1);
                             const v2 = vt.valueGetInt(op2);
                             saveFrame(ctx, fp, sp, pc, b.?);
-                            val = JS_NewFloat64(ctx, @as(f64, @floatFromInt(v1)) / @as(f64, @floatFromInt(v2)));
+                            val = value.JS_NewFloat64(ctx, @as(f64, @floatFromInt(v1)) / @as(f64, @floatFromInt(v2)));
                             const restored = restorePc(fp);
                             b = restored.b;
                             pc = restored.pc;
@@ -2656,7 +2629,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 sp[0] = rt.storeI32(-v1);
                             }
                         } else if (mc.isShortFloat(op1)) {
-                            dr = -js_get_short_float(op1);
+                            dr = -jsGetShortFloat(op1);
                             state = .float_result;
                             continue :outer;
                         } else {
@@ -2896,7 +2869,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.delete => {
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_DeleteProperty(ctx, sp[1], sp[0]);
+                        val = value.JS_DeleteProperty(ctx, sp[1], sp[0]);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -2944,7 +2917,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     else => {
                         const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_ThrowError(
+                        val = utils.JS_ThrowError(
                             ctx,
                             c.JS_CLASS_INTERNAL_ERROR,
                             "invalid opcode: pc=%u opcode=0x%02x",
@@ -2991,7 +2964,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     }
                     if (slow) {
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_GetPropertyInternal(ctx, obj, prop, 1);
+                        val = value.JS_GetPropertyInternal(ctx, obj, prop, 1);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -3023,7 +2996,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             if (vt.stringIsAscii(ps))
                                 val = vt.newShortInt(@intCast(vt.stringLen(ps)))
                             else
-                                val = vt.newShortInt(@intCast(js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
+                                val = vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
                             slow = false;
                         }
                     } else if (rt.valueGetSpecialTag(val) == c.JS_TAG_STRING_CHAR) {
@@ -3032,7 +3005,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     }
                     if (slow) {
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_GetPropertyInternal(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length), 1);
+                        val = value.JS_GetPropertyInternal(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length), 1);
                         const restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;
@@ -3071,7 +3044,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             continue :outer;
                         }
                         saveFrame(ctx, fp, sp, pc, b.?);
-                        val = JS_GetPropertyInternal(ctx, sp[0], prop, 1);
+                        val = value.JS_GetPropertyInternal(ctx, sp[0], prop, 1);
                         restored = restorePc(fp);
                         b = restored.b;
                         pc = restored.pc;

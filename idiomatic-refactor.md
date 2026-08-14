@@ -105,6 +105,10 @@ Step 6b timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 
 Step 6c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.03 s**). No regression.
 
+Step 6d timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 6e timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -120,7 +124,9 @@ Step 6c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.03 s**
 | **6a** | `mquickjs_gc_lib.zig` — replace 3 value-only `extern fn` with `@import` (**done**) |
 | **6b** | `mquickjs_lexer_lib.zig` — replace 10 `extern fn` with `@import` (**done**) |
 | **6c** | `mquickjs_utils_lib.zig` — replace 18 `extern fn` with `@import`; `js_lrint` stays extern (libm is separate object) (**done**) |
-| **6d–6g** | Replace remaining `extern fn` with `@import` (one module per session) |
+| **6d** | `mquickjs_value_lib.zig` — replace 12 `extern fn` with `@import` (**done**) |
+| **6e** | `mquickjs_runtime_lib.zig` — replace 46 `extern fn` with `@import` (`utils`, `gc`, `value`, `builtins`); `js_lrint`/`js_fmod`/`js_pow` stay extern; `@call(.never_inline)` shims for `js_get_short_float`/`JS_NewInt32`/`JS_NewUint32`; C-equivalent `intFromFloat`/`JS_ToUint32` (**done**) |
+| **6f–6g** | Replace remaining `extern fn` with `@import` (one module per session) |
 | **7a–7g** | Deduplicate `pushValue` / `cx` / `get_u32` boilerplate |
 | **8a–8i** | Internal idiomatic cleanup (split large `_lib` files) |
 | **9a–9b** | Optional: reduce internal `@cImport` |
