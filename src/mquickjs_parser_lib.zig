@@ -22,54 +22,13 @@ const BlockEnv = pt.BlockEnv;
 const JSParsePos = pt.JSParsePos;
 const OP = rt.OP;
 
+const lexer = @import("mquickjs_lexer_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
+const runtime = @import("mquickjs_runtime_lib.zig");
+const builtins = @import("mquickjs_builtins_lib.zig");
+const dtoa = @import("dtoa_lib.zig");
+
 extern fn setjmp(env: *anyopaque) c_int;
-
-extern const opcode_info: [rt.OP.COUNT]rt.JSOpCodeExt;
-
-extern fn next_token(s: *JSParseState) void;
-extern fn js_parse_expect(s: *JSParseState, ch: c_int) void;
-extern fn js_parse_expect1(s: *JSParseState, ch: c_int) void;
-extern fn js_parse_expect_semi(s: *JSParseState) void;
-extern fn js_parse_string(s: *JSParseState, ppos: *u32, sep: c_int) c.JSValue;
-extern fn js_parse_get_pos(s: *JSParseState, sp: *JSParsePos) void;
-extern fn js_parse_seek_token(s: *JSParseState, sp: *const JSParsePos) void;
-extern fn js_parse_skip_parens_token(s: *JSParseState) c_int;
-extern fn js_skip_parens(s: *JSParseState, pfunc_name: ?*c.JSValue) c_int;
-extern fn js_skip_expr(s: *JSParseState) void;
-extern fn get_line_col(pcol_num: *c_int, buf: [*]const u8, len: usize) c_int;
-extern fn js_parse_error_mem(s: *JSParseState) noreturn;
-extern fn js_parse_error_stack_overflow(s: *JSParseState) noreturn;
-extern fn js_parse_error(s: *JSParseState, fmt: [*:0]const u8, ...) noreturn;
-
-extern fn js_get_atom(ctx: *c.JSContext, a: c_int) c.JSValue;
-extern fn JS_NewString(ctx: *c.JSContext, buf: [*:0]const u8) c.JSValue;
-extern fn JS_NewArray(ctx: *c.JSContext, initial_len: c_int) c.JSValue;
-extern fn JS_NewObject(ctx: *c.JSContext) c.JSValue;
-extern fn JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue;
-extern fn js_resize_byte_array(ctx: *c.JSContext, val: c.JSValue, new_size: c_int) c.JSValue;
-extern fn js_shrink_byte_array(ctx: *c.JSContext, pval: *c.JSValue, new_size: c_int) void;
-extern fn js_resize_value_array(ctx: *c.JSContext, val: c.JSValue, new_size: c_int) c.JSValue;
-extern fn js_shrink_value_array(ctx: *c.JSContext, pval: *c.JSValue, new_size: c_int) void;
-extern fn js_alloc_byte_array(ctx: *c.JSContext, size: c_int) ?*anyopaque;
-extern fn js_mallocz(ctx: *c.JSContext, size: c_uint, mtag: c_int) ?*anyopaque;
-extern fn js_free(ctx: *c.JSContext, ptr: ?*anyopaque) void;
-extern fn JS_SetPropertyUint32(ctx: *c.JSContext, this_obj: c.JSValue, idx: u32, val: c.JSValue) c.JSValue;
-extern fn JS_DefinePropertyValue(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, val: c.JSValue) c.JSValue;
-extern fn JS_ToPropertyKey(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn get_short_string(buf: [*c]u8, val: c.JSValue) c_int;
-
-extern fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]const u8, line_num: c_int, col_num: c_int, skip_level: c_int) void;
-extern fn js_closure(ctx: *c.JSContext, bfunc: c.JSValue, fp: [*c]c.JSValue) c.JSValue;
-extern fn JS_Call(ctx: *c.JSContext, call_flags: c_int) c.JSValue;
-extern fn JS_PushArg(ctx: *c.JSContext, val: c.JSValue) void;
-extern fn JS_ThrowError(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*:0]const u8, ...) callconv(.c) c.JSValue;
-
-extern fn js_parse_regexp(s: *JSParseState, re_flags: c_int) c.JSValue;
-extern fn re_parse_alternative(s: *JSParseState, state: c_int, param: c_int) callconv(.c) c_int;
-extern fn re_parse_disjunction(s: *JSParseState, state: c_int, param: c_int) callconv(.c) c_int;
-
-extern fn js_atod(str: [*c]const u8, pnext: [*c][*c]const u8, radix: c_int, flags: c_int, tmp_mem: *c.JSATODTempMem) f64;
-extern fn skip_spaces(p1: [*:0]const u8) c_int;
 
 const min_int = cutils.min_int;
 
@@ -171,9 +130,9 @@ fn get_byte_code(s: *JSParseState) [*]u8 {
 }
 
 pub fn emit_claim_size(s: *JSParseState, n: c_int) void {
-    const val = js_resize_byte_array(s.ctx, s.byte_code, @intCast(s.byte_code_len + @as(u32, @intCast(n))));
+    const val = value.js_resize_byte_array(s.ctx, s.byte_code, @intCast(s.byte_code_len + @as(u32, @intCast(n))));
     if (vt.isExactException(val))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     s.byte_code = val;
 }
 
@@ -203,9 +162,9 @@ pub fn pc2line_put_bits_short(s: *JSParseState, n: c_int, bits: u32) void {
     const pos = index >> 3;
 
     var b = funcBc(s.cur_func);
-    const val1 = js_resize_byte_array(s.ctx, b.pc2line, @intCast(pos + 4));
+    const val1 = value.js_resize_byte_array(s.ctx, b.pc2line, @intCast(pos + 4));
     if (vt.isExactException(val1))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     b = funcBc(s.cur_func);
     b.pc2line = val1;
 
@@ -248,9 +207,9 @@ pub fn get_line_col_delta(pcol_num: *c_int, buf: [*]const u8, pos1: c_int, pos2:
     var line_num: c_int = 0;
     var col_num: c_int = 0;
     if (pos2 >= pos1) {
-        line_num = get_line_col(&col_num, buf + @as(usize, @intCast(pos1)), @intCast(pos2 - pos1));
+        line_num = lexer.get_line_col(&col_num, buf + @as(usize, @intCast(pos1)), @intCast(pos2 - pos1));
     } else {
-        line_num = get_line_col(&col_num, buf + @as(usize, @intCast(pos2)), @intCast(pos1 - pos2));
+        line_num = lexer.get_line_col(&col_num, buf + @as(usize, @intCast(pos2)), @intCast(pos1 - pos2));
         line_num = -line_num;
         col_num = -col_num;
         if (line_num != 0) {
@@ -298,7 +257,7 @@ pub fn emit_op(s: *JSParseState, op: u8) void {
 
 pub fn emit_op_param(s: *JSParseState, op: u8, param: u32, source_pos: u32) void {
     emit_op_pos(s, op, source_pos);
-    const oi = opcode_info[op];
+    const oi = rt.opcode_info_data[op];
     switch (oi.fmt) {
         rt.OP_FMT_none => {},
         rt.OP_FMT_npop => emit_u16(s, @intCast(param)),
@@ -441,13 +400,13 @@ pub fn cpool_add(s: *JSParseState, val: c.JSValue) c_int {
             return i;
     }
     if (s.cpool_len > 65535)
-        js_parse_error(s, "too many constants");
+        lexer.js_parse_error(s, "too many constants");
     var val_ref: c.JSGCRef = undefined;
     pushValue(s.ctx, &val_ref, val);
-    const new_cpool = js_resize_value_array(s.ctx, b.cpool, max_int(s.cpool_len + 1, 4));
+    const new_cpool = value.js_resize_value_array(s.ctx, b.cpool, max_int(s.cpool_len + 1, 4));
     _ = popValue(s.ctx, &val_ref);
     if (vt.isExactException(new_cpool))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     b = funcBc(s.cur_func);
     b.cpool = new_cpool;
     arr = valueArr(b.cpool);
@@ -521,16 +480,16 @@ pub fn find_ext_var(s: *JSParseState, name: c.JSValue) c_int {
 pub fn add_func_ext_var(s: *JSParseState, func: c.JSValue, name: c.JSValue, decl: c_int) c_int {
     var b = funcBc(func);
     if (b.ext_vars_len >= pt.JS_MAX_LOCAL_VARS)
-        js_parse_error(s, "too many variable references");
+        lexer.js_parse_error(s, "too many variable references");
     var func_ref: c.JSGCRef = undefined;
     var name_ref: c.JSGCRef = undefined;
     pushValue(s.ctx, &func_ref, func);
     pushValue(s.ctx, &name_ref, name);
-    const new_ext_vars = js_resize_value_array(s.ctx, b.ext_vars, max_int(b.ext_vars_len + 1, 2) * 2);
+    const new_ext_vars = value.js_resize_value_array(s.ctx, b.ext_vars, max_int(b.ext_vars_len + 1, 2) * 2);
     _ = popValue(s.ctx, &name_ref);
     _ = popValue(s.ctx, &func_ref);
     if (vt.isExactException(new_ext_vars))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     b = funcBc(func);
     b.ext_vars = new_ext_vars;
     const arr = valueArr(b.ext_vars);
@@ -548,13 +507,13 @@ pub fn add_ext_var(s: *JSParseState, name: c.JSValue, decl: c_int) c_int {
 pub fn add_var(s: *JSParseState, name: c.JSValue) c_int {
     var b = funcBc(s.cur_func);
     if (s.local_vars_len >= pt.JS_MAX_LOCAL_VARS)
-        js_parse_error(s, "too many local variables");
+        lexer.js_parse_error(s, "too many local variables");
     var name_ref: c.JSGCRef = undefined;
     pushValue(s.ctx, &name_ref, name);
-    const new_vars = js_resize_value_array(s.ctx, b.vars, max_int(s.local_vars_len + 1, 4));
+    const new_vars = value.js_resize_value_array(s.ctx, b.vars, max_int(s.local_vars_len + 1, 4));
     _ = popValue(s.ctx, &name_ref);
     if (vt.isExactException(new_vars))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     b = funcBc(s.cur_func);
     b.vars = new_vars;
     const arr = valueArr(b.vars);
@@ -585,7 +544,7 @@ pub fn get_lvalue(s: *JSParseState, popcode: *c_int, pvar_idx: *c_int, psource_p
         OP.get_array_el, OP.get_length => {
             var_idx = -1;
         },
-        else => js_parse_error(s, "invalid lvalue"),
+        else => lexer.js_parse_error(s, "invalid lvalue"),
     }
     const source_pos = s.pc2line_source_pos;
     remove_last_op(s);
@@ -631,7 +590,7 @@ pub fn put_lvalue(s: *JSParseState, opcode_in: c_int, var_idx: c_int, source_pos
             }
             emit_op_pos(s, @intCast(OP.put_field), source_pos);
             if (opcode == OP.get_length) {
-                emit_u16(s, @intCast(cpool_add(s, js_get_atom(s.ctx, c.JS_ATOM_length))));
+                emit_u16(s, @intCast(cpool_add(s, utils.js_get_atom(s.ctx, c.JS_ATOM_length))));
             } else {
                 emit_u16(s, @intCast(var_idx));
             }
@@ -657,18 +616,18 @@ pub fn js_parse_property_name(s: *JSParseState, pname: *c.JSValue) c_int {
 
     if (s.token.val == lt.TOK_IDENT) {
         var is_set: c_int = undefined;
-        if (s.token.value == js_get_atom(ctx, c.JS_ATOM_get))
+        if (s.token.value == utils.js_get_atom(ctx, c.JS_ATOM_get))
             is_set = 0
-        else if (s.token.value == js_get_atom(ctx, c.JS_ATOM_set))
+        else if (s.token.value == utils.js_get_atom(ctx, c.JS_ATOM_set))
             is_set = 1
         else
             is_set = -1;
         if (is_set >= 0) {
-            next_token(s);
+            lexer.next_token(s);
             if (s.token.val == ':' or s.token.val == ',' or
                 s.token.val == '}' or s.token.val == '(')
             {
-                name = js_get_atom(ctx, if (is_set != 0) c.JS_ATOM_set else c.JS_ATOM_get);
+                name = utils.js_get_atom(ctx, if (is_set != 0) c.JS_ATOM_set else c.JS_ATOM_get);
             } else {
                 prop_type = pt.PARSE_PROP_GET + is_set;
             }
@@ -681,17 +640,17 @@ pub fn js_parse_property_name(s: *JSParseState, pname: *c.JSValue) c_int {
         } else if (s.token.val == lt.TOK_STRING) {
             name = s.token.value;
         } else if (s.token.val == lt.TOK_NUMBER) {
-            name = JS_NewFloat64(s.ctx, s.token.u.d);
+            name = value.JS_NewFloat64(s.ctx, s.token.u.d);
             if (vt.isExactException(name))
-                js_parse_error_mem(s);
+                lexer.js_parse_error_mem(s);
         } else {
-            js_parse_error(s, "invalid property name");
+            lexer.js_parse_error(s, "invalid property name");
         }
-        name = JS_ToPropertyKey(s.ctx, name);
+        name = runtime.JS_ToPropertyKey(s.ctx, name);
         if (vt.isExactException(name))
-            js_parse_error_mem(s);
+            lexer.js_parse_error_mem(s);
         pushValue(ctx, &name_ref, name);
-        next_token(s);
+        lexer.next_token(s);
         name = popValue(ctx, &name_ref);
     }
     if (prop_type == pt.PARSE_PROP_FIELD and s.token.val == '(')
@@ -704,7 +663,7 @@ pub fn parse_stack_alloc(s: *JSParseState, val_in: c.JSValue) c.JSValue {
     var val_ref: c.JSGCRef = undefined;
     pushValue(s.ctx, &val_ref, val_in);
     if (utils.JS_StackCheck(s.ctx, 1) != 0)
-        js_parse_error_stack_overflow(s);
+        lexer.js_parse_error_stack_overflow(s);
     return popValue(s.ctx, &val_ref);
 }
 
@@ -762,9 +721,9 @@ pub fn may_drop_result(s: *JSParseState, parse_flags: c_int) bool {
 }
 
 pub fn js_emit_push_number(s: *JSParseState, d: f64) void {
-    const val = JS_NewFloat64(s.ctx, d);
+    const val = value.JS_NewFloat64(s.ctx, d);
     if (vt.isExactException(val))
-        js_parse_error_mem(s);
+        lexer.js_parse_error_mem(s);
     if (mc.isInt(val)) {
         emit_push_short_int(s, vt.valueGetInt(val));
     } else {
@@ -783,8 +742,8 @@ const parse_func_table = [_]pt.JSParseFunc{
     &js_parse_statement,
     &js_parse_block,
     &js_parse_json_value,
-    re_parse_alternative,
-    re_parse_disjunction,
+    builtins.re_parse_alternative,
+    builtins.re_parse_disjunction,
 };
 pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_int) callconv(.c) c_int {
     var parse_flags = parse_flags_in;
@@ -802,11 +761,11 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             switch (s.token.val) {
                 lt.TOK_NUMBER => {
                     js_emit_push_number(s, s.token.u.d);
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 lt.TOK_STRING => {
                     js_emit_push_const(s, s.token.value);
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 lt.TOK_REGEXP => {
                     js_emit_push_const(s, s.token.value);
@@ -817,7 +776,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                     const saved_byte_code_len = s.byte_code_len;
                     s.buf_pos = s.token.source_pos + 1;
                     s.buf_len = s.token.u.regexp.re_end_pos;
-                    const byte_code = js_parse_regexp(s, @intCast(s.token.u.regexp.re_flags));
+                    const byte_code = builtins.js_parse_regexp(s, @intCast(s.token.u.regexp.re_flags));
                     s.buf_pos = saved_buf_pos;
                     s.buf_len = saved_buf_len;
                     b = funcBc(s.cur_func);
@@ -825,25 +784,25 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                     s.byte_code_len = saved_byte_code_len;
                     js_emit_push_const(s, byte_code);
                     emit_op(s, @intCast(OP.regexp));
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 '(' => {
-                    next_token(s);
+                    lexer.next_token(s);
                     parsePushInt(s, parse_flags);
                     return parseCall(0, pt.PARSE_FUNC_js_parse_expr_comma, 0);
                 },
                 lt.TOK_FUNCTION => js_parse_function_decl(s, pt.JS_PARSE_FUNC_EXPR, c.JS_NULL),
                 lt.TOK_NULL => {
                     emit_op(s, @intCast(OP.null));
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 lt.TOK_THIS => {
                     emit_op(s, @intCast(OP.push_this));
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 lt.TOK_FALSE, lt.TOK_TRUE => {
                     emit_op(s, @intCast(OP.push_false + @intFromBool(s.token.val == lt.TOK_TRUE)));
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 lt.TOK_IDENT => {
                     const b = funcBc(s.cur_func);
@@ -865,10 +824,10 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                         op = OP.get_var_ref;
                     }
                     emit_var(s, op, var_idx, s.token.source_pos);
-                    next_token(s);
+                    lexer.next_token(s);
                 },
                 '{' => {
-                    next_token(s);
+                    lexer.next_token(s);
                     emit_op(s, @intCast(OP.object));
                     count_pos = @intCast(s.byte_code_len);
                     emit_u16(s, 0);
@@ -876,33 +835,33 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                     continue :sw 101;
                 },
                 '[' => {
-                    next_token(s);
+                    lexer.next_token(s);
                     idx = 0;
                     continue :sw 102;
                 },
                 lt.TOK_NEW => {
-                    next_token(s);
+                    lexer.next_token(s);
                     if (s.token.val == '.') {
-                        next_token(s);
+                        lexer.next_token(s);
                         if (s.token.val != lt.TOK_IDENT or
-                            s.token.value != js_get_atom(s.ctx, c.JS_ATOM_target))
+                            s.token.value != utils.js_get_atom(s.ctx, c.JS_ATOM_target))
                         {
-                            js_parse_error(s, "expecting target");
+                            lexer.js_parse_error(s, "expecting target");
                         }
-                        next_token(s);
+                        lexer.next_token(s);
                         emit_op(s, @intCast(OP.new_target));
                     } else {
                         parsePushInt(s, parse_flags);
                         return parseCall(4, pt.PARSE_FUNC_js_parse_postfix_expr, 0);
                     }
                 },
-                else => js_parse_error(s, "unexpected character in expression"),
+                else => lexer.js_parse_error(s, "unexpected character in expression"),
             }
             continue :sw 100;
         },
         0 => {
             parse_flags = parsePopInt(s);
-            js_parse_expect(s, ')');
+            lexer.js_parse_expect(s, ')');
             continue :sw 100;
         },
         1 => {
@@ -923,7 +882,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             idx = @bitCast(parsePopInt(s));
             idx += 1;
             if (s.token.val == ',') {
-                next_token(s);
+                lexer.next_token(s);
             } else if (s.token.val != ']') {
                 continue :sw 103;
             }
@@ -935,7 +894,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             emit_op(s, @intCast(OP.put_array_el));
             idx += 1;
             if (s.token.val == ',')
-                next_token(s);
+                lexer.next_token(s);
             continue :sw 105;
         },
         4 => {
@@ -957,29 +916,29 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             if (s.token.val == ')') {
                 continue :sw 106;
             }
-            js_parse_expect(s, ',');
+            lexer.js_parse_expect(s, ',');
             continue :sw 107;
         },
         6 => {
             op_source_pos = @bitCast(parsePopInt(s));
             is_new = parsePopInt(s) != 0;
             parse_flags = parsePopInt(s);
-            js_parse_expect(s, ']');
+            lexer.js_parse_expect(s, ']');
             emit_op_pos(s, @intCast(OP.get_array_el), op_source_pos);
             continue :sw 100;
         },
         101 => {
             if (s.token.val == '}') {
-                js_parse_expect(s, '}');
+                lexer.js_parse_expect(s, '}');
                 continue :sw 100;
             }
             var name: c.JSValue = undefined;
             const prop_type = js_parse_property_name(s, &name);
             if (prop_type == pt.PARSE_PROP_FIELD and
-                name == js_get_atom(s.ctx, c.JS_ATOM___proto__))
+                name == utils.js_get_atom(s.ctx, c.JS_ATOM___proto__))
             {
                 if (has_proto)
-                    js_parse_error(s, "duplicate __proto__ property name");
+                    lexer.js_parse_error(s, "duplicate __proto__ property name");
                 has_proto = true;
                 prop_idx = -1;
             } else {
@@ -989,7 +948,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                 put_u16(byte_code + @as(usize, @intCast(count_pos)), @intCast(min_int(@intCast(count + 1), 0xffff)));
             }
             if (prop_type == pt.PARSE_PROP_FIELD) {
-                js_parse_expect(s, ':');
+                lexer.js_parse_expect(s, ':');
                 parsePushInt(s, prop_idx);
                 parsePushInt(s, parse_flags);
                 parsePushInt(s, @intFromBool(has_proto));
@@ -1009,10 +968,10 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
         },
         104 => {
             if (s.token.val != ',') {
-                js_parse_expect(s, '}');
+                lexer.js_parse_expect(s, '}');
                 continue :sw 100;
             }
-            next_token(s);
+            lexer.next_token(s);
             continue :sw 101;
         },
         102 => {
@@ -1030,20 +989,20 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
         105 => {
             if (s.token.val != ']') {
                 if (idx >= vt.JS_SHORTINT_MAX)
-                    js_parse_error(s, "too many elements");
+                    lexer.js_parse_error(s, "too many elements");
                 emit_op(s, @intCast(OP.dup));
                 emit_push_short_int(s, @bitCast(idx));
                 parsePushInt(s, @bitCast(idx));
                 parsePushInt(s, parse_flags);
                 return parseCall(3, pt.PARSE_FUNC_js_parse_assign_expr, 0);
             }
-            js_parse_expect(s, ']');
+            lexer.js_parse_expect(s, ']');
             continue :sw 100;
         },
         100 => {
             if (s.token.val == '(' and (parse_flags & pt.PF_ACCEPT_LPAREN) != 0) {
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 if (!is_new) {
                     opcode = get_prev_opcode(s);
                     const byte_code = get_byte_code(s);
@@ -1066,26 +1025,26 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                 continue :sw 106;
             } else if (s.token.val == '.') {
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 if (!(s.token.val == lt.TOK_IDENT or s.token.val >= lt.TOK_FIRST_KEYWORD))
-                    js_parse_error(s, "expecting field name");
-                if (s.token.value == js_get_atom(s.ctx, c.JS_ATOM_NaN) or
-                    s.token.value == js_get_atom(s.ctx, c.JS_ATOM_Infinity))
+                    lexer.js_parse_error(s, "expecting field name");
+                if (s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_NaN) or
+                    s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_Infinity))
                 {
                     js_emit_push_const(s, s.token.value);
                     emit_op_pos(s, @intCast(OP.get_array_el), op_source_pos);
-                } else if (s.token.value == js_get_atom(s.ctx, c.JS_ATOM_length)) {
+                } else if (s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_length)) {
                     emit_op_pos(s, @intCast(OP.get_length), op_source_pos);
                 } else {
                     const pidx = cpool_add(s, s.token.value);
                     emit_op_pos(s, @intCast(OP.get_field), op_source_pos);
                     emit_u16(s, @intCast(pidx));
                 }
-                next_token(s);
+                lexer.next_token(s);
                 continue :sw 100;
             } else if (s.token.val == '[') {
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 parsePushInt(s, parse_flags);
                 parsePushInt(s, @intFromBool(is_new));
                 parsePushInt(s, @bitCast(op_source_pos));
@@ -1093,7 +1052,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             } else if (!asBool(s.got_lf) and (s.token.val == lt.TOK_DEC or s.token.val == lt.TOK_INC)) {
                 const op = s.token.val;
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 var lv_opcode: c_int = undefined;
                 var var_idx: c_int = undefined;
                 var source_pos: u32 = undefined;
@@ -1113,7 +1072,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
         },
         107 => {
             if (arg_count >= pt.JS_MAX_ARGC)
-                js_parse_error(s, "too many call arguments");
+                lexer.js_parse_error(s, "too many call arguments");
             arg_count += 1;
             parsePushInt(s, parse_flags);
             parsePushInt(s, arg_count);
@@ -1123,7 +1082,7 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             return parseCall(5, pt.PARSE_FUNC_js_parse_assign_expr, 0);
         },
         106 => {
-            next_token(s);
+            lexer.next_token(s);
             if (opcode == OP.get_field or opcode == OP.get_length or opcode == OP.get_array_el) {
                 emit_op_param(s, @intCast(OP.call_method), @intCast(arg_count), op_source_pos);
             } else if (is_new) {
@@ -1150,10 +1109,10 @@ fn js_emit_delete(s: *JSParseState) void {
         },
         OP.get_length => {
             remove_last_op(s);
-            js_emit_push_const(s, js_get_atom(s.ctx, c.JS_ATOM_length));
+            js_emit_push_const(s, utils.js_get_atom(s.ctx, c.JS_ATOM_length));
         },
         OP.get_array_el => remove_last_op(s),
-        else => js_parse_error(s, "invalid lvalue for delete"),
+        else => lexer.js_parse_error(s, "invalid lvalue for delete"),
     }
     emit_op(s, @intCast(OP.delete));
 }
@@ -1169,13 +1128,13 @@ pub fn js_parse_unary(s: *JSParseState, state: c_int, parse_flags_in: c_int) cal
                 '+', '-', '!', '~' => {
                     op = s.token.val;
                     op_source_pos = s.token.source_pos;
-                    next_token(s);
+                    lexer.next_token(s);
                     if (s.token.val == lt.TOK_NUMBER and (op == '-' or op == '+')) {
                         var d = s.token.u.d;
                         if (op == '-')
                             d = -d;
                         js_emit_push_number(s, d);
-                        next_token(s);
+                        lexer.next_token(s);
                         return pt.PARSE_STATE_RET;
                     }
                     parsePushInt(s, op);
@@ -1183,24 +1142,24 @@ pub fn js_parse_unary(s: *JSParseState, state: c_int, parse_flags_in: c_int) cal
                     return parseCall(0, pt.PARSE_FUNC_js_parse_unary, 0);
                 },
                 lt.TOK_VOID => {
-                    next_token(s);
+                    lexer.next_token(s);
                     return parseCall(1, pt.PARSE_FUNC_js_parse_unary, 0);
                 },
                 lt.TOK_DEC, lt.TOK_INC => {
                     op = s.token.val;
                     op_source_pos = s.token.source_pos;
-                    next_token(s);
+                    lexer.next_token(s);
                     parsePushInt(s, op);
                     parsePushInt(s, parse_flags);
                     parsePushInt(s, @bitCast(op_source_pos));
                     return parseCall(2, pt.PARSE_FUNC_js_parse_unary, 0);
                 },
                 lt.TOK_TYPEOF => {
-                    next_token(s);
+                    lexer.next_token(s);
                     return parseCall(3, pt.PARSE_FUNC_js_parse_unary, 0);
                 },
                 lt.TOK_DELETE => {
-                    next_token(s);
+                    lexer.next_token(s);
                     return parseCall(4, pt.PARSE_FUNC_js_parse_unary, 0);
                 },
                 else => return parseCall(5, pt.PARSE_FUNC_js_parse_postfix_expr, parse_flags | pt.PF_ACCEPT_LPAREN),
@@ -1254,7 +1213,7 @@ pub fn js_parse_unary(s: *JSParseState, state: c_int, parse_flags_in: c_int) cal
         5 => {
             if (s.token.val == lt.TOK_POW) {
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 parsePushInt(s, @bitCast(op_source_pos));
                 return parseCall(6, pt.PARSE_FUNC_js_parse_unary, 0);
             }
@@ -1340,7 +1299,7 @@ pub fn js_parse_expr_binary(s: *JSParseState, state: c_int, parse_flags_in: c_in
                     c_abort();
                 },
             };
-            next_token(s);
+            lexer.next_token(s);
             parsePushInt(s, parse_flags);
             parsePushInt(s, opcode);
             parsePushInt(s, @bitCast(op_source_pos));
@@ -1386,7 +1345,7 @@ pub fn js_parse_logical_and_or(s: *JSParseState, state: c_int, parse_flags_in: c
             continue :sw 10;
         },
         10 => {
-            next_token(s);
+            lexer.next_token(s);
             emit_op(s, @intCast(OP.dup));
             emit_goto(s, if (op == lt.TOK_LAND) OP.if_false else OP.if_true, &label1);
             emit_op(s, @intCast(OP.drop));
@@ -1413,7 +1372,7 @@ pub fn js_parse_cond_expr(s: *JSParseState, state: c_int, parse_flags_in: c_int)
             parse_flags &= ~pt.PF_DROP;
             if (s.token.val != '?')
                 return pt.PARSE_STATE_RET;
-            next_token(s);
+            lexer.next_token(s);
             label1 = new_label(s);
             emit_goto(s, OP.if_false, &label1);
             js_parse_push_val(s, label1);
@@ -1425,7 +1384,7 @@ pub fn js_parse_cond_expr(s: *JSParseState, state: c_int, parse_flags_in: c_int)
             label1 = js_parse_pop_val(s);
             label2 = new_label(s);
             emit_goto(s, OP.goto, &label2);
-            js_parse_expect(s, ':');
+            lexer.js_parse_expect(s, ':');
             emit_label(s, &label1);
             js_parse_push_val(s, label2);
             parsePushInt(s, parse_flags);
@@ -1459,7 +1418,7 @@ pub fn js_parse_assign_expr(s: *JSParseState, state: c_int, parse_flags_in: c_in
             op = s.token.val;
             if (op == '=' or (op >= lt.TOK_MUL_ASSIGN and op <= lt.TOK_OR_ASSIGN)) {
                 op_source_pos = s.token.source_pos;
-                next_token(s);
+                lexer.next_token(s);
                 get_lvalue(s, &opcode, &var_idx, &source_pos, op != '=');
                 parsePushInt(s, op);
                 parsePushInt(s, opcode);
@@ -1516,7 +1475,7 @@ pub fn js_parse_expr_comma(s: *JSParseState, state: c_int, parse_flags_in: c_int
             comma = true;
             if (!asBool(s.dropped_result))
                 emit_op(s, @intCast(OP.drop));
-            next_token(s);
+            lexer.next_token(s);
             continue :sw 10;
         },
         10 => {
@@ -1542,9 +1501,9 @@ pub fn js_parse_expr(s: *JSParseState) void {
 }
 
 pub fn js_parse_expr_paren(s: *JSParseState) void {
-    js_parse_expect(s, '(');
+    lexer.js_parse_expect(s, '(');
     js_parse_expr(s);
-    js_parse_expect(s, ')');
+    lexer.js_parse_expect(s, ')');
 }
 fn push_break_entry(s: *JSParseState, label_name: c.JSValue, label_break: c.JSValue, label_cont: c.JSValue, drop_count: c_int) *BlockEnv {
     const ctx = s.ctx;
@@ -1554,7 +1513,7 @@ fn push_break_entry(s: *JSParseState, label_name: c.JSValue, label_break: c.JSVa
     const ret = utils.JS_StackCheck(ctx, @intCast(block_env_len));
     _ = popValue(ctx, &label_name_ref);
     if (ret != 0)
-        js_parse_error_stack_overflow(s);
+        lexer.js_parse_error_stack_overflow(s);
     const x = cx(ctx);
     const sp: [*]c.JSValue = @ptrCast(x.sp);
     x.sp = @ptrCast(sp - @as(usize, @intCast(block_env_len)));
@@ -1632,11 +1591,11 @@ fn emit_break(s: *JSParseState, label_name: c.JSValue, is_cont: c_int) void {
     }
     if (label_name == c.JS_NULL) {
         if (is_cont != 0)
-            js_parse_error(s, "continue must be inside loop")
+            lexer.js_parse_error(s, "continue must be inside loop")
         else
-            js_parse_error(s, "break must be inside loop or switch");
+            lexer.js_parse_error(s, "break must be inside loop or switch");
     } else {
-        js_parse_error(s, "break/continue label not found");
+        lexer.js_parse_error(s, "break/continue label not found");
     }
 }
 
@@ -1688,20 +1647,20 @@ fn js_parse_var(s: *JSParseState, in_accepted: bool) void {
     while (true) {
         const ident_source_pos = s.token.source_pos;
         if (s.token.val != lt.TOK_IDENT)
-            js_parse_error(s, "variable name expected");
-        if (s.token.value == js_get_atom(s.ctx, c.JS_ATOM_arguments))
-            js_parse_error(s, "invalid variable name");
+            lexer.js_parse_error(s, "variable name expected");
+        if (s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_arguments))
+            lexer.js_parse_error(s, "invalid variable name");
         var var_kind: c_int = undefined;
         const var_idx = define_var(s, &var_kind, s.token.value);
-        next_token(s);
+        lexer.next_token(s);
         if (s.token.val == '=') {
-            next_token(s);
+            lexer.next_token(s);
             js_parse_assign_expr2(s, if (in_accepted) 0 else pt.PF_NO_IN);
             put_var(s, var_kind, var_idx, ident_source_pos);
         }
         if (s.token.val != ',')
             break;
-        next_token(s);
+        lexer.next_token(s);
     }
 }
 
@@ -1716,16 +1675,16 @@ pub fn js_parse_block(s: *JSParseState, state: c_int, dummy_param: c_int) callco
     _ = dummy_param;
     switch (state) {
         pt.PARSE_STATE_INIT => {
-            js_parse_expect(s, '{');
+            lexer.js_parse_expect(s, '{');
             if (s.token.val == '}') {
-                next_token(s);
+                lexer.next_token(s);
                 return pt.PARSE_STATE_RET;
             }
             return parseCall(0, pt.PARSE_FUNC_js_parse_statement, 0);
         },
         0 => {
             if (s.token.val == '}') {
-                next_token(s);
+                lexer.next_token(s);
                 return pt.PARSE_STATE_RET;
             }
             return parseCall(0, pt.PARSE_FUNC_js_parse_statement, 0);
@@ -1755,15 +1714,15 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 label_name = s.token.value;
                 var label_name_ref: c.JSGCRef = undefined;
                 pushValue(s.ctx, &label_name_ref, label_name);
-                next_token(s);
-                js_parse_expect(s, ':');
+                lexer.next_token(s);
+                lexer.js_parse_expect(s, ':');
                 label_name = popValue(s.ctx, &label_name_ref);
 
                 var top_val = s.top_break;
                 while (!mc.isNull(top_val)) {
                     const top = blockEnv(s.ctx, top_val);
                     if (top.label_name == label_name)
-                        js_parse_error(s, "duplicate label name");
+                        lexer.js_parse_error(s, "duplicate label name");
                     top_val = top.prev;
                 }
 
@@ -1790,33 +1749,33 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 '{' => return parseCall(0, pt.PARSE_FUNC_js_parse_block, 0),
                 lt.TOK_RETURN => {
                     if (asBool(s.is_eval))
-                        js_parse_error(s, "return not in a function");
+                        lexer.js_parse_error(s, "return not in a function");
                     const op_source_pos = s.token.source_pos;
-                    next_token(s);
+                    lexer.next_token(s);
                     var has_val = false;
                     if (s.token.val != ';' and s.token.val != '}' and !asBool(s.got_lf)) {
                         js_parse_expr(s);
                         has_val = true;
                     }
                     emit_return(s, has_val, op_source_pos);
-                    js_parse_expect_semi(s);
+                    lexer.js_parse_expect_semi(s);
                 },
                 lt.TOK_THROW => {
                     const op_source_pos = s.token.source_pos;
-                    next_token(s);
+                    lexer.next_token(s);
                     if (asBool(s.got_lf))
-                        js_parse_error(s, "line terminator not allowed after throw");
+                        lexer.js_parse_error(s, "line terminator not allowed after throw");
                     js_parse_expr(s);
                     emit_op_pos(s, @intCast(OP.throw), op_source_pos);
-                    js_parse_expect_semi(s);
+                    lexer.js_parse_expect_semi(s);
                 },
                 lt.TOK_VAR, lt.TOK_LET, lt.TOK_CONST => {
-                    next_token(s);
+                    lexer.next_token(s);
                     js_parse_var(s, true);
-                    js_parse_expect_semi(s);
+                    lexer.js_parse_expect_semi(s);
                 },
                 lt.TOK_IF => {
-                    next_token(s);
+                    lexer.next_token(s);
                     set_eval_ret_undefined(s);
                     js_parse_expr_paren(s);
                     label1 = new_label(s);
@@ -1826,7 +1785,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 },
                 lt.TOK_WHILE => {
                     _ = push_break_entry(s, label_name, new_label(s), new_label(s), 0);
-                    next_token(s);
+                    lexer.next_token(s);
                     set_eval_ret_undefined(s);
                     const be = blockEnv(s.ctx, s.top_break);
                     emit_label(s, &be.label_cont);
@@ -1837,7 +1796,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 lt.TOK_DO => {
                     _ = push_break_entry(s, label_name, new_label(s), new_label(s), 0);
                     label1 = new_label(s);
-                    next_token(s);
+                    lexer.next_token(s);
                     set_eval_ret_undefined(s);
                     emit_label(s, &label1);
                     js_parse_push_val(s, label1);
@@ -1845,11 +1804,11 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 },
                 lt.TOK_FOR => {
                     const be = push_break_entry(s, label_name, new_label(s), new_label(s), 0);
-                    next_token(s);
+                    lexer.next_token(s);
                     set_eval_ret_undefined(s);
-                    js_parse_expect1(s, '(');
-                    const bits = js_parse_skip_parens_token(s);
-                    next_token(s);
+                    lexer.js_parse_expect1(s, '(');
+                    const bits = lexer.js_parse_skip_parens_token(s);
+                    lexer.next_token(s);
                     if ((bits & lt.SKIP_HAS_SEMI) == 0) {
                         be.drop_count = vt.newShortInt(1);
                         var label_expr = new_label(s);
@@ -1858,11 +1817,11 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                         emit_goto(s, OP.goto, &label_expr);
                         emit_label(s, &label_next);
                         if (is_var_decl_token(s.token.val)) {
-                            next_token(s);
+                            lexer.next_token(s);
                             var var_kind: c_int = undefined;
                             const var_idx = define_var(s, &var_kind, s.token.value);
                             put_var(s, var_kind, var_idx, s.pc2line_source_pos);
-                            next_token(s);
+                            lexer.next_token(s);
                         } else {
                             var opcode: c_int = undefined;
                             var var_idx: c_int = undefined;
@@ -1875,45 +1834,45 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                         const for_op: c_int = if (s.token.val == lt.TOK_IN)
                             OP.for_in_start
                         else if (s.token.val == lt.TOK_IDENT and
-                            s.token.value == js_get_atom(s.ctx, c.JS_ATOM_of))
+                            s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_of))
                             OP.for_of_start
                         else
-                            js_parse_error(s, "expected 'of' or 'in' in for control expression");
-                        next_token(s);
+                            lexer.js_parse_error(s, "expected 'of' or 'in' in for control expression");
+                        lexer.next_token(s);
                         emit_label(s, &label_expr);
                         js_parse_expr(s);
                         emit_op(s, @intCast(for_op));
                         emit_goto(s, OP.goto, &be.label_cont);
-                        js_parse_expect(s, ')');
+                        lexer.js_parse_expect(s, ')');
                         emit_label(s, &label_body);
                         js_parse_push_val(s, label_next);
                         return parseCall(5, pt.PARSE_FUNC_js_parse_statement, 0);
                     } else {
                         if (s.token.val != ';') {
                             if (is_var_decl_token(s.token.val)) {
-                                next_token(s);
+                                lexer.next_token(s);
                                 js_parse_var(s, false);
                             } else {
                                 js_parse_expr2(s, pt.PF_NO_IN | pt.PF_DROP);
                             }
                         }
-                        js_parse_expect(s, ';');
+                        lexer.js_parse_expect(s, ';');
                         label_test = new_label(s);
                         emit_label(s, &label_test);
                         if (s.token.val != ';') {
                             js_parse_expr(s);
                             emit_goto(s, OP.if_false, &be.label_break);
                         }
-                        js_parse_expect(s, ';');
+                        lexer.js_parse_expect(s, ';');
                         if (s.token.val != ')') {
-                            js_parse_get_pos(s, &expr3_pos);
-                            js_skip_expr(s);
+                            lexer.js_parse_get_pos(s, &expr3_pos);
+                            lexer.js_skip_expr(s);
                         } else {
                             expr3_pos.source_pos = @bitCast(@as(i32, -1));
                             expr3_pos.got_lf = 0;
                             expr3_pos.regexp_allowed = 0;
                         }
-                        js_parse_expect(s, ')');
+                        lexer.js_parse_expect(s, ')');
                         js_parse_push_val(s, label_test);
                         parsePushInt(s, expr3_pos.got_lf | (@as(c_int, expr3_pos.regexp_allowed) << 1));
                         parsePushInt(s, @bitCast(expr3_pos.source_pos));
@@ -1922,29 +1881,29 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 },
                 lt.TOK_BREAK, lt.TOK_CONTINUE => {
                     const is_cont: c_int = @intFromBool(s.token.val == lt.TOK_CONTINUE);
-                    next_token(s);
+                    lexer.next_token(s);
                     const brk_name: c.JSValue = if (!asBool(s.got_lf) and s.token.val == lt.TOK_IDENT)
                         s.token.value
                     else
                         c.JS_NULL;
                     emit_break(s, brk_name, is_cont);
                     if (brk_name != c.JS_NULL)
-                        next_token(s);
-                    js_parse_expect_semi(s);
+                        lexer.next_token(s);
+                    lexer.js_parse_expect_semi(s);
                 },
                 lt.TOK_SWITCH => {
                     _ = push_break_entry(s, label_name, new_label(s), pt.labelNone(), 1);
-                    next_token(s);
+                    lexer.next_token(s);
                     set_eval_ret_undefined(s);
                     js_parse_expr_paren(s);
-                    js_parse_expect(s, '{');
+                    lexer.js_parse_expect(s, '{');
                     default_label_pos = -1;
                     label_case = pt.labelNone();
                     continue :sw 210;
                 },
                 lt.TOK_TRY => {
                     set_eval_ret_undefined(s);
-                    next_token(s);
+                    lexer.next_token(s);
                     label_catch = new_label(s);
                     label_finally = new_label(s);
                     emit_goto(s, OP.@"catch", &label_catch);
@@ -1953,7 +1912,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                     js_parse_push_val(s, label_catch);
                     return parseCall(8, pt.PARSE_FUNC_js_parse_block, 0);
                 },
-                ';' => next_token(s),
+                ';' => lexer.next_token(s),
                 else => {
                     if (s.eval_ret_idx >= 0) {
                         js_parse_expr(s);
@@ -1961,7 +1920,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                     } else {
                         js_parse_expr2(s, pt.PF_DROP);
                     }
-                    js_parse_expect_semi(s);
+                    lexer.js_parse_expect_semi(s);
                 },
             }
             return pt.PARSE_STATE_RET;
@@ -1970,7 +1929,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
         1 => {
             label1 = js_parse_pop_val(s);
             if (s.token.val == lt.TOK_ELSE) {
-                next_token(s);
+                lexer.next_token(s);
                 label2 = new_label(s);
                 emit_goto(s, OP.goto, &label2);
                 emit_label(s, &label1);
@@ -1996,10 +1955,10 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
             label1 = js_parse_pop_val(s);
             const be = blockEnv(s.ctx, s.top_break);
             emit_label(s, &be.label_cont);
-            js_parse_expect(s, lt.TOK_WHILE);
+            lexer.js_parse_expect(s, lt.TOK_WHILE);
             js_parse_expr_paren(s);
             if (s.token.val == ';')
-                next_token(s);
+                lexer.next_token(s);
             emit_goto(s, OP.if_true, &label1);
             emit_label(s, &be.label_break);
             pop_break_entry(s);
@@ -2027,10 +1986,10 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
             emit_label(s, &be.label_cont);
             if (expr3_pos.source_pos != @as(u32, @bitCast(@as(i32, -1)))) {
                 var end_pos: JSParsePos = undefined;
-                js_parse_get_pos(s, &end_pos);
-                js_parse_seek_token(s, &expr3_pos);
+                lexer.js_parse_get_pos(s, &end_pos);
+                lexer.js_parse_seek_token(s, &expr3_pos);
                 js_parse_expr2(s, pt.PF_DROP);
-                js_parse_seek_token(s, &end_pos);
+                lexer.js_parse_seek_token(s, &end_pos);
             }
             emit_goto(s, OP.goto, &label_test);
             be = blockEnv(s.ctx, s.top_break);
@@ -2045,7 +2004,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
         },
         210 => {
             if (s.token.val == '}') {
-                js_parse_expect(s, '}');
+                lexer.js_parse_expect(s, '}');
                 if (default_label_pos >= 0) {
                     emit_label_pos(s, &label_case, default_label_pos);
                 } else if (!label_is_none(label_case)) {
@@ -2066,10 +2025,10 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                     label_case = pt.labelNone();
                 }
                 while (true) {
-                    next_token(s);
+                    lexer.next_token(s);
                     emit_op(s, @intCast(OP.dup));
                     js_parse_expr(s);
-                    js_parse_expect(s, ':');
+                    lexer.js_parse_expect(s, ':');
                     emit_op(s, @intCast(OP.strict_eq));
                     if (s.token.val == lt.TOK_CASE) {
                         if (label_is_none(label1b))
@@ -2085,10 +2044,10 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 }
                 continue :sw 210;
             } else if (s.token.val == lt.TOK_DEFAULT) {
-                next_token(s);
-                js_parse_expect(s, ':');
+                lexer.next_token(s);
+                lexer.js_parse_expect(s, ':');
                 if (default_label_pos >= 0)
-                    js_parse_error(s, "duplicate default");
+                    lexer.js_parse_error(s, "duplicate default");
                 if (label_is_none(label_case)) {
                     label_case = new_label(s);
                     emit_goto(s, OP.goto, &label_case);
@@ -2097,7 +2056,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 continue :sw 210;
             } else {
                 if (label_is_none(label_case))
-                    js_parse_error(s, "invalid switch statement");
+                    lexer.js_parse_error(s, "invalid switch statement");
                 js_parse_push_val(s, label_case);
                 parsePushInt(s, default_label_pos);
                 return parseCall(7, pt.PARSE_FUNC_js_parse_statement, 0);
@@ -2116,16 +2075,16 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
             emit_goto(s, OP.goto, &label_end);
             if (s.token.val == lt.TOK_CATCH) {
                 label_catch2 = new_label(s);
-                next_token(s);
-                js_parse_expect(s, '(');
+                lexer.next_token(s);
+                lexer.js_parse_expect(s, '(');
                 if (s.token.val != lt.TOK_IDENT)
-                    js_parse_error(s, "identifier expected");
+                    lexer.js_parse_error(s, "identifier expected");
                 const name = s.token.value;
                 if (find_var(s, name) >= 0 or find_ext_var(s, name) >= 0)
-                    js_parse_error(s, "catch variable already exists");
+                    lexer.js_parse_error(s, "catch variable already exists");
                 const var_idx = add_var(s, name);
-                next_token(s);
-                js_parse_expect(s, ')');
+                lexer.next_token(s);
+                lexer.js_parse_expect(s, ')');
                 emit_label(s, &label_catch);
                 {
                     const b = funcBc(s.cur_func);
@@ -2143,7 +2102,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                 emit_op(s, @intCast(OP.throw));
                 continue :sw 220;
             } else {
-                js_parse_error(s, "expecting catch or finally");
+                lexer.js_parse_error(s, "expecting catch or finally");
             }
         },
         9 => {
@@ -2165,7 +2124,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
         220 => {
             emit_label(s, &label_finally);
             if (s.token.val == lt.TOK_FINALLY) {
-                next_token(s);
+                lexer.next_token(s);
                 _ = push_break_entry(s, c.JS_NULL, pt.labelNone(), pt.labelNone(), 2);
                 js_parse_push_val(s, label_end);
                 return parseCall(10, pt.PARSE_FUNC_js_parse_block, 0);
@@ -2194,7 +2153,7 @@ fn js_parse_source_element(s: *JSParseState) void {
 
 pub fn js_alloc_function_bytecode(ctx: *c.JSContext) ?*rt.JSFunctionBytecodeExt {
     const b: *rt.JSFunctionBytecodeExt = @ptrCast(@alignCast(
-        js_mallocz(ctx, @intCast(@sizeOf(rt.JSFunctionBytecodeExt)), mc.JS_MTAG_FUNCTION_BYTECODE) orelse return null,
+        utils.js_mallocz(ctx, @intCast(@sizeOf(rt.JSFunctionBytecodeExt)), mc.JS_MTAG_FUNCTION_BYTECODE) orelse return null,
     ));
     b.func_name = c.JS_NULL;
     b.byte_code = c.JS_NULL;
@@ -2214,19 +2173,19 @@ fn js_parse_function_decl(s: *JSParseState, func_type: c_int, func_name_in: c.JS
     var bfunc_ref: c.JSGCRef = undefined;
 
     if (func_type == pt.JS_PARSE_FUNC_STATEMENT or func_type == pt.JS_PARSE_FUNC_EXPR) {
-        next_token(s);
+        lexer.next_token(s);
         if (s.token.val != lt.TOK_IDENT and !is_expr)
-            js_parse_error(s, "function name expected");
+            lexer.js_parse_error(s, "function name expected");
         if (s.token.val == lt.TOK_IDENT) {
             func_name = s.token.value;
             pushValue(ctx, &func_name_ref, func_name);
-            next_token(s);
+            lexer.next_token(s);
             func_name = popValue(ctx, &func_name_ref);
         }
     }
 
     pushValue(ctx, &func_name_ref, func_name);
-    const b0 = js_alloc_function_bytecode(s.ctx) orelse js_parse_error_mem(s);
+    const b0 = js_alloc_function_bytecode(s.ctx) orelse lexer.js_parse_error_mem(s);
     const bfunc = mc.valueFromPtr(b0);
     pushValue(ctx, &bfunc_ref, bfunc);
 
@@ -2236,10 +2195,10 @@ fn js_parse_function_decl(s: *JSParseState, func_type: c_int, func_name_in: c.JS
     b.source_pos = s.token.source_pos;
     pt.bytecodeSetHasColumn(b, asBool(s.has_column));
 
-    js_parse_expect1(s, '(');
-    _ = js_skip_parens(s, null);
-    js_parse_expect1(s, '{');
-    const skip_bits = js_skip_parens(s, if (is_expr) &func_name_ref.val else null);
+    lexer.js_parse_expect1(s, '(');
+    _ = lexer.js_skip_parens(s, null);
+    lexer.js_parse_expect1(s, '{');
+    const skip_bits = lexer.js_skip_parens(s, if (is_expr) &func_name_ref.val else null);
 
     b = funcBc(bfunc_ref.val);
     pt.bytecodeSetHasArguments(b, (skip_bits & lt.SKIP_HAS_ARGUMENTS) != 0);
@@ -2320,7 +2279,7 @@ fn define_hoisted_functions(s: *JSParseState, is_eval: bool) void {
 const MAX_DEFAULT_PARAMS: c_int = 64;
 
 fn emit_arg_default(s: *JSParseState, arg_idx: c_int, default_pos: *const JSParsePos) void {
-    js_parse_seek_token(s, default_pos);
+    lexer.js_parse_seek_token(s, default_pos);
     const source_pos = s.pc2line_source_pos;
     emit_var(s, OP.get_arg, arg_idx, source_pos);
     emit_op(s, @intCast(OP.undefined));
@@ -2333,55 +2292,55 @@ fn emit_arg_default(s: *JSParseState, arg_idx: c_int, default_pos: *const JSPars
 }
 
 fn js_parse_function(s: *JSParseState) void {
-    next_token(s);
-    js_parse_expect(s, '(');
+    lexer.next_token(s);
+    lexer.js_parse_expect(s, '(');
     var default_arg_idx: [MAX_DEFAULT_PARAMS]c_int = undefined;
     var default_pos: [MAX_DEFAULT_PARAMS]JSParsePos = undefined;
     var default_count: c_int = 0;
     while (s.token.val != ')') {
         if (s.token.val != lt.TOK_IDENT)
-            js_parse_error(s, "missing formal parameter");
+            lexer.js_parse_error(s, "missing formal parameter");
         const name = s.token.value;
-        if (name == js_get_atom(s.ctx, c.JS_ATOM_eval) or
-            name == js_get_atom(s.ctx, c.JS_ATOM_arguments))
+        if (name == utils.js_get_atom(s.ctx, c.JS_ATOM_eval) or
+            name == utils.js_get_atom(s.ctx, c.JS_ATOM_arguments))
         {
-            js_parse_error(s, "invalid argument name");
+            lexer.js_parse_error(s, "invalid argument name");
         }
         if (find_var(s, name) >= 0)
-            js_parse_error(s, "duplicate argument name");
+            lexer.js_parse_error(s, "duplicate argument name");
         _ = add_var(s, name);
         const arg_idx = s.local_vars_len - 1;
-        next_token(s);
+        lexer.next_token(s);
         if (s.token.val == '=') {
             if (default_count >= MAX_DEFAULT_PARAMS)
-                js_parse_error(s, "too many default parameters");
-            next_token(s);
-            js_parse_get_pos(s, &default_pos[@intCast(default_count)]);
-            js_skip_expr(s);
+                lexer.js_parse_error(s, "too many default parameters");
+            lexer.next_token(s);
+            lexer.js_parse_get_pos(s, &default_pos[@intCast(default_count)]);
+            lexer.js_skip_expr(s);
             default_arg_idx[@intCast(default_count)] = arg_idx;
             default_count += 1;
         }
         if (s.token.val == ')')
             break;
-        js_parse_expect(s, ',');
+        lexer.js_parse_expect(s, ',');
     }
     var b = funcBc(s.cur_func);
     const arg_count = s.local_vars_len;
     pt.bytecodeSetArgCount(b, @intCast(arg_count));
-    next_token(s);
-    js_parse_expect(s, '{');
+    lexer.next_token(s);
+    lexer.js_parse_expect(s, '{');
 
     var body_pos: JSParsePos = undefined;
-    js_parse_get_pos(s, &body_pos);
+    lexer.js_parse_get_pos(s, &body_pos);
     var i: c_int = 0;
     while (i < default_count) : (i += 1) {
         emit_arg_default(s, default_arg_idx[@intCast(i)], &default_pos[@intCast(i)]);
     }
-    js_parse_seek_token(s, &body_pos);
+    lexer.js_parse_seek_token(s, &body_pos);
 
     b = funcBc(s.cur_func);
     if (pt.bytecodeHasArguments(b)) {
-        const var_idx = add_var(s, js_get_atom(s.ctx, c.JS_ATOM_arguments));
+        const var_idx = add_var(s, utils.js_get_atom(s.ctx, c.JS_ATOM_arguments));
         emit_op(s, @intCast(OP.arguments));
         put_var(s, rt.JS_VARREF_KIND_VAR, var_idx - @as(c_int, @intCast(arg_count)), s.pc2line_source_pos);
     }
@@ -2396,16 +2355,16 @@ fn js_parse_function(s: *JSParseState) void {
     }
     if (js_is_live_code(s))
         emit_op(s, @intCast(OP.return_undef));
-    next_token(s);
+    lexer.next_token(s);
     define_hoisted_functions(s, false);
     b = funcBc(s.cur_func);
     b.byte_code = s.byte_code;
 }
 
 fn js_parse_program(s: *JSParseState) void {
-    next_token(s);
+    lexer.next_token(s);
     if (asBool(s.has_retval)) {
-        s.eval_ret_idx = add_var(s, js_get_atom(s.ctx, c.JS_ATOM__ret_));
+        s.eval_ret_idx = add_var(s, utils.js_get_atom(s.ctx, c.JS_ATOM__ret_));
     }
     while (s.token.val != lt.TOK_EOF) {
         js_parse_source_element(s);
@@ -2429,7 +2388,7 @@ fn convert_ext_vars_to_local_vars_bytecode(s: *JSParseState, byte_code: [*]u8, b
     var pos: c_int = 0;
     while (pos < byte_code_len) {
         const op = byte_code[@intCast(pos)];
-        const oi = opcode_info[op];
+        const oi = rt.opcode_info_data[op];
         switch (op) {
             @as(u8, @intCast(OP.get_var_ref)),
             @as(u8, @intCast(OP.put_var_ref)),
@@ -2492,11 +2451,11 @@ fn convert_ext_vars_to_local_vars(s: *JSParseState) void {
 
 fn compute_stack_size_push(s: *JSParseState, arr: *vt.JSByteArrayExt, explore_tab: [*]u8, pos: u32, stack_len: c_int) void {
     if (pos >= @as(u32, @intCast(vt.byteArraySize(arr))))
-        js_parse_error(s, "bytecode buffer overflow (pc=%d)", pos);
+        lexer.js_parse_error(s, "bytecode buffer overflow (pc=%d)", pos);
     const short_stack_len: u8 = @intCast(1 + @as(u32, @bitCast(stack_len)) % 255);
     if (explore_tab[pos] != 0) {
         if (explore_tab[pos] != short_stack_len) {
-            js_parse_error(s, "inconsistent stack size: %d %d (pc=%d)", explore_tab[pos] - 1, short_stack_len - 1, @as(c_int, @intCast(pos)));
+            lexer.js_parse_error(s, "inconsistent stack size: %d %d (pc=%d)", explore_tab[pos] - 1, short_stack_len - 1, @as(c_int, @intCast(pos)));
         }
     } else {
         explore_tab[pos] = short_stack_len;
@@ -2509,7 +2468,7 @@ fn compute_stack_size(s: *JSParseState, pfunc: *c.JSValue) void {
     const ctx = s.ctx;
     var b = funcBc(pfunc.*);
     var arr = byteArr(b.byte_code);
-    const explore_arr_ptr = js_alloc_byte_array(s.ctx, vt.byteArraySize(arr)) orelse js_parse_error_mem(s);
+    const explore_arr_ptr = value.js_alloc_byte_array(s.ctx, vt.byteArraySize(arr)) orelse lexer.js_parse_error_mem(s);
     b = funcBc(pfunc.*);
     arr = byteArr(b.byte_code);
     var explore_arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(explore_arr_ptr));
@@ -2534,20 +2493,20 @@ fn compute_stack_size(s: *JSParseState, pfunc: *c.JSValue) void {
             break :arr_buf o;
         };
         if (op == @as(u8, @intCast(OP.invalid)) or op >= OP.COUNT)
-            js_parse_error(s, "invalid opcode (pc=%d)", @as(c_int, @intCast(pos - 1)));
-        const oi = opcode_info[op];
+            lexer.js_parse_error(s, "invalid opcode (pc=%d)", @as(c_int, @intCast(pos - 1)));
+        const oi = rt.opcode_info_data[op];
         const op_len: c_int = oi.size;
         if ((pos + @as(u32, @intCast(op_len - 1))) > @as(u32, @intCast(vt.byteArraySize(arr))))
-            js_parse_error(s, "bytecode buffer overflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
+            lexer.js_parse_error(s, "bytecode buffer overflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
         var n_pop: c_int = oi.n_pop;
         if (oi.fmt == rt.OP_FMT_npop)
             n_pop += @intCast(get_u16(vt.byteArrayBuf(arr) + pos));
         if (stack_len < n_pop)
-            js_parse_error(s, "stack underflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
+            lexer.js_parse_error(s, "stack underflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
         stack_len += @as(c_int, oi.n_push) - n_pop;
         if (stack_len > b.stack_size) {
             if (stack_len > pt.JS_MAX_FUNC_STACK_SIZE)
-                js_parse_error(s, "stack overflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
+                lexer.js_parse_error(s, "stack overflow (pc=%d)", @as(c_int, @intCast(pos - 1)));
             b.stack_size = @intCast(stack_len);
         }
         var skip_push = false;
@@ -2575,7 +2534,7 @@ fn compute_stack_size(s: *JSParseState, pfunc: *c.JSValue) void {
     }
     explore_arr_val = popValue(ctx, &explore_arr_val_ref);
     explore_arr = @ptrCast(@alignCast(mc.valueToPtr(explore_arr_val)));
-    js_free(s.ctx, explore_arr);
+    utils.js_free(s.ctx, explore_arr);
 }
 
 fn resolve_var_refs(s: *JSParseState, pfunc: *c.JSValue, pparent_func: *c.JSValue) void {
@@ -2628,7 +2587,7 @@ fn reset_parse_state(s: *JSParseState, input_pos: u32, cur_func: c.JSValue) void
 fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
     const ctx = s.ctx;
     if (utils.JS_StackCheck(ctx, 3) != 0)
-        js_parse_error_stack_overflow(s);
+        lexer.js_parse_error_stack_overflow(s);
     const x = cx(ctx);
     const stack_top: [*]c.JSValue = @ptrCast(x.sp);
     var sp: [*]c.JSValue = @ptrCast(x.sp);
@@ -2647,10 +2606,10 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
         if (cpool_pos == 0) {
             const b = funcBc(pf.*);
             convert_ext_vars_to_local_vars(s);
-            js_shrink_byte_array(ctx, &b.byte_code, @intCast(s.byte_code_len));
-            js_shrink_value_array(ctx, &b.cpool, s.cpool_len);
-            js_shrink_value_array(ctx, &b.vars, s.local_vars_len);
-            js_shrink_byte_array(ctx, &b.pc2line, @intCast((s.pc2line_bit_len + 7) / 8));
+            value.js_shrink_byte_array(ctx, &b.byte_code, @intCast(s.byte_code_len));
+            value.js_shrink_value_array(ctx, &b.cpool, s.cpool_len);
+            value.js_shrink_value_array(ctx, &b.vars, s.local_vars_len);
+            value.js_shrink_byte_array(ctx, &b.pc2line, @intCast((s.pc2line_bit_len + 7) / 8));
             compute_stack_size(s, pf);
         }
         const b = funcBc(pf.*);
@@ -2676,7 +2635,7 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
                 const err = utils.JS_StackCheck(ctx, 3);
                 _ = popValue(ctx, &func_ref);
                 if (err != 0)
-                    js_parse_error_stack_overflow(s);
+                    lexer.js_parse_error_stack_overflow(s);
                 @as([*]c.JSValue, @ptrCast(x.sp))[0] = vt.newShortInt(cpool_pos + 1);
                 sp = @ptrCast(x.sp);
                 sp -= 1;
@@ -2691,7 +2650,7 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
                 if (pparent_func.* != c.JS_NULL)
                     resolve_var_refs(s, pf, pparent_func);
                 const b3 = funcBc(pf.*);
-                js_shrink_value_array(ctx, &b3.ext_vars, 2 * b3.ext_vars_len);
+                value.js_shrink_value_array(ctx, &b3.ext_vars, 2 * b3.ext_vars_len);
                 x.sp = @ptrCast(@as([*]c.JSValue, @ptrCast(x.sp)) + 3);
                 x.stack_bottom = x.sp;
             }
@@ -2700,7 +2659,7 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
         if (pparent_func.* != c.JS_NULL)
             resolve_var_refs(s, pf, pparent_func);
         const b3 = funcBc(pf.*);
-        js_shrink_value_array(ctx, &b3.ext_vars, 2 * b3.ext_vars_len);
+        value.js_shrink_value_array(ctx, &b3.ext_vars, 2 * b3.ext_vars_len);
         x.sp = @ptrCast(@as([*]c.JSValue, @ptrCast(x.sp)) + 3);
         x.stack_bottom = x.sp;
     }
@@ -2717,17 +2676,17 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
     sw: switch (state) {
         pt.PARSE_STATE_INIT => {
             p = s.source_buf + s.buf_pos;
-            p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+            p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
             if ((p[0] >= '0' and p[0] <= '9') or p[0] == '-') {
-                const tmp_arr = js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse js_parse_error_mem(s);
+                const tmp_arr = value.js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse lexer.js_parse_error_mem(s);
                 p = s.source_buf + s.buf_pos;
                 var next: [*c]const u8 = p;
-                const d = js_atod(p, @ptrCast(&next), 10, 0, @ptrCast(@alignCast(tmp_arr)));
-                js_free(s.ctx, tmp_arr);
+                const d = dtoa.js_atod(p, @ptrCast(&next), 10, 0, @ptrCast(@alignCast(tmp_arr)));
+                utils.js_free(s.ctx, tmp_arr);
                 if (std.math.isNan(d))
-                    js_parse_error(s, "invalid number literal");
-                val = JS_NewFloat64(s.ctx, d);
+                    lexer.js_parse_error(s, "invalid number literal");
+                val = value.JS_NewFloat64(s.ctx, d);
                 p = next;
             } else if (p[0] == 't' and p[1] == 'r' and p[2] == 'u' and p[3] == 'e') {
                 p += 4;
@@ -2740,15 +2699,15 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
                 val = c.JS_NULL;
             } else if (p[0] == '"') {
                 var pos: u32 = @intCast(@intFromPtr(p + 1) - @intFromPtr(s.source_buf));
-                val = js_parse_string(s, &pos, '"');
+                val = lexer.js_parse_string(s, &pos, '"');
                 p = s.source_buf + pos;
             } else if (p[0] == '[') {
-                val = JS_NewArray(ctx, 0);
+                val = value.JS_NewArray(ctx, 0);
                 if (vt.isExactException(val))
-                    js_parse_error_mem(s);
+                    lexer.js_parse_error_mem(s);
                 js_parse_push_val(s, val);
                 p = s.source_buf + s.buf_pos + 1;
-                p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+                p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
                 if (p[0] != ']') {
                     idx = 0;
                     s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
@@ -2756,26 +2715,26 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
                     return parseCall(0, pt.PARSE_FUNC_js_parse_json_value, 0);
                 }
                 if (p[0] != ']')
-                    js_parse_error(s, "expecting ']'");
+                    lexer.js_parse_error(s, "expecting ']'");
                 p += 1;
                 val = js_parse_pop_val(s);
             } else if (p[0] == '{') {
-                val = JS_NewObject(ctx);
+                val = value.JS_NewObject(ctx);
                 if (vt.isExactException(val))
-                    js_parse_error_mem(s);
+                    lexer.js_parse_error_mem(s);
                 js_parse_push_val(s, val);
                 p = s.source_buf + s.buf_pos + 1;
-                p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+                p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
                 if (p[0] != '}') {
                     s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
                     continue :sw 10;
                 }
                 if (p[0] != '}')
-                    js_parse_error(s, "expecting '}'");
+                    lexer.js_parse_error(s, "expecting '}'");
                 p += 1;
                 val = js_parse_pop_val(s);
             } else {
-                js_parse_error(s, "unexpected character");
+                lexer.js_parse_error(s, "unexpected character");
             }
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
             s.token.value = val;
@@ -2784,12 +2743,12 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
         0 => {
             idx = @bitCast(parsePopInt(s));
             var val2 = s.token.value;
-            val2 = JS_SetPropertyUint32(ctx, cx(ctx).sp.*, idx, val2);
+            val2 = value.JS_SetPropertyUint32(ctx, cx(ctx).sp.*, idx, val2);
             if (vt.isExactException(val2))
-                js_parse_error_mem(s);
+                lexer.js_parse_error_mem(s);
             idx += 1;
             p = s.source_buf + s.buf_pos;
-            p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+            p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
             if (p[0] == ',') {
                 p += 1;
                 s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
@@ -2797,7 +2756,7 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
                 return parseCall(0, pt.PARSE_FUNC_js_parse_json_value, 0);
             }
             if (p[0] != ']')
-                js_parse_error(s, "expecting ']'");
+                lexer.js_parse_error(s, "expecting ']'");
             p += 1;
             val = js_parse_pop_val(s);
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
@@ -2807,18 +2766,18 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
         1 => {
             var val2 = s.token.value;
             prop = js_parse_pop_val(s);
-            val2 = JS_DefinePropertyValue(ctx, cx(ctx).sp.*, prop, val2);
+            val2 = value.JS_DefinePropertyValue(ctx, cx(ctx).sp.*, prop, val2);
             if (vt.isExactException(val2))
-                js_parse_error_mem(s);
+                lexer.js_parse_error_mem(s);
             p = s.source_buf + s.buf_pos;
-            p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+            p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
             if (p[0] == ',') {
                 p += 1;
                 s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
                 continue :sw 10;
             }
             if (p[0] != '}')
-                js_parse_error(s, "expecting '}'");
+                lexer.js_parse_error(s, "expecting '}'");
             p += 1;
             val = js_parse_pop_val(s);
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
@@ -2827,19 +2786,19 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
         },
         10 => {
             p = s.source_buf + s.buf_pos;
-            p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+            p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
             if (p[0] != '"')
-                js_parse_error(s, "expecting '\"'");
+                lexer.js_parse_error(s, "expecting '\"'");
             var pos: u32 = @intCast(@intFromPtr(p + 1) - @intFromPtr(s.source_buf));
-            prop = js_parse_string(s, &pos, '"');
-            prop = JS_ToPropertyKey(ctx, prop);
+            prop = lexer.js_parse_string(s, &pos, '"');
+            prop = runtime.JS_ToPropertyKey(ctx, prop);
             if (vt.isExactException(prop))
-                js_parse_error_mem(s);
+                lexer.js_parse_error_mem(s);
             p = s.source_buf + pos;
-            p += @as(usize, @intCast(skip_spaces(@ptrCast(p))));
+            p += @as(usize, @intCast(runtime.skip_spaces(@ptrCast(p))));
             if (p[0] != ':')
-                js_parse_error(s, "expecting ':'");
+                lexer.js_parse_error(s, "expecting ':'");
             p += 1;
             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
             js_parse_push_val(s, prop);
@@ -2852,9 +2811,9 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
 fn js_parse_json(s: *JSParseState) c.JSValue {
     s.buf_pos = 0;
     js_parse_call(s, pt.PARSE_FUNC_js_parse_json_value, 0);
-    s.buf_pos += @as(u32, @intCast(skip_spaces(@ptrCast(s.source_buf + s.buf_pos))));
+    s.buf_pos += @as(u32, @intCast(runtime.skip_spaces(@ptrCast(s.source_buf + s.buf_pos))));
     if (s.buf_pos != s.buf_len)
-        js_parse_error(s, "unexpected character");
+        lexer.js_parse_error(s, "unexpected character");
     return s.token.value;
 }
 
@@ -2875,7 +2834,7 @@ pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8
         s.buf_len = @intCast(vt.stringLen(p));
         s.source_buf = vt.stringBuf(p);
     } else if (rt.valueGetSpecialTag(source_str) == c.JS_TAG_STRING_CHAR) {
-        s.buf_len = @intCast(get_short_string(&str_buf, source_str));
+        s.buf_len = @intCast(utils.get_short_string(&str_buf, source_str));
         s.source_buf = &str_buf;
     } else {
         s.buf_len = @intCast(input_len);
@@ -2891,12 +2850,12 @@ pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8
         cx(ctx).sp = saved_sp;
         cx(ctx).stack_bottom = cx(ctx).sp;
         var col_num: c_int = 0;
-        const line_num = get_line_col(&col_num, s.source_buf, if ((eval_flags & (c.JS_EVAL_JSON | c.JS_EVAL_REGEXP)) != 0)
+        const line_num = lexer.get_line_col(&col_num, s.source_buf, if ((eval_flags & (c.JS_EVAL_JSON | c.JS_EVAL_REGEXP)) != 0)
             s.buf_pos
         else
             s.token.source_pos);
-        const val = JS_ThrowError(ctx, c.JS_CLASS_SYNTAX_ERROR, "%s", @as([*:0]const u8, @ptrCast(&s.error_msg)));
-        build_backtrace(ctx, cx(ctx).current_exception, filename, line_num + 1, col_num + 1, 0);
+        const val = utils.JS_ThrowError(ctx, c.JS_CLASS_SYNTAX_ERROR, "%s", @as([*:0]const u8, @ptrCast(&s.error_msg)));
+        runtime.build_backtrace(ctx, cx(ctx).current_exception, filename, line_num + 1, col_num + 1, 0);
         return val;
     }
 
@@ -2904,14 +2863,14 @@ pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8
     if ((eval_flags & c.JS_EVAL_JSON) != 0) {
         top_func = js_parse_json(s);
     } else if ((eval_flags & c.JS_EVAL_REGEXP) != 0) {
-        top_func = js_parse_regexp(s, eval_flags >> c.JS_EVAL_REGEXP_FLAGS_SHIFT);
+        top_func = builtins.js_parse_regexp(s, eval_flags >> c.JS_EVAL_REGEXP_FLAGS_SHIFT);
     } else {
-        s.filename_str = JS_NewString(ctx, filename);
+        s.filename_str = value.JS_NewString(ctx, filename);
         if (vt.isExactException(s.filename_str))
-            js_parse_error_mem(s);
-        const b = js_alloc_function_bytecode(ctx) orelse js_parse_error_mem(s);
+            lexer.js_parse_error_mem(s);
+        const b = js_alloc_function_bytecode(ctx) orelse lexer.js_parse_error_mem(s);
         b.filename = s.filename_str;
-        b.func_name = js_get_atom(ctx, c.JS_ATOM__eval_);
+        b.func_name = utils.js_get_atom(ctx, c.JS_ATOM__eval_);
         pt.bytecodeSetHasColumn(b, asBool(s.has_column));
         top_func = mc.valueFromPtr(b);
         reset_parse_state(s, 0, top_func);
@@ -2935,11 +2894,11 @@ pub fn JS_Parse(ctx: *c.JSContext, input: [*:0]const u8, input_len: usize, filen
 pub fn JS_Run(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     var val = val_in;
     if (!mc.isPtr(val))
-        return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "bytecode function expected");
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "bytecode function expected");
     const b = funcBc(val);
     if (mc.mbGetMtag(b) != mc.JS_MTAG_FUNCTION_BYTECODE)
-        return JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "bytecode function expected");
-    val = js_closure(ctx, val, null);
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "bytecode function expected");
+    val = runtime.js_closure(ctx, val, null);
     if (vt.isExactException(val))
         return val;
     var val_ref: c.JSGCRef = undefined;
@@ -2948,9 +2907,9 @@ pub fn JS_Run(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     val = popValue(ctx, &val_ref);
     if (err != 0)
         return c.JS_EXCEPTION;
-    JS_PushArg(ctx, val);
-    JS_PushArg(ctx, c.JS_NULL);
-    return JS_Call(ctx, 0);
+    runtime.JS_PushArg(ctx, val);
+    runtime.JS_PushArg(ctx, c.JS_NULL);
+    return runtime.JS_Call(ctx, 0);
 }
 
 pub fn JS_Eval(ctx: *c.JSContext, input: [*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) c.JSValue {

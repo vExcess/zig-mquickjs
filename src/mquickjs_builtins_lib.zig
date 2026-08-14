@@ -22,94 +22,13 @@ const JSParseState = bt.JSParseState;
 const REOP = bt.REOP;
 const reopcode_info = bt.reopcode_info_data;
 
-extern fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) c.JSValue;
-extern fn JS_Run(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_Eval(ctx: *c.JSContext, input: [*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) c.JSValue;
-extern fn emit_u8(s: *JSParseState, val: u8) void;
-extern fn emit_u16(s: *JSParseState, val: u16) void;
-extern fn emit_u32(s: *JSParseState, val: u32) void;
-extern fn emit_insert(s: *JSParseState, pos: c_int, n: c_int) void;
-extern fn js_parse_push_val(s: *JSParseState, val: c.JSValue) void;
-extern fn js_parse_pop_val(s: *JSParseState) c.JSValue;
-extern fn js_parse_call(s: *JSParseState, func_idx: c_int, param: c_int) void;
-extern fn js_parse_escape(buf: [*]const u8, plen: *usize) c_int;
-extern fn js_parse_error(s: *JSParseState, fmt: [*:0]const u8, ...) noreturn;
+const parser = @import("mquickjs_parser_lib.zig");
+const lexer = @import("mquickjs_lexer_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
+const runtime = @import("mquickjs_runtime_lib.zig");
 
-extern fn JS_NewObject(ctx: *c.JSContext) c.JSValue;
-extern fn JS_NewArray(ctx: *c.JSContext, initial_len: c_int) c.JSValue;
-extern fn JS_NewObjectClass(ctx: *c.JSContext, class_id: c_int, extra_size: c_int) c.JSValue;
-extern fn JS_NewObjectProtoClass(ctx: *c.JSContext, proto: c.JSValue, class_id: c_int, extra_size: c_int) c.JSValue;
-extern fn JS_NewString(ctx: *c.JSContext, buf: [*:0]const u8) c.JSValue;
-extern fn JS_NewStringChar(ch: u32) c.JSValue;
-extern fn JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue;
-extern fn JS_NewInt32(ctx: *c.JSContext, val: i32) c.JSValue;
-extern fn JS_NewUint32(ctx: *c.JSContext, val: u32) c.JSValue;
-extern fn __JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue;
-extern fn JS_IsObject(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsFunction(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsFunctionObject(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsError(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsNumber(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_IsString(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
-extern fn JS_GetClassID(ctx: *c.JSContext, val: c.JSValue) c_int;
-extern fn JS_ToString(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_ToStringCheckObject(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_ToPropertyKey(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn JS_ToNumber(ctx: *c.JSContext, pres: *f64, val: c.JSValue) c_int;
-extern fn JS_ToInt32(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int;
-extern fn JS_ToUint32(ctx: *c.JSContext, pres: *u32, val: c.JSValue) c_int;
-extern fn JS_ToInt32Sat(ctx: *c.JSContext, pres: *c_int, val: c.JSValue) c_int;
-extern fn JS_ToInt32Clamp(ctx: *c.JSContext, pres: *c_int, val: c.JSValue, min_v: c_int, max_v: c_int, min_offset: c_int) c_int;
-extern fn JS_ToBool(ctx: *c.JSContext, val: c.JSValue) c_int;
-extern fn JS_ConcatString(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JSValue;
-extern fn JS_DefinePropertyValue(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, val: c.JSValue) c.JSValue;
-extern fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, val: c.JSValue, setter: c.JSValue, flags: c_int) c.JSValue;
-extern fn JS_GetProperty(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) c.JSValue;
-extern fn JS_GetPropertyUint32(ctx: *c.JSContext, obj: c.JSValue, idx: u32) c.JSValue;
-extern fn JS_HasProperty(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) c.JS_BOOL;
-extern fn JS_SetPropertyUint32(ctx: *c.JSContext, this_obj: c.JSValue, idx: u32, val: c.JSValue) c.JSValue;
-extern fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValue, val: c.JSValue, allow_tail_call: c.JS_BOOL) c.JSValue;
-extern fn JS_ThrowTypeErrorNotAnObject(ctx: *c.JSContext) c.JSValue;
-extern fn js_get_object_class(ctx: *c.JSContext, val: c.JSValue, class_id: c_int) ?*anyopaque;
-extern fn js_alloc_value_array(ctx: *c.JSContext, init_base: c_int, new_size: c_int) ?*anyopaque;
-extern fn js_alloc_byte_array(ctx: *c.JSContext, size: c_int) ?*anyopaque;
-extern fn js_resize_value_array(ctx: *c.JSContext, val: c.JSValue, new_size: c_int) c.JSValue;
-extern fn js_shrink_value_array(ctx: *c.JSContext, pval: *c.JSValue, new_size: c_int) void;
-extern fn js_shrink_byte_array(ctx: *c.JSContext, pval: *c.JSValue, new_size: c_int) void;
-extern fn js_string_len(ctx: *c.JSContext, val: c.JSValue) c_int;
-extern fn js_sub_string(ctx: *c.JSContext, val: c.JSValue, start: c_int, end: c_int) c.JSValue;
-extern fn js_sub_string_utf8(ctx: *c.JSContext, val: c.JSValue, start0: u32, end0: u32) c.JSValue;
-extern fn js_string_compare(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c_int;
-extern fn string_getcp(ctx: *c.JSContext, str: c.JSValue, utf16_pos: u32, is_codepoint: c.JS_BOOL) c_int;
-extern fn string_getc(ctx: *c.JSContext, str: c.JSValue, utf16_pos: u32) c_int;
-extern fn get_string_ptr(ctx: *c.JSContext, buf: *anyopaque, val: c.JSValue) *anyopaque;
-extern fn string_buffer_push(ctx: *c.JSContext, s: *anyopaque, len: c_int) c_int;
-extern fn string_buffer_concat(ctx: *c.JSContext, s: *anyopaque, val2: c.JSValue) c_int;
-extern fn string_buffer_concat_str(ctx: *c.JSContext, s: *anyopaque, val2: c.JSValue) c_int;
-extern fn string_buffer_concat_utf8(ctx: *c.JSContext, s: *anyopaque, str: c.JSValue, start: u32, end: u32) c_int;
-extern fn string_buffer_putc(ctx: *c.JSContext, s: *anyopaque, ch: c_int) c_int;
-extern fn string_buffer_puts(ctx: *c.JSContext, s: *anyopaque, str: [*:0]const u8) c_int;
-extern fn string_buffer_pop(ctx: *c.JSContext, s: *anyopaque) c.JSValue;
-extern fn find_own_property(ctx: *c.JSContext, p: *anyopaque, prop: c.JSValue) ?*anyopaque;
-extern fn js_dtoa2(ctx: *c.JSContext, d: f64, radix: c_int, n_digits: c_int, flags: c_int) c.JSValue;
-extern fn js_atod1(ctx: *c.JSContext, pres: *f64, val: c.JSValue, radix: c_int, flags: c_int) c_int;
-extern fn js_function_get_length_name1(ctx: *c.JSContext, this_val: *c.JSValue, is_name: c_int, pb: *?*anyopaque) c.JSValue;
-extern fn JS_NewCFunctionParams(ctx: *c.JSContext, func_idx: c_int, params: c.JSValue) c.JSValue;
-extern fn JS_PushArg(ctx: *c.JSContext, val: c.JSValue) void;
-extern fn JS_Call(ctx: *c.JSContext, call_flags: c_int) c.JSValue;
-extern fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]const u8, line_num: c_int, col_num: c_int, skip_level: c_int) void;
-extern fn js_get_length32(ctx: *c.JSContext, pres: *u32, obj: c.JSValue) c_int;
-extern fn js_strict_eq(ctx: *c.JSContext, op1: c.JSValue, op2: c.JSValue) c.JS_BOOL;
-extern fn js_reverse_val(tab: [*]c.JSValue, n: c_int) void;
 extern fn js_pow(x: f64, y: f64) f64;
 extern fn js_atan2(y: f64, x: f64) f64;
-extern fn js_string_utf16_to_utf8_pos(ctx: *c.JSContext, val: c.JSValue, utf16_pos: u32) u32;
-extern fn js_string_utf8_to_utf16_pos(ctx: *c.JSContext, val: c.JSValue, utf8_pos: u32) u32;
-extern fn js_string_eq(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JS_BOOL;
-extern fn JS_NewStringLen(ctx: *c.JSContext, buf: [*]const u8, len: usize) c.JSValue;
-extern fn js_string_byte_len(ctx: *c.JSContext, val: c.JSValue) c_int;
-extern fn string_buffer_concat_utf16(ctx: *c.JSContext, s: *anyopaque, str: c.JSValue, start: u32, end: u32) c_int;
-extern fn __js_poll_interrupt(ctx: *c.JSContext) c.JSValue;
 
 fn cx(ctx: *c.JSContext) *mc.JSContextExt {
     return mc.ctxExt(ctx);
@@ -197,11 +116,11 @@ fn parseCall(cur_state: c_int, func: c_int, param: c_int) c_int {
 }
 
 fn parsePushInt(s: *JSParseState, v: c_int) void {
-    js_parse_push_val(s, vt.newShortInt(v));
+    parser.js_parse_push_val(s, vt.newShortInt(v));
 }
 
 fn parsePopInt(s: *JSParseState) c_int {
-    return vt.valueGetInt(js_parse_pop_val(s));
+    return vt.valueGetInt(parser.js_parse_pop_val(s));
 }
 
 fn isDigit(ch: u8) bool {
@@ -223,29 +142,29 @@ pub fn js_function_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in:
     var argc = argc_in;
     var b: vt.StringBuffer = undefined;
     argc &= ~c.FRAME_CF_CTOR;
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
-    _ = string_buffer_puts(ctx, @ptrCast(&b), "(function anonymous(");
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_puts(ctx, @ptrCast(&b), "(function anonymous(");
     const n = argc - 1;
     var i: c_int = 0;
     while (i < n) : (i += 1) {
         if (i != 0) {
-            _ = string_buffer_putc(ctx, @ptrCast(&b), ',');
+            _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
         }
-        if (string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
+        if (value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
             break;
     }
-    _ = string_buffer_puts(ctx, @ptrCast(&b), "\n) {\n");
+    _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n) {\n");
     if (n >= 0) {
-        _ = string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(n)]);
+        _ = value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(n)]);
     }
-    _ = string_buffer_puts(ctx, @ptrCast(&b), "\n})");
-    var val = string_buffer_pop(ctx, @ptrCast(&b));
+    _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n})");
+    var val = value.string_buffer_pop(ctx, @ptrCast(&b));
     if (vt.isExactException(val))
         return val;
-    val = JS_Parse2(ctx, val, null, 0, "<input>", c.JS_EVAL_RETVAL);
+    val = parser.JS_Parse2(ctx, val, null, 0, "<input>", c.JS_EVAL_RETVAL);
     if (vt.isExactException(val))
         return val;
-    return JS_Run(ctx, val);
+    return parser.JS_Run(ctx, val);
 }
 
 pub fn js_function_get_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -262,7 +181,7 @@ pub fn js_function_get_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: 
         if (mc.mbGetMtag(p) != mc.JS_MTAG_OBJECT)
             return throwTypeError(ctx, "not a function");
         if (mc.objectClassId(p) == c.JS_CLASS_CLOSURE) {
-            obj = JS_NewObject(ctx);
+            obj = value.JS_NewObject(ctx);
             if (vt.isExactException(obj))
                 return obj;
         } else if (mc.objectClassId(p) == c.JS_CLASS_C_FUNCTION) {
@@ -271,10 +190,10 @@ pub fn js_function_get_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: 
             return throwTypeError(ctx, "not a function");
         }
         pushValue(ctx, &obj_ref, obj);
-        _ = JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_constructor), this_val.*);
+        _ = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_constructor), this_val.*);
         obj = popValue(ctx, &obj_ref);
         pushValue(ctx, &obj_ref, obj);
-        _ = JS_DefinePropertyValue(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_prototype), obj);
+        _ = value.JS_DefinePropertyValue(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_prototype), obj);
         obj = popValue(ctx, &obj_ref);
     }
     return obj;
@@ -282,17 +201,17 @@ pub fn js_function_get_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: 
 
 pub fn js_function_set_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    if (JS_IsFunctionObject(ctx, this_val.*) == 0)
+    if (value.JS_IsFunctionObject(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not a function");
-    _ = JS_DefinePropertyValue(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_prototype), argv[0]);
+    _ = value.JS_DefinePropertyValue(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_prototype), argv[0]);
     return c.JS_UNDEFINED;
 }
 
 pub fn js_function_get_length_name(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, is_name: c_int) c.JSValue {
     _ = argc;
     _ = argv;
-    var b: ?*anyopaque = null;
-    const ret = js_function_get_length_name1(ctx, this_val, is_name, &b);
+    var b: ?*rt.JSFunctionBytecodeExt = null;
+    const ret = runtime.js_function_get_length_name1(ctx, this_val, is_name, &b);
     if (mc.isNull(ret))
         return throwTypeError(ctx, "not a function");
     return ret;
@@ -304,14 +223,14 @@ pub fn js_function_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     if (vt.isExactException(str))
         return str;
     pushValue(ctx, &str_ref, str);
-    const val = JS_NewString(ctx, "function ");
+    const val = value.JS_NewString(ctx, "function ");
     str = popValue(ctx, &str_ref);
-    str = JS_ConcatString(ctx, val, str);
+    str = value.JS_ConcatString(ctx, val, str);
     pushValue(ctx, &str_ref, str);
-    const val2 = JS_NewString(ctx, "() {\n    [native code]\n}");
+    const val2 = value.JS_NewString(ctx, "() {\n    [native code]\n}");
     str = popValue(ctx, &str_ref);
     _ = argc;
-    return JS_ConcatString(ctx, str, val2);
+    return value.JS_ConcatString(ctx, str, val2);
 }
 
 pub fn js_function_call(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -319,16 +238,16 @@ pub fn js_function_call(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
         return c.JS_EXCEPTION;
     var i: c_int = 0;
     while (i < argc - 1) : (i += 1) {
-        JS_PushArg(ctx, argv[@intCast(argc - 1 - i)]);
+        runtime.JS_PushArg(ctx, argv[@intCast(argc - 1 - i)]);
     }
-    JS_PushArg(ctx, this_val.*);
-    JS_PushArg(ctx, argv[0]);
+    runtime.JS_PushArg(ctx, this_val.*);
+    runtime.JS_PushArg(ctx, argv[0]);
     return newTailCall(argc - 1);
 }
 
 pub fn js_function_apply(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    const p0 = js_get_object_class(ctx, argv[1], c.JS_CLASS_ARRAY) orelse
+    const p0 = value.js_get_object_class(ctx, argv[1], c.JS_CLASS_ARRAY) orelse
         return throwTypeError(ctx, "not an array");
     var p: *mc.JSObjectExt = @ptrCast(@alignCast(p0));
     var arr = valueArr(p.u.array.tab);
@@ -341,16 +260,16 @@ pub fn js_function_apply(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     arr = valueArr(p.u.array.tab);
     var i: c_int = 0;
     while (i < len) : (i += 1) {
-        JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(len - 1 - i)]);
+        runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(len - 1 - i)]);
     }
-    JS_PushArg(ctx, this_val.*);
-    JS_PushArg(ctx, argv[0]);
+    runtime.JS_PushArg(ctx, this_val.*);
+    runtime.JS_PushArg(ctx, argv[0]);
     return newTailCall(len);
 }
 
 pub fn js_function_bind(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     const arg_count: c_int = if (argc > 1) argc - 1 else 0;
-    const arr_ptr = js_alloc_value_array(ctx, 0, 2 + arg_count) orelse return c.JS_EXCEPTION;
+    const arr_ptr = value.js_alloc_value_array(ctx, 0, 2 + arg_count) orelse return c.JS_EXCEPTION;
     const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(arr_ptr));
     const items = vt.valueArrayItems(arr);
     items[0] = this_val.*;
@@ -359,7 +278,7 @@ pub fn js_function_bind(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     while (i < arg_count) : (i += 1) {
         items[@intCast(2 + i)] = argv[@intCast(1 + i)];
     }
-    return JS_NewCFunctionParams(ctx, c.JS_CFUNCTION_bound, mc.valueFromPtr(arr));
+    return runtime.JS_NewCFunctionParams(ctx, c.JS_CFUNCTION_bound, mc.valueFromPtr(arr));
 }
 
 pub fn js_function_bound(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, params: c.JSValue) c.JSValue {
@@ -378,14 +297,14 @@ pub fn js_function_bound(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     arr = valueArr(params);
     var i: c_int = argc - 1;
     while (i >= 0) : (i -= 1) {
-        JS_PushArg(ctx, argv[@intCast(i)]);
+        runtime.JS_PushArg(ctx, argv[@intCast(i)]);
     }
     i = size - 1;
     while (i >= 2) : (i -= 1) {
-        JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(i)]);
+        runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(i)]);
     }
-    JS_PushArg(ctx, vt.valueArrayItems(arr)[0]);
-    JS_PushArg(ctx, vt.valueArrayItems(arr)[1]);
+    runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[0]);
+    runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[1]);
     return newTailCall(argc2);
 }
 
@@ -399,18 +318,18 @@ pub fn js_number_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_in
         return vt.newShortInt(0);
     } else {
         var d: f64 = undefined;
-        if (JS_ToNumber(ctx, &d, argv[0]) != 0)
+        if (runtime.JS_ToNumber(ctx, &d, argv[0]) != 0)
             return c.JS_EXCEPTION;
-        return JS_NewFloat64(ctx, d);
+        return value.JS_NewFloat64(ctx, d);
     }
 }
 
 pub fn js_thisNumberValue(ctx: *c.JSContext, pres: *f64, val: c.JSValue) c_int {
-    if (JS_IsNumber(ctx, val) == 0) {
+    if (value.JS_IsNumber(ctx, val) == 0) {
         _ = throwTypeError(ctx, "not a number");
         return -1;
     }
-    return JS_ToNumber(ctx, pres, val);
+    return runtime.JS_ToNumber(ctx, pres, val);
 }
 
 pub fn js_number_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -422,7 +341,7 @@ pub fn js_number_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
     if (vt.isUndefined(argv[0])) {
         radix = 10;
     } else {
-        if (JS_ToInt32Sat(ctx, &radix, argv[0]) != 0)
+        if (runtime.JS_ToInt32Sat(ctx, &radix, argv[0]) != 0)
             return c.JS_EXCEPTION;
         if (radix < 2 or radix > 36)
             return throwRangeError(ctx, "radix must be between 2 and 36");
@@ -430,7 +349,7 @@ pub fn js_number_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
     var flags: c_int = c.JS_DTOA_FORMAT_FREE;
     if (radix != 10)
         flags |= c.JS_DTOA_EXP_DISABLED;
-    return js_dtoa2(ctx, d, radix, 0, flags);
+    return runtime.js_dtoa2(ctx, d, radix, 0, flags);
 }
 
 pub fn js_number_toFixed(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -439,12 +358,12 @@ pub fn js_number_toFixed(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     if (js_thisNumberValue(ctx, &d, this_val.*) != 0)
         return c.JS_EXCEPTION;
     var f: c_int = undefined;
-    if (JS_ToInt32Sat(ctx, &f, argv[0]) != 0)
+    if (runtime.JS_ToInt32Sat(ctx, &f, argv[0]) != 0)
         return c.JS_EXCEPTION;
     if (f < 0 or f > 100)
         return throwRangeError(ctx, "invalid number of digits");
     const flags: c_int = if (@abs(d) >= 1e21) c.JS_DTOA_FORMAT_FREE else c.JS_DTOA_FORMAT_FRAC;
-    return js_dtoa2(ctx, d, 10, f, flags);
+    return runtime.js_dtoa2(ctx, d, 10, f, flags);
 }
 
 pub fn js_number_toExponential(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -453,7 +372,7 @@ pub fn js_number_toExponential(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_
     if (js_thisNumberValue(ctx, &d, this_val.*) != 0)
         return c.JS_EXCEPTION;
     var f: c_int = undefined;
-    if (JS_ToInt32Sat(ctx, &f, argv[0]) != 0)
+    if (runtime.JS_ToInt32Sat(ctx, &f, argv[0]) != 0)
         return c.JS_EXCEPTION;
     var flags: c_int = undefined;
     if (vt.isUndefined(argv[0]) or !std.math.isFinite(d)) {
@@ -465,7 +384,7 @@ pub fn js_number_toExponential(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_
         f += 1;
         flags = c.JS_DTOA_FORMAT_FIXED;
     }
-    return js_dtoa2(ctx, d, 10, f, flags | c.JS_DTOA_EXP_ENABLED);
+    return runtime.js_dtoa2(ctx, d, 10, f, flags | c.JS_DTOA_EXP_ENABLED);
 }
 
 pub fn js_number_toPrecision(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -479,7 +398,7 @@ pub fn js_number_toPrecision(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_in
         flags = c.JS_DTOA_FORMAT_FREE;
         p = 0;
     } else {
-        if (JS_ToInt32Sat(ctx, &p, argv[0]) != 0)
+        if (runtime.JS_ToInt32Sat(ctx, &p, argv[0]) != 0)
             return c.JS_EXCEPTION;
         if (!std.math.isFinite(d)) {
             flags = c.JS_DTOA_FORMAT_FREE;
@@ -489,53 +408,53 @@ pub fn js_number_toPrecision(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_in
             flags = c.JS_DTOA_FORMAT_FIXED;
         }
     }
-    return js_dtoa2(ctx, d, 10, p, flags);
+    return runtime.js_dtoa2(ctx, d, 10, p, flags);
 }
 
 pub fn js_number_parseInt(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    argv[0] = JS_ToString(ctx, argv[0]);
+    argv[0] = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(argv[0]))
         return c.JS_EXCEPTION;
     var radix: c_int = undefined;
-    if (JS_ToInt32(ctx, &radix, argv[1]) != 0)
+    if (runtime.JS_ToInt32(ctx, &radix, argv[1]) != 0)
         return c.JS_EXCEPTION;
     var d: f64 = undefined;
     if (radix != 0 and (radix < 2 or radix > 36)) {
         d = std.math.nan(f64);
     } else {
-        if (js_atod1(ctx, &d, argv[0], radix, c.JS_ATOD_INT_ONLY) != 0)
+        if (runtime.js_atod1(ctx, &d, argv[0], radix, c.JS_ATOD_INT_ONLY) != 0)
             return c.JS_EXCEPTION;
     }
-    return JS_NewFloat64(ctx, d);
+    return value.JS_NewFloat64(ctx, d);
 }
 
 pub fn js_number_parseFloat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    argv[0] = JS_ToString(ctx, argv[0]);
+    argv[0] = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(argv[0]))
         return c.JS_EXCEPTION;
     var d: f64 = undefined;
-    if (js_atod1(ctx, &d, argv[0], 10, 0) != 0)
+    if (runtime.js_atod1(ctx, &d, argv[0], 10, 0) != 0)
         return c.JS_EXCEPTION;
-    return JS_NewFloat64(ctx, d);
+    return value.JS_NewFloat64(ctx, d);
 }
 
 pub fn js_boolean_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     if (argc & c.FRAME_CF_CTOR != 0)
         return throwTypeError(ctx, "Boolean constructor not supported");
-    return newBool(JS_ToBool(ctx, argv[0]) != 0);
+    return newBool(value.JS_ToBool(ctx, argv[0]) != 0);
 }
 
 pub fn js_string_get_length(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
     _ = argv;
-    if (JS_IsString(ctx, this_val.*) == 0)
+    if (value.JS_IsString(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not a string");
-    return vt.newShortInt(js_string_len(ctx, this_val.*));
+    return vt.newShortInt(value.js_string_len(ctx, this_val.*));
 }
 
 pub fn js_string_set_length(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -548,61 +467,61 @@ pub fn js_string_set_length(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
 
 pub fn js_string_slice(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
-    const len = js_string_len(ctx, this_val.*);
+    const len = value.js_string_len(ctx, this_val.*);
     var start: c_int = undefined;
-    if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
+    if (runtime.JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
         return c.JS_EXCEPTION;
     var end = len;
     if (!vt.isUndefined(argv[1])) {
-        if (JS_ToInt32Clamp(ctx, &end, argv[1], 0, len, len) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &end, argv[1], 0, len, len) != 0)
             return c.JS_EXCEPTION;
     }
-    return js_sub_string(ctx, this_val.*, start, maxInt(end, start));
+    return value.js_sub_string(ctx, this_val.*, start, maxInt(end, start));
 }
 
 pub fn js_string_substring(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
-    const len = js_string_len(ctx, this_val.*);
+    const len = value.js_string_len(ctx, this_val.*);
     var a: c_int = undefined;
-    if (JS_ToInt32Clamp(ctx, &a, argv[0], 0, len, 0) != 0)
+    if (runtime.JS_ToInt32Clamp(ctx, &a, argv[0], 0, len, 0) != 0)
         return c.JS_EXCEPTION;
     var b = len;
     if (!vt.isUndefined(argv[1])) {
-        if (JS_ToInt32Clamp(ctx, &b, argv[1], 0, len, 0) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &b, argv[1], 0, len, 0) != 0)
             return c.JS_EXCEPTION;
     }
     const start = if (a < b) a else b;
     const end = if (a < b) b else a;
-    return js_sub_string(ctx, this_val.*, start, end);
+    return value.js_sub_string(ctx, this_val.*, start, end);
 }
 
 pub fn js_string_charAt(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, magic: c_int) c.JSValue {
     _ = argc;
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
     var idx: c_int = undefined;
-    if (JS_ToInt32Sat(ctx, &idx, argv[0]) != 0)
+    if (runtime.JS_ToInt32Sat(ctx, &idx, argv[0]) != 0)
         return c.JS_EXCEPTION;
     if (idx < 0)
         return charAtUndef(ctx, magic);
-    const cp = string_getcp(ctx, this_val.*, @intCast(idx), @intFromBool(magic == bt.magic_codePointAt));
+    const cp = value.string_getcp(ctx, this_val.*, @intCast(idx), @intFromBool(magic == bt.magic_codePointAt));
     if (cp == -1)
         return charAtUndef(ctx, magic);
     if (magic == bt.magic_charCodeAt or magic == bt.magic_codePointAt)
         return vt.newShortInt(cp);
-    return JS_NewStringChar(@intCast(cp));
+    return value.JS_NewStringChar(@intCast(cp));
 }
 
 fn charAtUndef(ctx: *c.JSContext, magic: c_int) c.JSValue {
     if (magic == bt.magic_charCodeAt)
-        return JS_NewFloat64(ctx, std.math.nan(f64));
+        return value.JS_NewFloat64(ctx, std.math.nan(f64));
     if (magic == bt.magic_charAt)
         return utils.js_get_atom(ctx, c.JS_ATOM_empty);
     return c.JS_UNDEFINED;
@@ -614,60 +533,60 @@ pub fn js_string_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_in
         return throwTypeError(ctx, "string constructor not supported");
     if (argc <= 0)
         return utils.js_get_atom(ctx, c.JS_ATOM_empty);
-    return JS_ToString(ctx, argv[0]);
+    return runtime.JS_ToString(ctx, argv[0]);
 }
 
 pub fn js_string_fromCharCode(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, is_fromCodePoint: c_int) c.JSValue {
     _ = this_val;
     var b: vt.StringBuffer = undefined;
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
     var i: c_int = 0;
     while (i < argc) : (i += 1) {
         var ch: c_int = undefined;
-        if (JS_ToInt32(ctx, &ch, argv[@intCast(i)]) != 0) {
-            _ = string_buffer_pop(ctx, @ptrCast(&b));
+        if (runtime.JS_ToInt32(ctx, &ch, argv[@intCast(i)]) != 0) {
+            _ = value.string_buffer_pop(ctx, @ptrCast(&b));
             return c.JS_EXCEPTION;
         }
         if (is_fromCodePoint != 0) {
             if (ch < 0 or ch > 0x10ffff) {
                 _ = throwRangeError(ctx, "invalid code point");
-                _ = string_buffer_pop(ctx, @ptrCast(&b));
+                _ = value.string_buffer_pop(ctx, @ptrCast(&b));
                 return c.JS_EXCEPTION;
             }
         } else {
             ch &= 0xffff;
         }
-        if (string_buffer_putc(ctx, @ptrCast(&b), ch) != 0)
+        if (value.string_buffer_putc(ctx, @ptrCast(&b), ch) != 0)
             break;
     }
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 pub fn js_string_concat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
-    const r = JS_ToStringCheckObject(ctx, this_val.*);
+    const r = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(r))
         return c.JS_EXCEPTION;
     var b: vt.StringBuffer = undefined;
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
-    if (string_buffer_concat(ctx, @ptrCast(&b), r) != 0)
-        return string_buffer_pop(ctx, @ptrCast(&b));
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
+    if (value.string_buffer_concat(ctx, @ptrCast(&b), r) != 0)
+        return value.string_buffer_pop(ctx, @ptrCast(&b));
     var i: c_int = 0;
     while (i < argc) : (i += 1) {
-        if (string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
+        if (value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
             break;
     }
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 pub fn js_string_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, lastIndexOf: c_int) c.JSValue {
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
-    argv[0] = JS_ToString(ctx, argv[0]);
+    argv[0] = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(argv[0]))
         return c.JS_EXCEPTION;
-    const len = js_string_len(ctx, this_val.*);
-    const v_len = js_string_len(ctx, argv[0]);
+    const len = value.js_string_len(ctx, this_val.*);
+    const v_len = value.js_string_len(ctx, argv[0]);
     var pos: c_int = undefined;
     var start: c_int = undefined;
     var stop: c_int = undefined;
@@ -676,7 +595,7 @@ pub fn js_string_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
         pos = len - v_len;
         if (argc > 1) {
             var d: f64 = undefined;
-            if (JS_ToNumber(ctx, &d, argv[1]) != 0)
+            if (runtime.JS_ToNumber(ctx, &d, argv[1]) != 0)
                 return c.JS_EXCEPTION;
             if (!std.math.isNan(d)) {
                 if (d <= 0) {
@@ -692,7 +611,7 @@ pub fn js_string_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     } else {
         pos = 0;
         if (argc > 1) {
-            if (JS_ToInt32Clamp(ctx, &pos, argv[1], 0, len, 0) != 0)
+            if (runtime.JS_ToInt32Clamp(ctx, &pos, argv[1], 0, len, 0) != 0)
                 return c.JS_EXCEPTION;
         }
         start = pos;
@@ -706,7 +625,7 @@ pub fn js_string_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
             var j: c_int = 0;
             var matched = true;
             while (j < v_len) : (j += 1) {
-                if (string_getc(ctx, this_val.*, @intCast(i + j)) != string_getc(ctx, argv[0], @intCast(j))) {
+                if (value.string_getc(ctx, this_val.*, @intCast(i + j)) != value.string_getc(ctx, argv[0], @intCast(j))) {
                     matched = false;
                     break;
                 }
@@ -728,7 +647,7 @@ pub fn js_string_indexof(ctx: *c.JSContext, str: c.JSValue, needle: c.JSValue, s
         var j: c_int = 0;
         var matched = true;
         while (j < needle_len) : (j += 1) {
-            if (string_getc(ctx, str, @intCast(i + j)) != string_getc(ctx, needle, @intCast(j))) {
+            if (value.string_getc(ctx, str, @intCast(i + j)) != value.string_getc(ctx, needle, @intCast(j))) {
                 matched = false;
                 break;
             }
@@ -742,16 +661,16 @@ pub fn js_string_indexof(ctx: *c.JSContext, str: c.JSValue, needle: c.JSValue, s
 pub fn js_string_toLowerCase(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, to_lower: c_int) c.JSValue {
     _ = argc;
     _ = argv;
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return this_val.*;
-    const len = js_string_len(ctx, this_val.*);
+    const len = value.js_string_len(ctx, this_val.*);
     var b: vt.StringBuffer = undefined;
-    if (string_buffer_push(ctx, @ptrCast(&b), len) != 0)
+    if (value.string_buffer_push(ctx, @ptrCast(&b), len) != 0)
         return c.JS_EXCEPTION;
     var i: c_int = 0;
     while (i < len) : (i += 1) {
-        var ch = string_getc(ctx, this_val.*, @intCast(i));
+        var ch = value.string_getc(ctx, this_val.*, @intCast(i));
         if (to_lower != 0) {
             if (ch >= 'A' and ch <= 'Z')
                 ch += 'a' - 'A';
@@ -759,48 +678,48 @@ pub fn js_string_toLowerCase(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_in
             if (ch >= 'a' and ch <= 'z')
                 ch += 'A' - 'a';
         }
-        _ = string_buffer_putc(ctx, @ptrCast(&b), ch);
+        _ = value.string_buffer_putc(ctx, @ptrCast(&b), ch);
     }
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 pub fn js_string_trim(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, magic: c_int) c.JSValue {
     _ = argc;
     _ = argv;
-    this_val.* = JS_ToStringCheckObject(ctx, this_val.*);
+    this_val.* = value.JS_ToStringCheckObject(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return this_val.*;
-    const len = js_string_len(ctx, this_val.*);
+    const len = value.js_string_len(ctx, this_val.*);
     var a: c_int = 0;
     var b = len;
     if (magic & 1 != 0) {
-        while (a < len and unicode_is_space(@intCast(string_getc(ctx, this_val.*, @intCast(a)))))
+        while (a < len and unicode_is_space(@intCast(value.string_getc(ctx, this_val.*, @intCast(a)))))
             a += 1;
     }
     if (magic & 2 != 0) {
-        while (b > a and unicode_is_space(@intCast(string_getc(ctx, this_val.*, @intCast(b - 1)))))
+        while (b > a and unicode_is_space(@intCast(value.string_getc(ctx, this_val.*, @intCast(b - 1)))))
             b -= 1;
     }
-    return js_sub_string(ctx, this_val.*, a, b);
+    return value.js_sub_string(ctx, this_val.*, a, b);
 }
 
 pub fn js_string_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
     _ = argv;
-    if (JS_IsString(ctx, this_val.*) == 0)
+    if (value.JS_IsString(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not a string");
     return this_val.*;
 }
 
 pub fn js_string_repeat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    if (JS_IsString(ctx, this_val.*) == 0)
+    if (value.JS_IsString(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not a string");
     var n: c_int = undefined;
-    if (JS_ToInt32Sat(ctx, &n, argv[0]) != 0)
+    if (runtime.JS_ToInt32Sat(ctx, &n, argv[0]) != 0)
         return @as(c.JSValue, @bitCast(@as(isize, -1)));
     var buf: vt.JSStringCharBufExt = undefined;
-    const p: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&buf), this_val.*)));
+    const p: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&buf), this_val.*)));
     const plen: i64 = @intCast(vt.stringLen(p));
     const len: i64 = @as(i64, n) * plen;
     if (n < 0 or len > vt.JS_STRING_LEN_MAX)
@@ -808,13 +727,13 @@ pub fn js_string_repeat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     if (vt.stringLen(p) == 0 or n == 1)
         return this_val.*;
     var b: vt.StringBuffer = undefined;
-    if (string_buffer_push(ctx, @ptrCast(&b), @intCast(len)) != 0)
+    if (value.string_buffer_push(ctx, @ptrCast(&b), @intCast(len)) != 0)
         return c.JS_EXCEPTION;
     while (n > 0) {
         n -= 1;
-        _ = string_buffer_concat_str(ctx, @ptrCast(&b), this_val.*);
+        _ = value.string_buffer_concat_str(ctx, @ptrCast(&b), this_val.*);
     }
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 // Object / Error / Array
@@ -824,7 +743,7 @@ pub fn js_object_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c
     var argc = argc_in;
     argc &= ~c.FRAME_CF_CTOR;
     if (argc <= 0)
-        return JS_NewObject(ctx);
+        return value.JS_NewObject(ctx);
     return argv[0];
 }
 
@@ -843,41 +762,41 @@ pub fn js_object_defineProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
     const pprop = &argv[1];
     const pdesc = &argv[2];
 
-    if (JS_IsObject(ctx, pobj.*) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
-    pprop.* = JS_ToPropertyKey(ctx, pprop.*);
+    if (value.JS_IsObject(ctx, pobj.*) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
+    pprop.* = runtime.JS_ToPropertyKey(ctx, pprop.*);
     if (vt.isExactException(pprop.*))
         return c.JS_EXCEPTION;
     var val: c.JSValue = c.JS_UNDEFINED;
     var getter: c.JSValue = c.JS_UNDEFINED;
     var setter: c.JSValue = c.JS_UNDEFINED;
     var flags: c_int = 0;
-    if (JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_value)) != 0) {
+    if (value.JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_value)) != 0) {
         flags |= vt.JS_DEF_PROP_HAS_VALUE;
-        val = JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_value));
+        val = value.JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_value));
         if (vt.isExactException(val))
             return c.JS_EXCEPTION;
     }
-    if (JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get)) != 0) {
+    if (value.JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get)) != 0) {
         flags |= vt.JS_DEF_PROP_HAS_GET;
         pushValue(ctx, &val_ref, val);
-        getter = JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get));
+        getter = value.JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get));
         val = popValue(ctx, &val_ref);
         if (vt.isExactException(getter))
             return c.JS_EXCEPTION;
-        if (!vt.isUndefined(getter) and JS_IsFunction(ctx, getter) == 0)
+        if (!vt.isUndefined(getter) and value.JS_IsFunction(ctx, getter) == 0)
             return throwTypeError(ctx, "invalid getter or setter");
     }
-    if (JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set)) != 0) {
+    if (value.JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set)) != 0) {
         flags |= vt.JS_DEF_PROP_HAS_SET;
         pushValue(ctx, &val_ref, val);
         pushValue(ctx, &getter_ref, getter);
-        setter = JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set));
+        setter = value.JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set));
         getter = popValue(ctx, &getter_ref);
         val = popValue(ctx, &val_ref);
         if (vt.isExactException(setter))
             return c.JS_EXCEPTION;
-        if (!vt.isUndefined(setter) and JS_IsFunction(ctx, setter) == 0)
+        if (!vt.isUndefined(setter) and value.JS_IsFunction(ctx, setter) == 0)
             return throwTypeError(ctx, "invalid getter or setter");
     }
     if (flags & (vt.JS_DEF_PROP_HAS_GET | vt.JS_DEF_PROP_HAS_SET) != 0) {
@@ -885,7 +804,7 @@ pub fn js_object_defineProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
             return throwTypeError(ctx, "cannot have both value and get/set");
         val = getter;
     }
-    val = JS_DefinePropertyInternal(ctx, pobj.*, pprop.*, val, setter, flags | vt.JS_DEF_PROP_LOOKUP);
+    val = value.JS_DefinePropertyInternal(ctx, pobj.*, pprop.*, val, setter, flags | vt.JS_DEF_PROP_LOOKUP);
     if (vt.isExactException(val))
         return val;
     return pobj.*;
@@ -894,8 +813,8 @@ pub fn js_object_defineProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
 pub fn js_object_getPrototypeOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    if (JS_IsObject(ctx, argv[0]) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (value.JS_IsObject(ctx, argv[0]) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
     const p = objPtr(argv[0]);
     return p.proto;
 }
@@ -921,10 +840,10 @@ pub fn js_set_prototype_internal(ctx: *c.JSContext, obj: c.JSValue, proto: c.JSV
 pub fn js_object_setPrototypeOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    if (JS_IsObject(ctx, argv[0]) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (value.JS_IsObject(ctx, argv[0]) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
     const proto = argv[1];
-    if (proto != c.JS_NULL and JS_IsObject(ctx, proto) == 0)
+    if (proto != c.JS_NULL and value.JS_IsObject(ctx, proto) == 0)
         return throwTypeError(ctx, "not a prototype");
     if (vt.isExactException(js_set_prototype_internal(ctx, argv[0], proto)))
         return c.JS_EXCEPTION;
@@ -934,11 +853,11 @@ pub fn js_object_setPrototypeOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
 pub fn js_object_create(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     const proto = argv[0];
-    if (proto != c.JS_NULL and JS_IsObject(ctx, proto) == 0)
+    if (proto != c.JS_NULL and value.JS_IsObject(ctx, proto) == 0)
         return throwTypeError(ctx, "not a prototype");
     if (argc >= 2)
         return throwTypeError(ctx, "unsupported additional properties");
-    return JS_NewObjectProtoClass(ctx, proto, c.JS_CLASS_OBJECT, 0);
+    return value.JS_NewObjectProtoClass(ctx, proto, c.JS_CLASS_OBJECT, 0);
 }
 
 pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -946,8 +865,8 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
     _ = argc;
     var ret_ref: c.JSGCRef = undefined;
 
-    if (JS_IsObject(ctx, argv[0]) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (value.JS_IsObject(ctx, argv[0]) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
     var p = objPtr(argv[0]);
 
     var array_len: c_int = undefined;
@@ -965,7 +884,7 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
 
     const alloc_size = array_len + prop_count;
 
-    var ret = JS_NewArray(ctx, alloc_size);
+    var ret = value.JS_NewArray(ctx, alloc_size);
     if (vt.isExactException(ret))
         return ret;
 
@@ -973,7 +892,7 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
     var i: c_int = 0;
     while (i < array_len) : (i += 1) {
         pushValue(ctx, &ret_ref, ret);
-        const str = JS_ToString(ctx, vt.newShortInt(i));
+        const str = runtime.JS_ToString(ctx, vt.newShortInt(i));
         ret = popValue(ctx, &ret_ref);
         if (vt.isExactException(str))
             return str;
@@ -991,7 +910,7 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
         const pr: *vt.JSPropertyExt = @ptrCast(@alignCast(&vt.valueArrayItems(arr)[@intCast(2 + hash_mask + 1 + 3 * i)]));
         if (pr.key != c.JS_UNINITIALIZED) {
             pushValue(ctx, &ret_ref, ret);
-            const str = JS_ToString(ctx, pr.key);
+            const str = runtime.JS_ToString(ctx, pr.key);
             ret = popValue(ctx, &ret_ref);
             if (vt.isExactException(str))
                 return str;
@@ -1011,9 +930,9 @@ pub fn js_object_hasOwnProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
     _ = argc;
     if (mc.isNull(this_val.*) or vt.isUndefined(this_val.*))
         return throwTypeError(ctx, "cannot convert to object");
-    if (JS_IsObject(ctx, this_val.*) == 0)
+    if (value.JS_IsObject(ctx, this_val.*) == 0)
         return c.JS_FALSE;
-    const prop = JS_ToPropertyKey(ctx, argv[0]);
+    const prop = runtime.JS_ToPropertyKey(ctx, argv[0]);
     const p = objPtr(this_val.*);
     if (mc.objectClassId(p) == c.JS_CLASS_ARRAY) {
         const array_len: c_int = @intCast(p.u.array.len);
@@ -1028,7 +947,7 @@ pub fn js_object_hasOwnProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
             return newBool(idx >= 0 and idx < array_len);
         }
     }
-    return newBool(find_own_property(ctx, p, prop) != null);
+    return newBool(value.find_own_property(ctx, p, prop) != null);
 }
 
 pub fn js_object_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -1067,7 +986,7 @@ pub fn js_object_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
     };
     var buf: [64]u8 = undefined;
     _ = utils.js_snprintf(@ptrCast(&buf), buf.len, "[object %s]", str);
-    return JS_NewString(ctx, @ptrCast(&buf));
+    return value.JS_NewString(ctx, @ptrCast(&buf));
 }
 
 pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, magic: c_int) c.JSValue {
@@ -1075,7 +994,7 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     _ = argc & ~c.FRAME_CF_CTOR;
     var obj_ref: c.JSGCRef = undefined;
 
-    var obj = JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), magic).*, c.JS_CLASS_ERROR, @intCast(@sizeOf(mc.JSErrorDataExt)));
+    var obj = value.JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), magic).*, c.JS_CLASS_ERROR, @intCast(@sizeOf(mc.JSErrorDataExt)));
     if (vt.isExactException(obj))
         return obj;
     var p = objPtr(obj);
@@ -1084,7 +1003,7 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
 
     if (!vt.isUndefined(argv[0])) {
         pushValue(ctx, &obj_ref, obj);
-        const msg = JS_ToString(ctx, argv[0]);
+        const msg = runtime.JS_ToString(ctx, argv[0]);
         obj = popValue(ctx, &obj_ref);
         if (vt.isExactException(msg))
             return msg;
@@ -1095,7 +1014,7 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
         rt.objectError(p).message = utils.js_get_atom(ctx, c.JS_ATOM_empty);
     }
     pushValue(ctx, &obj_ref, obj);
-    build_backtrace(ctx, obj, null, 0, 0, 1);
+    runtime.build_backtrace(ctx, obj, null, 0, 0, 1);
     obj = popValue(ctx, &obj_ref);
     return obj;
 }
@@ -1105,32 +1024,32 @@ pub fn js_error_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     _ = argv;
     var b: vt.StringBuffer = undefined;
 
-    if (JS_IsError(ctx, this_val.*) == 0)
+    if (value.JS_IsError(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not an Error object");
-    var name = JS_GetProperty(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_name));
+    var name = value.JS_GetProperty(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_name));
     if (vt.isExactException(name))
         return name;
     if (vt.isUndefined(name))
         name = utils.js_get_atom(ctx, c.JS_ATOM_Error)
     else
-        name = JS_ToString(ctx, name);
+        name = runtime.JS_ToString(ctx, name);
     if (vt.isExactException(name))
         return name;
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
-    _ = string_buffer_concat(ctx, @ptrCast(&b), name);
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_concat(ctx, @ptrCast(&b), name);
     var p = objPtr(this_val.*);
     if (rt.objectError(p).message != c.JS_NULL) {
-        _ = string_buffer_puts(ctx, @ptrCast(&b), ": ");
+        _ = value.string_buffer_puts(ctx, @ptrCast(&b), ": ");
         p = objPtr(this_val.*);
-        _ = string_buffer_concat(ctx, @ptrCast(&b), rt.objectError(p).message);
+        _ = value.string_buffer_concat(ctx, @ptrCast(&b), rt.objectError(p).message);
     }
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 pub fn js_error_get_message(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, magic: c_int) c.JSValue {
     _ = argc;
     _ = argv;
-    if (JS_IsError(ctx, this_val.*) == 0)
+    if (value.JS_IsError(ctx, this_val.*) == 0)
         return throwTypeError(ctx, "not an Error object");
     const p = objPtr(this_val.*);
     if (magic == 0)
@@ -1140,7 +1059,7 @@ pub fn js_error_get_message(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
 }
 
 pub fn js_get_array(ctx: *c.JSContext, obj: c.JSValue) ?*mc.JSObjectExt {
-    const p0 = js_get_object_class(ctx, obj, c.JS_CLASS_ARRAY) orelse {
+    const p0 = value.js_get_object_class(ctx, obj, c.JS_CLASS_ARRAY) orelse {
         _ = throwTypeError(ctx, "not an array");
         return null;
     };
@@ -1163,7 +1082,7 @@ pub fn js_array_resize(ctx: *c.JSContext, this_val: *c.JSValue, new_len: c_int) 
     if (new_len < p.u.array.len) {
         const arr = valueArr(p.u.array.tab);
         if (new_len < @divTrunc(vt.valueArraySize(arr), 2) and vt.valueArraySize(arr) >= 4) {
-            js_shrink_value_array(ctx, &p.u.array.tab, new_len);
+            value.js_shrink_value_array(ctx, &p.u.array.tab, new_len);
             p = objPtr(this_val.*);
         } else {
             var i = new_len;
@@ -1171,7 +1090,7 @@ pub fn js_array_resize(ctx: *c.JSContext, this_val: *c.JSValue, new_len: c_int) 
                 vt.valueArrayItems(arr)[@intCast(i)] = c.JS_UNDEFINED;
         }
     } else if (new_len > p.u.array.len) {
-        const new_tab = js_resize_value_array(ctx, p.u.array.tab, new_len);
+        const new_tab = value.js_resize_value_array(ctx, p.u.array.tab, new_len);
         if (vt.isExactException(new_tab))
             return -1;
         p = objPtr(this_val.*);
@@ -1190,7 +1109,7 @@ pub fn js_array_set_length(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int,
     if (js_get_array(ctx, this_val.*) == null)
         return c.JS_EXCEPTION;
     var new_len: c_int = undefined;
-    if (JS_ToInt32(ctx, &new_len, argv[0]) != 0)
+    if (runtime.JS_ToInt32(ctx, &new_len, argv[0]) != 0)
         return c.JS_EXCEPTION;
     if (js_array_resize(ctx, this_val, new_len) != 0)
         return c.JS_EXCEPTION;
@@ -1204,8 +1123,8 @@ pub fn js_array_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c_
 
     var len: c_int = undefined;
     var has_init: bool = undefined;
-    if (argc == 1 and JS_IsNumber(ctx, argv[0]) != 0) {
-        if (JS_ToInt32(ctx, &len, argv[0]) != 0)
+    if (argc == 1 and value.JS_IsNumber(ctx, argv[0]) != 0) {
+        if (runtime.JS_ToInt32(ctx, &len, argv[0]) != 0)
             return c.JS_EXCEPTION;
         has_init = false;
     } else {
@@ -1215,7 +1134,7 @@ pub fn js_array_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c_
 
     if (len < 0 or len > vt.JS_SHORTINT_MAX)
         return throwRangeError(ctx, "invalid array length");
-    const obj = JS_NewArray(ctx, len);
+    const obj = value.JS_NewArray(ctx, len);
     if (vt.isExactException(obj))
         return obj;
     const p = objPtr(obj);
@@ -1237,7 +1156,7 @@ pub fn js_array_push(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     const new_len = from + argc;
     if (new_len > vt.JS_SHORTINT_MAX)
         return throwRangeError(ctx, "invalid array length");
-    const new_tab = js_resize_value_array(ctx, p.u.array.tab, new_len);
+    const new_tab = value.js_resize_value_array(ctx, p.u.array.tab, new_len);
     if (vt.isExactException(new_tab))
         return c.JS_EXCEPTION;
     p = objPtr(this_val.*);
@@ -1285,34 +1204,34 @@ pub fn js_array_join(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     var sep_ref: c.JSGCRef = undefined;
     var b: vt.StringBuffer = undefined;
 
-    if (JS_IsObject(ctx, this_val.*) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (value.JS_IsObject(ctx, this_val.*) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
     var p = objPtr(this_val.*);
     const is_array = mc.objectClassId(p) == c.JS_CLASS_ARRAY;
     var len: u32 = undefined;
     if (is_array) {
         len = p.u.array.len;
     } else {
-        if (js_get_length32(ctx, &len, this_val.*) != 0)
+        if (runtime.js_get_length32(ctx, &len, this_val.*) != 0)
             return c.JS_EXCEPTION;
     }
 
     var sep: c.JSValue = undefined;
     if (argc > 0 and !vt.isUndefined(argv[0])) {
-        sep = JS_ToString(ctx, argv[0]);
+        sep = runtime.JS_ToString(ctx, argv[0]);
         if (vt.isExactException(sep))
             return sep;
     } else {
-        sep = JS_NewStringChar(',');
+        sep = value.JS_NewStringChar(',');
     }
     pushValue(ctx, &sep_ref, sep);
 
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
     var failed = false;
     var i: u32 = 0;
     while (i < len) : (i += 1) {
         if (i > 0) {
-            if (string_buffer_concat(ctx, @ptrCast(&b), sep_ref.val) != 0) {
+            if (value.string_buffer_concat(ctx, @ptrCast(&b), sep_ref.val) != 0) {
                 failed = true;
                 break;
             }
@@ -1326,25 +1245,25 @@ pub fn js_array_join(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
             else
                 val = c.JS_UNDEFINED;
         } else {
-            val = JS_GetPropertyUint32(ctx, this_val.*, i);
+            val = value.JS_GetPropertyUint32(ctx, this_val.*, i);
             if (vt.isExactException(val)) {
                 failed = true;
                 break;
             }
         }
         if (!vt.isUndefined(val) and !mc.isNull(val)) {
-            if (string_buffer_concat(ctx, @ptrCast(&b), val) != 0) {
+            if (value.string_buffer_concat(ctx, @ptrCast(&b), val) != 0) {
                 failed = true;
                 break;
             }
         }
     }
     if (failed) {
-        _ = string_buffer_pop(ctx, @ptrCast(&b));
+        _ = value.string_buffer_pop(ctx, @ptrCast(&b));
         _ = popValue(ctx, &sep_ref);
         return c.JS_EXCEPTION;
     }
-    const val = string_buffer_pop(ctx, @ptrCast(&b));
+    const val = value.string_buffer_pop(ctx, @ptrCast(&b));
     _ = popValue(ctx, &sep_ref);
     return val;
 }
@@ -1357,7 +1276,7 @@ pub fn js_array_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
 }
 
 pub fn JS_IsArray(ctx: *c.JSContext, obj: c.JSValue) c.JS_BOOL {
-    const p = js_get_object_class(ctx, obj, c.JS_CLASS_ARRAY);
+    const p = value.js_get_object_class(ctx, obj, c.JS_CLASS_ARRAY);
     return @as(c.JS_BOOL, @intFromBool(p != null));
 }
 
@@ -1373,7 +1292,7 @@ pub fn js_array_reverse(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     const p = js_get_array(ctx, this_val.*) orelse return c.JS_EXCEPTION;
     const len: c_int = @intCast(p.u.array.len);
     const arr = valueArr(p.u.array.tab);
-    js_reverse_val(vt.valueArrayItems(arr), len);
+    runtime.js_reverse_val(vt.valueArrayItems(arr), len);
     return this_val.*;
 }
 
@@ -1382,7 +1301,7 @@ pub fn js_array_concat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     var len64: i64 = @intCast(p.u.array.len);
     var i: c_int = 0;
     while (i < argc) : (i += 1) {
-        if (js_get_object_class(ctx, argv[@intCast(i)], c.JS_CLASS_ARRAY)) |p0| {
+        if (value.js_get_object_class(ctx, argv[@intCast(i)], c.JS_CLASS_ARRAY)) |p0| {
             p = @ptrCast(@alignCast(p0));
             len64 += @as(i64, @intCast(p.u.array.len));
         } else {
@@ -1393,7 +1312,7 @@ pub fn js_array_concat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
         return throwTypeError(ctx, "Array loo long");
     const len: c_int = @intCast(len64);
 
-    const obj = JS_NewArray(ctx, len);
+    const obj = value.JS_NewArray(ctx, len);
     if (vt.isExactException(obj))
         return obj;
     p = objPtr(obj);
@@ -1403,7 +1322,7 @@ pub fn js_array_concat(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     i = -1;
     while (i < argc) : (i += 1) {
         const val = if (i == -1) this_val.* else argv[@intCast(i)];
-        if (js_get_object_class(ctx, val, c.JS_CLASS_ARRAY)) |p0| {
+        if (value.js_get_object_class(ctx, val, c.JS_CLASS_ARRAY)) |p0| {
             p = @ptrCast(@alignCast(p0));
             const arr1 = valueArr(p.u.array.tab);
             var j: c_int = 0;
@@ -1423,7 +1342,7 @@ pub fn js_array_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     var len: c_int = @intCast(p.u.array.len);
     var n: c_int = if (is_lastIndexOf != 0) len - 1 else 0;
     if (argc > 1) {
-        if (JS_ToInt32Clamp(ctx, &n, argv[1], -is_lastIndexOf, len - is_lastIndexOf, len) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &n, argv[1], -is_lastIndexOf, len - is_lastIndexOf, len) != 0)
             return c.JS_EXCEPTION;
     }
     p = objPtr(this_val.*);
@@ -1433,14 +1352,14 @@ pub fn js_array_indexOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     if (is_lastIndexOf != 0) {
         n = minInt(n, len - 1);
         while (n >= 0) : (n -= 1) {
-            if (js_strict_eq(ctx, argv[0], vt.valueArrayItems(arr)[@intCast(n)]) != 0) {
+            if (runtime.js_strict_eq(ctx, argv[0], vt.valueArrayItems(arr)[@intCast(n)]) != 0) {
                 res = n;
                 break;
             }
         }
     } else {
         while (n < len) : (n += 1) {
-            if (js_strict_eq(ctx, argv[0], vt.valueArrayItems(arr)[@intCast(n)]) != 0) {
+            if (runtime.js_strict_eq(ctx, argv[0], vt.valueArrayItems(arr)[@intCast(n)]) != 0) {
                 res = n;
                 break;
             }
@@ -1455,18 +1374,18 @@ pub fn js_array_slice(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     var len: c_int = @intCast(p.u.array.len);
 
     var start: c_int = undefined;
-    if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
+    if (runtime.JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
         return c.JS_EXCEPTION;
     var final = len;
     if (!vt.isUndefined(argv[1])) {
-        if (JS_ToInt32Clamp(ctx, &final, argv[1], 0, len, len) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &final, argv[1], 0, len, len) != 0)
             return c.JS_EXCEPTION;
     }
     p = objPtr(this_val.*);
     len = @intCast(p.u.array.len);
     final = minInt(final, len);
 
-    const obj = JS_NewArray(ctx, maxInt(final - start, 0));
+    const obj = value.JS_NewArray(ctx, maxInt(final - start, 0));
     if (vt.isExactException(obj))
         return obj;
     p = objPtr(this_val.*);
@@ -1487,7 +1406,7 @@ pub fn js_array_splice(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     const len: c_int = @intCast(p.u.array.len);
 
     var start: c_int = undefined;
-    if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
+    if (runtime.JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
         return c.JS_EXCEPTION;
 
     var item_count: c_int = undefined;
@@ -1500,12 +1419,12 @@ pub fn js_array_splice(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
         del_count = len - start;
     } else {
         item_count = argc - 2;
-        if (JS_ToInt32Clamp(ctx, &del_count, argv[1], 0, len - start, 0) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &del_count, argv[1], 0, len - start, 0) != 0)
             return c.JS_EXCEPTION;
     }
     const new_len = len + item_count - del_count;
 
-    var obj = JS_NewArray(ctx, del_count);
+    var obj = value.JS_NewArray(ctx, del_count);
     if (vt.isExactException(obj))
         return obj;
     p = objPtr(this_val.*);
@@ -1563,20 +1482,20 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     if (argc > 1)
         pthis_arg = &argv[1];
 
-    if (JS_IsFunction(ctx, pfunc.*) == 0)
+    if (value.JS_IsFunction(ctx, pfunc.*) == 0)
         return throwTypeError(ctx, "not a function");
 
     var ret: c.JSValue = switch (special) {
         bt.js_special_every => c.JS_TRUE,
         bt.js_special_some => c.JS_FALSE,
         bt.js_special_map => blk: {
-            const mapped = JS_NewArray(ctx, len);
+            const mapped = value.JS_NewArray(ctx, len);
             if (vt.isExactException(mapped))
                 return c.JS_EXCEPTION;
             break :blk mapped;
         },
         bt.js_special_filter => blk: {
-            const filtered = JS_NewArray(ctx, 0);
+            const filtered = value.JS_NewArray(ctx, 0);
             if (vt.isExactException(filtered))
                 return c.JS_EXCEPTION;
             break :blk filtered;
@@ -1599,13 +1518,13 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
             break;
         var val = vt.valueArrayItems(arr)[@intCast(k)];
 
-        JS_PushArg(ctx, this_val.*);
-        JS_PushArg(ctx, vt.newShortInt(k));
-        JS_PushArg(ctx, val);
-        JS_PushArg(ctx, pfunc.*);
-        JS_PushArg(ctx, if (pthis_arg) |pa| pa.* else c.JS_UNDEFINED);
+        runtime.JS_PushArg(ctx, this_val.*);
+        runtime.JS_PushArg(ctx, vt.newShortInt(k));
+        runtime.JS_PushArg(ctx, val);
+        runtime.JS_PushArg(ctx, pfunc.*);
+        runtime.JS_PushArg(ctx, if (pthis_arg) |pa| pa.* else c.JS_UNDEFINED);
         pushValue(ctx, &val_ref, val);
-        var res = JS_Call(ctx, 3);
+        var res = runtime.JS_Call(ctx, 3);
         val = popValue(ctx, &val_ref);
         if (vt.isExactException(res)) {
             ret_ref.val = c.JS_EXCEPTION;
@@ -1614,27 +1533,27 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
 
         switch (special) {
             bt.js_special_every => {
-                if (JS_ToBool(ctx, res) == 0) {
+                if (value.JS_ToBool(ctx, res) == 0) {
                     ret_ref.val = c.JS_FALSE;
                     break;
                 }
             },
             bt.js_special_some => {
-                if (JS_ToBool(ctx, res) != 0) {
+                if (value.JS_ToBool(ctx, res) != 0) {
                     ret_ref.val = c.JS_TRUE;
                     break;
                 }
             },
             bt.js_special_map => {
-                res = JS_SetPropertyUint32(ctx, ret_ref.val, @intCast(k), res);
+                res = value.JS_SetPropertyUint32(ctx, ret_ref.val, @intCast(k), res);
                 if (vt.isExactException(res)) {
                     ret_ref.val = c.JS_EXCEPTION;
                     break;
                 }
             },
             bt.js_special_filter => {
-                if (JS_ToBool(ctx, res) != 0) {
-                    res = JS_SetPropertyUint32(ctx, ret_ref.val, @intCast(n), val);
+                if (value.JS_ToBool(ctx, res) != 0) {
+                    res = value.JS_SetPropertyUint32(ctx, ret_ref.val, @intCast(n), val);
                     n += 1;
                     if (vt.isExactException(res)) {
                         ret_ref.val = c.JS_EXCEPTION;
@@ -1656,7 +1575,7 @@ pub fn js_array_reduce(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     const len: c_int = @intCast(p.u.array.len);
     const pfunc = &argv[0];
 
-    if (JS_IsFunction(ctx, pfunc.*) == 0)
+    if (value.JS_IsFunction(ctx, pfunc.*) == 0)
         return throwTypeError(ctx, "not a function");
 
     var k: c_int = 0;
@@ -1684,13 +1603,13 @@ pub fn js_array_reduce(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
         if (k1 >= @as(c_int, @intCast(p.u.array.len)))
             break;
 
-        JS_PushArg(ctx, this_val.*);
-        JS_PushArg(ctx, vt.newShortInt(k1));
-        JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(k1)]);
-        JS_PushArg(ctx, acc);
-        JS_PushArg(ctx, pfunc.*);
-        JS_PushArg(ctx, c.JS_UNDEFINED);
-        acc = JS_Call(ctx, 4);
+        runtime.JS_PushArg(ctx, this_val.*);
+        runtime.JS_PushArg(ctx, vt.newShortInt(k1));
+        runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[@intCast(k1)]);
+        runtime.JS_PushArg(ctx, acc);
+        runtime.JS_PushArg(ctx, pfunc.*);
+        runtime.JS_PushArg(ctx, c.JS_UNDEFINED);
+        acc = runtime.JS_Call(ctx, 4);
         if (vt.isExactException(acc))
             return c.JS_EXCEPTION;
     }
@@ -1760,11 +1679,11 @@ pub fn js_array_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: *anyopaque) c_int
             }
             arr = valueArr(s.parr.*);
 
-            JS_PushArg(ctx, vt.valueArrayItems(arr)[2 * idx2]);
-            JS_PushArg(ctx, vt.valueArrayItems(arr)[2 * idx1]);
-            JS_PushArg(ctx, pfunc.*);
-            JS_PushArg(ctx, c.JS_UNDEFINED);
-            const res = JS_Call(ctx, 2);
+            runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[2 * idx2]);
+            runtime.JS_PushArg(ctx, vt.valueArrayItems(arr)[2 * idx1]);
+            runtime.JS_PushArg(ctx, pfunc.*);
+            runtime.JS_PushArg(ctx, c.JS_UNDEFINED);
+            const res = runtime.JS_Call(ctx, 2);
             if (vt.isExactException(res))
                 return @truncate(c.JS_EXCEPTION);
             if (mc.isInt(res)) {
@@ -1772,7 +1691,7 @@ pub fn js_array_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: *anyopaque) c_int
                 break :blk @as(c_int, @intFromBool(val > 0)) - @as(c_int, @intFromBool(val < 0));
             } else {
                 var val: f64 = undefined;
-                if (JS_ToNumber(ctx, &val, res) != 0) {
+                if (runtime.JS_ToNumber(ctx, &val, res) != 0) {
                     s.exception = 1;
                     return 0;
                 }
@@ -1781,8 +1700,8 @@ pub fn js_array_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: *anyopaque) c_int
         } else {
             var str1_ref: c.JSGCRef = undefined;
             var str1 = vt.valueArrayItems(arr)[2 * idx1];
-            if (JS_IsString(ctx, str1) == 0) {
-                str1 = JS_ToString(ctx, str1);
+            if (value.JS_IsString(ctx, str1) == 0) {
+                str1 = runtime.JS_ToString(ctx, str1);
                 if (vt.isExactException(str1)) {
                     s.exception = 1;
                     return 0;
@@ -1790,16 +1709,16 @@ pub fn js_array_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: *anyopaque) c_int
                 arr = valueArr(s.parr.*);
             }
             var str2 = vt.valueArrayItems(arr)[2 * idx2];
-            if (JS_IsString(ctx, str2) == 0) {
+            if (value.JS_IsString(ctx, str2) == 0) {
                 pushValue(ctx, &str1_ref, str1);
-                str2 = JS_ToString(ctx, str2);
+                str2 = runtime.JS_ToString(ctx, str2);
                 str1 = popValue(ctx, &str1_ref);
                 if (vt.isExactException(str2)) {
                     s.exception = 1;
                     return 0;
                 }
             }
-            break :blk js_string_compare(ctx, str1, str2);
+            break :blk value.js_string_compare(ctx, str1, str2);
         }
     };
     if (cmp != 0)
@@ -1831,7 +1750,7 @@ pub fn js_array_sort(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     const s = &ss;
 
     if (!vt.isUndefined(pfunc.?.*)) {
-        if (JS_IsFunction(ctx, pfunc.?.*) == 0)
+        if (value.JS_IsFunction(ctx, pfunc.?.*) == 0)
             return throwTypeError(ctx, "not a function");
     } else {
         pfunc = null;
@@ -1839,7 +1758,7 @@ pub fn js_array_sort(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     var p = js_get_array(ctx, this_val.*) orelse return c.JS_EXCEPTION;
 
     var len: c_int = @intCast(p.u.array.len);
-    const tab0 = js_alloc_value_array(ctx, 0, len * 2) orelse return c.JS_EXCEPTION;
+    const tab0 = value.js_alloc_value_array(ctx, 0, len * 2) orelse return c.JS_EXCEPTION;
     var tab: *vt.JSValueArrayExt = @ptrCast(@alignCast(tab0));
 
     p = objPtr(this_val.*);
@@ -1910,7 +1829,7 @@ pub fn js_math_min_max(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     var i: c_int = undefined;
 
     if (argc == 0) {
-        return __JS_NewFloat64(ctx, if (is_max) -std.math.inf(f64) else std.math.inf(f64));
+        return value.__JS_NewFloat64(ctx, if (is_max) -std.math.inf(f64) else std.math.inf(f64));
     }
 
     if (mc.isInt(argv[0])) {
@@ -1931,12 +1850,12 @@ pub fn js_math_min_max(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             return vt.newShortInt(r1);
         }
     } else {
-        if (JS_ToNumber(ctx, &r, argv[0]) != 0)
+        if (runtime.JS_ToNumber(ctx, &r, argv[0]) != 0)
             return c.JS_EXCEPTION;
         i = 1;
     }
     while (i < argc) : (i += 1) {
-        if (JS_ToNumber(ctx, &a, argv[@intCast(i)]) != 0)
+        if (runtime.JS_ToNumber(ctx, &a, argv[@intCast(i)]) != 0)
             return c.JS_EXCEPTION;
         if (!std.math.isNan(r)) {
             if (std.math.isNan(a)) {
@@ -1949,7 +1868,7 @@ pub fn js_math_min_max(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             }
         }
     }
-    return JS_NewFloat64(ctx, r);
+    return value.JS_NewFloat64(ctx, r);
 }
 
 pub fn js_math_sign(a: f64) f64 {
@@ -1971,13 +1890,13 @@ pub fn js_math_imul(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: 
     var a: c_int = undefined;
     var b: c_int = undefined;
 
-    if (JS_ToInt32(ctx, &a, argv[0]) != 0)
+    if (runtime.JS_ToInt32(ctx, &a, argv[0]) != 0)
         return c.JS_EXCEPTION;
-    if (JS_ToInt32(ctx, &b, argv[1]) != 0)
+    if (runtime.JS_ToInt32(ctx, &b, argv[1]) != 0)
         return c.JS_EXCEPTION;
     // purposely ignoring overflow
     const prod: u32 = @as(u32, @bitCast(a)) *% @as(u32, @bitCast(b));
-    return JS_NewInt32(ctx, @bitCast(prod));
+    return value.JS_NewInt32(ctx, @bitCast(prod));
 }
 
 pub fn js_math_clz32(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -1986,13 +1905,13 @@ pub fn js_math_clz32(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     var a: u32 = undefined;
     var r: u32 = undefined;
 
-    if (JS_ToUint32(ctx, &a, argv[0]) != 0)
+    if (runtime.JS_ToUint32(ctx, &a, argv[0]) != 0)
         return c.JS_EXCEPTION;
     if (a == 0)
         r = 32
     else
         r = @intCast(@clz(a));
-    return JS_NewInt32(ctx, @intCast(r));
+    return value.JS_NewInt32(ctx, @intCast(r));
 }
 
 pub fn js_math_atan2(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -2001,11 +1920,11 @@ pub fn js_math_atan2(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     var y: f64 = undefined;
     var x: f64 = undefined;
 
-    if (JS_ToNumber(ctx, &y, argv[0]) != 0)
+    if (runtime.JS_ToNumber(ctx, &y, argv[0]) != 0)
         return c.JS_EXCEPTION;
-    if (JS_ToNumber(ctx, &x, argv[1]) != 0)
+    if (runtime.JS_ToNumber(ctx, &x, argv[1]) != 0)
         return c.JS_EXCEPTION;
-    return JS_NewFloat64(ctx, js_atan2(y, x));
+    return value.JS_NewFloat64(ctx, js_atan2(y, x));
 }
 
 pub fn js_math_pow(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -2014,11 +1933,11 @@ pub fn js_math_pow(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [
     var y: f64 = undefined;
     var x: f64 = undefined;
 
-    if (JS_ToNumber(ctx, &x, argv[0]) != 0)
+    if (runtime.JS_ToNumber(ctx, &x, argv[0]) != 0)
         return c.JS_EXCEPTION;
-    if (JS_ToNumber(ctx, &y, argv[1]) != 0)
+    if (runtime.JS_ToNumber(ctx, &y, argv[1]) != 0)
         return c.JS_EXCEPTION;
-    return JS_NewFloat64(ctx, js_pow(x, y));
+    return value.JS_NewFloat64(ctx, js_pow(x, y));
 }
 
 // xorshift* random number generator by Marsaglia
@@ -2038,7 +1957,7 @@ pub fn js_math_random(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     const v = xorshift64star(&cx(ctx).random_state);
     // 1.0 <= u.d < 2
     const d = uint64AsFloat64((@as(u64, 0x3ff) << 52) | (v >> 12));
-    return __JS_NewFloat64(ctx, d - 1.0);
+    return value.__JS_NewFloat64(ctx, d - 1.0);
 }
 
 // typed array
@@ -2046,7 +1965,7 @@ pub fn js_math_random(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
 pub fn JS_ToIndex(ctx: *c.JSContext, plen: *u64, val: c.JSValue) c_int {
     var v: c_int = undefined;
     // XXX: should support 53 bit inteers
-    if (JS_ToInt32Sat(ctx, &v, val) != 0)
+    if (runtime.JS_ToInt32Sat(ctx, &v, val) != 0)
         return -1;
     if (v < 0 or v > vt.JS_SHORTINT_MAX) {
         _ = throwRangeError(ctx, "invalid array index");
@@ -2059,13 +1978,13 @@ pub fn JS_ToIndex(ctx: *c.JSContext, plen: *u64, val: c.JSValue) c_int {
 pub fn js_array_buffer_alloc(ctx: *c.JSContext, len: u64) c.JSValue {
     if (len > @as(u64, @intCast(vt.JS_SHORTINT_MAX)))
         return throwRangeError(ctx, "invalid array buffer length");
-    const arr_ptr = js_alloc_byte_array(ctx, @intCast(len)) orelse return c.JS_EXCEPTION;
+    const arr_ptr = value.js_alloc_byte_array(ctx, @intCast(len)) orelse return c.JS_EXCEPTION;
     const arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(arr_ptr));
     @memset(vt.byteArrayBuf(arr)[0..@intCast(len)], 0);
     var buffer = mc.valueFromPtr(arr);
     var buffer_ref: c.JSGCRef = undefined;
     pushValue(ctx, &buffer_ref, buffer);
-    const obj = JS_NewObjectClass(ctx, c.JS_CLASS_ARRAY_BUFFER, @intCast(@sizeOf(mc.JSArrayBufferExt)));
+    const obj = value.JS_NewObjectClass(ctx, c.JS_CLASS_ARRAY_BUFFER, @intCast(@sizeOf(mc.JSArrayBufferExt)));
     buffer = popValue(ctx, &buffer_ref);
     if (vt.isExactException(obj))
         return obj;
@@ -2087,7 +2006,7 @@ pub fn js_array_buffer_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc
 pub fn js_array_buffer_get_byteLength(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
     _ = argv;
-    const p0 = js_get_object_class(ctx, this_val.*, c.JS_CLASS_ARRAY_BUFFER) orelse
+    const p0 = value.js_get_object_class(ctx, this_val.*, c.JS_CLASS_ARRAY_BUFFER) orelse
         return throwTypeError(ctx, "expected an ArrayBuffer");
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(p0));
     const arr = byteArr(p.u.array_buffer.byte_buffer);
@@ -2129,12 +2048,12 @@ pub fn js_typed_array_constructor_obj(ctx: *c.JSContext, this_val: *c.JSValue, a
     i = 0;
     while (i < len) : (i += 1) {
         pushValue(ctx, &obj_ref, obj);
-        val = JS_GetProperty(ctx, argv[0], vt.newShortInt(i));
+        val = value.JS_GetProperty(ctx, argv[0], vt.newShortInt(i));
         obj = popValue(ctx, &obj_ref);
         if (vt.isExactException(val))
             return val;
         pushValue(ctx, &obj_ref, obj);
-        val = JS_SetPropertyInternal(ctx, obj, vt.newShortInt(i), val, 0);
+        val = value.JS_SetPropertyInternal(ctx, obj, vt.newShortInt(i), val, 0);
         obj = popValue(ctx, &obj_ref);
         if (vt.isExactException(val))
             return val;
@@ -2156,7 +2075,7 @@ pub fn js_typed_array_constructor(ctx: *c.JSContext, this_val: ?*c.JSValue, argc
     if (argc & c.FRAME_CF_CTOR == 0)
         return throwTypeError(ctx, "must be called with new");
     size_log2 = bt.typed_array_size_log2[@intCast(magic - c.JS_CLASS_UINT8C_ARRAY)];
-    if (JS_IsObject(ctx, argv[0]) == 0) {
+    if (value.JS_IsObject(ctx, argv[0]) == 0) {
         if (JS_ToIndex(ctx, &len, argv[0]) != 0)
             return c.JS_EXCEPTION;
         buffer = js_array_buffer_alloc(ctx, len << @as(u6, @intCast(size_log2)));
@@ -2192,7 +2111,7 @@ pub fn js_typed_array_constructor(ctx: *c.JSContext, this_val: ?*c.JSValue, argc
     }
 
     pushValue(ctx, &buffer_ref, buffer);
-    obj = JS_NewObjectClass(ctx, magic, @intCast(@sizeOf(mc.JSTypedArrayExt)));
+    obj = value.JS_NewObjectClass(ctx, magic, @intCast(@sizeOf(mc.JSTypedArrayExt)));
     buffer = popValue(ctx, &buffer_ref);
     if (vt.isExactException(obj))
         return obj;
@@ -2204,7 +2123,7 @@ pub fn js_typed_array_constructor(ctx: *c.JSContext, this_val: ?*c.JSValue, argc
 }
 
 pub fn get_typed_array(ctx: *c.JSContext, val: c.JSValue) ?*mc.JSObjectExt {
-    if (JS_IsObject(ctx, val) != 0) {
+    if (value.JS_IsObject(ctx, val) != 0) {
         const p = objPtr(val);
         if (mc.objectClassId(p) >= c.JS_CLASS_UINT8C_ARRAY and mc.objectClassId(p) <= c.JS_CLASS_FLOAT64_ARRAY)
             return p;
@@ -2232,12 +2151,12 @@ pub fn js_typed_array_subarray(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_
     var start: c_int = undefined;
     var final: c_int = undefined;
     const len: c_int = @intCast(p.u.typed_array.len);
-    if (JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
+    if (runtime.JS_ToInt32Clamp(ctx, &start, argv[0], 0, len, len) != 0)
         return c.JS_EXCEPTION;
     if (vt.isUndefined(argv[1])) {
         final = len;
     } else {
-        if (JS_ToInt32Clamp(ctx, &final, argv[1], 0, len, len) != 0)
+        if (runtime.JS_ToInt32Clamp(ctx, &final, argv[1], 0, len, len) != 0)
             return c.JS_EXCEPTION;
     }
     p = objPtr(this_val.*);
@@ -2250,7 +2169,7 @@ pub fn js_typed_array_subarray(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_
     if (@as(u64, offset +% count) > @as(u64, @intCast(vt.byteArraySize(arr))))
         return throwRangeError(ctx, "invalid length");
 
-    const obj = JS_NewObjectClass(ctx, mc.objectClassId(p), @intCast(@sizeOf(mc.JSTypedArrayExt)));
+    const obj = value.JS_NewObjectClass(ctx, mc.objectClassId(p), @intCast(@sizeOf(mc.JSTypedArrayExt)));
     if (vt.isExactException(obj))
         return c.JS_EXCEPTION;
     p = objPtr(this_val.*);
@@ -2267,15 +2186,15 @@ pub fn js_typed_array_set(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
     var offset: c_int = undefined;
 
     if (argc > 1) {
-        if (JS_ToInt32Sat(ctx, &offset, argv[1]) != 0)
+        if (runtime.JS_ToInt32Sat(ctx, &offset, argv[1]) != 0)
             return c.JS_EXCEPTION;
     } else {
         offset = 0;
     }
     if (offset < 0)
         return throwRangeError(ctx, "invalid array length");
-    if (JS_IsObject(ctx, argv[0]) == 0)
-        return JS_ThrowTypeErrorNotAnObject(ctx);
+    if (value.JS_IsObject(ctx, argv[0]) == 0)
+        return value.JS_ThrowTypeErrorNotAnObject(ctx);
     p = objPtr(this_val.*);
     const dst_len: u32 = p.u.typed_array.len;
     const p1 = objPtr(argv[0]);
@@ -2307,17 +2226,17 @@ pub fn js_typed_array_set(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
             return c.JS_UNDEFINED;
         }
     } else {
-        if (js_get_length32(ctx, &src_len, argv[0]) != 0)
+        if (runtime.js_get_length32(ctx, &src_len, argv[0]) != 0)
             return c.JS_EXCEPTION;
         if (src_len > dst_len or @as(u32, @intCast(offset)) > dst_len - src_len)
             return throwRangeError(ctx, "invalid array length");
     }
     var i: u32 = 0;
     while (i < src_len) : (i += 1) {
-        var val = JS_GetPropertyUint32(ctx, argv[0], i);
+        var val = value.JS_GetPropertyUint32(ctx, argv[0], i);
         if (vt.isExactException(val))
             return c.JS_EXCEPTION;
-        val = JS_SetPropertyUint32(ctx, this_val.*, @as(u32, @intCast(offset)) + i, val);
+        val = value.JS_SetPropertyUint32(ctx, this_val.*, @as(u32, @intCast(offset)) + i, val);
         if (vt.isExactException(val))
             return c.JS_EXCEPTION;
     }
@@ -2327,7 +2246,7 @@ pub fn js_typed_array_set(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
 // Date
 
 pub fn JS_NewDate(ctx: *c.JSContext, epoch_ms: f64) c.JSValue {
-    const obj = JS_NewObjectClass(ctx, c.JS_CLASS_DATE, @intCast(@sizeOf(bt.JSDateExt)));
+    const obj = value.JS_NewObjectClass(ctx, c.JS_CLASS_DATE, @intCast(@sizeOf(bt.JSDateExt)));
     if (vt.isExactException(obj))
         return obj;
     const p = objPtr(obj);
@@ -2338,13 +2257,13 @@ pub fn JS_NewDate(ctx: *c.JSContext, epoch_ms: f64) c.JSValue {
 pub fn js_date_valueOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
     _ = argv;
-    const p0 = js_get_object_class(ctx, this_val.*, c.JS_CLASS_DATE);
+    const p0 = value.js_get_object_class(ctx, this_val.*, c.JS_CLASS_DATE);
     if (p0 == null) {
         _ = throwTypeError(ctx, "not a Date object");
         return c.JS_EXCEPTION;
     }
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(p0.?));
-    return __JS_NewFloat64(ctx, bt.objectDate(p).dval);
+    return value.__JS_NewFloat64(ctx, bt.objectDate(p).dval);
 }
 
 // global
@@ -2352,19 +2271,19 @@ pub fn js_date_valueOf(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
 pub fn js_global_eval(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    if (JS_IsString(ctx, argv[0]) == 0)
+    if (value.JS_IsString(ctx, argv[0]) == 0)
         return argv[0];
-    const val = JS_Parse2(ctx, argv[0], null, 0, "<input>", c.JS_EVAL_RETVAL);
+    const val = parser.JS_Parse2(ctx, argv[0], null, 0, "<input>", c.JS_EVAL_RETVAL);
     if (vt.isExactException(val))
         return val;
-    return JS_Run(ctx, val);
+    return parser.JS_Run(ctx, val);
 }
 
 pub fn js_global_isNaN(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
     var d: f64 = undefined;
-    if (JS_ToNumber(ctx, &d, argv[0]) != 0)
+    if (runtime.JS_ToNumber(ctx, &d, argv[0]) != 0)
         return c.JS_EXCEPTION;
     return newBool(std.math.isNan(d));
 }
@@ -2373,7 +2292,7 @@ pub fn js_global_isFinite(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
     _ = this_val;
     _ = argc;
     var d: f64 = undefined;
-    if (JS_ToNumber(ctx, &d, argv[0]) != 0)
+    if (runtime.JS_ToNumber(ctx, &d, argv[0]) != 0)
         return c.JS_EXCEPTION;
     return newBool(std.math.isFinite(d));
 }
@@ -2383,10 +2302,10 @@ pub fn js_global_isFinite(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, 
 pub fn js_json_parse(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = this_val;
     _ = argc;
-    const val = JS_ToString(ctx, argv[0]);
+    const val = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(val))
         return val;
-    return JS_Parse2(ctx, val, null, 0, "<input>", c.JS_EVAL_JSON);
+    return parser.JS_Parse2(ctx, val, null, 0, "<input>", c.JS_EVAL_JSON);
 }
 
 pub fn js_to_quoted_string(ctx: *c.JSContext, b: *vt.StringBuffer, str: c.JSValue) c_int {
@@ -2396,11 +2315,11 @@ pub fn js_to_quoted_string(ctx: *c.JSContext, b: *vt.StringBuffer, str: c.JSValu
     var clen: usize = undefined;
 
     pushValue(ctx, &str_ref, str);
-    _ = string_buffer_putc(ctx, @ptrCast(b), '"');
+    _ = value.string_buffer_putc(ctx, @ptrCast(b), '"');
 
     while (true) {
         // XXX: inefficient
-        const p: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&char_buf), str_ref.val)));
+        const p: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&char_buf), str_ref.val)));
         if (i >= @as(c_int, @intCast(vt.stringLen(p))))
             break;
         var ch: c_int = cutils.utf8_get(vt.stringBuf(p) + @as(usize, @intCast(i)), &clen);
@@ -2409,45 +2328,45 @@ pub fn js_to_quoted_string(ctx: *c.JSContext, b: *vt.StringBuffer, str: c.JSValu
         switch (ch) {
             '\t' => {
                 ch = 't';
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             '\r' => {
                 ch = 'r';
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             '\n' => {
                 ch = 'n';
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             0x08 => {
                 ch = 'b';
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             0x0c => {
                 ch = 'f';
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             '"', '\\' => {
-                _ = string_buffer_putc(ctx, @ptrCast(b), '\\');
-                _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), '\\');
+                _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
             },
             else => {
                 if (ch < 32 or (ch >= 0xd800 and ch < 0xe000)) {
                     var hex_buf: [7]u8 = undefined;
                     _ = utils.js_snprintf(@ptrCast(&hex_buf), hex_buf.len, "\\u%04x", ch);
-                    _ = string_buffer_puts(ctx, @ptrCast(b), @ptrCast(&hex_buf));
+                    _ = value.string_buffer_puts(ctx, @ptrCast(b), @ptrCast(&hex_buf));
                 } else {
-                    _ = string_buffer_putc(ctx, @ptrCast(b), ch);
+                    _ = value.string_buffer_putc(ctx, @ptrCast(b), ch);
                 }
             },
         }
     }
-    _ = string_buffer_putc(ctx, @ptrCast(b), '"');
+    _ = value.string_buffer_putc(ctx, @ptrCast(b), '"');
     _ = popValue(ctx, &str_ref);
     return 0;
 }
@@ -2472,13 +2391,13 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     var idx: c_int = undefined;
     var ret: c_int = undefined;
 
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
     const stack_top: [*]c.JSValue = @ptrCast(cx(ctx).sp);
 
     ret = utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
     if (ret != 0) {
         cx(ctx).sp = @ptrCast(stack_top);
-        _ = string_buffer_pop(ctx, @ptrCast(&b));
+        _ = value.string_buffer_pop(ctx, @ptrCast(&b));
         return c.JS_EXCEPTION;
     }
     {
@@ -2495,25 +2414,25 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     stringify: while (@intFromPtr(cx(ctx).sp) < @intFromPtr(stack_top)) {
         const sp0: [*]c.JSValue = @ptrCast(cx(ctx).sp);
         const obj = sp0[0];
-        if (JS_IsFunction(ctx, obj) != 0) {
-            _ = string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
+        if (value.JS_IsFunction(ctx, obj) != 0) {
+            _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
             cx(ctx).sp = @ptrCast(sp0 + @as(usize, @intCast(bt.JSON_REC_SIZE)));
-        } else if (JS_IsObject(ctx, obj) != 0) {
+        } else if (value.JS_IsObject(ctx, obj) != 0) {
             var p = objPtr(obj);
             idx = vt.valueGetInt(sp0[1]);
             if (mc.objectClassId(p) == c.JS_CLASS_ARRAY) {
                 // array
                 if (idx == 0)
-                    _ = string_buffer_putc(ctx, @ptrCast(&b), '[');
+                    _ = value.string_buffer_putc(ctx, @ptrCast(&b), '[');
                 p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0]);
                 if (idx >= @as(c_int, @intCast(p.u.array.len))) {
                     // end of array
-                    _ = string_buffer_putc(ctx, @ptrCast(&b), ']');
+                    _ = value.string_buffer_putc(ctx, @ptrCast(&b), ']');
                     const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
                     cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
                 } else {
                     if (idx != 0)
-                        _ = string_buffer_putc(ctx, @ptrCast(&b), ',');
+                        _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
                     @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[1] = vt.newShortInt(idx + 1);
                     ret = utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
                     if (ret != 0)
@@ -2539,7 +2458,7 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
 
                 // object
                 if (idx == 0) {
-                    _ = string_buffer_putc(ctx, @ptrCast(&b), '{');
+                    _ = value.string_buffer_putc(ctx, @ptrCast(&b), '{');
                     var dummy_this: c.JSValue = undefined;
                     const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
                     sp[2] = js_object_keys(ctx, &dummy_this, 1, sp);
@@ -2552,14 +2471,14 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                     p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[2]); // keys
                     if (idx >= @as(c_int, @intCast(p.u.array.len))) {
                         // end of object
-                        _ = string_buffer_putc(ctx, @ptrCast(&b), '}');
+                        _ = value.string_buffer_putc(ctx, @ptrCast(&b), '}');
                         const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
                         cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
                         break;
                     } else {
                         const arr = valueArr(p.u.array.tab);
-                        const prop = JS_ToPropertyKey(ctx, vt.valueArrayItems(arr)[@intCast(idx)]);
-                        val = JS_GetProperty(ctx, @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0], prop);
+                        const prop = runtime.JS_ToPropertyKey(ctx, vt.valueArrayItems(arr)[@intCast(idx)]);
+                        val = value.JS_GetProperty(ctx, @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0], prop);
                         if (vt.isExactException(val))
                             break :stringify;
                         // skip undefined properties
@@ -2573,12 +2492,12 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 if (found) {
                     pushValue(ctx, &val_ref, val);
                     if (saved_idx != 0)
-                        _ = string_buffer_putc(ctx, @ptrCast(&b), ',');
+                        _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
                     @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[1] = vt.newShortInt(idx + 1);
                     p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[2]);
                     const arr = valueArr(p.u.array.tab);
                     ret = js_to_quoted_string(ctx, &b, vt.valueArrayItems(arr)[@intCast(idx)]);
-                    _ = string_buffer_putc(ctx, @ptrCast(&b), ':');
+                    _ = value.string_buffer_putc(ctx, @ptrCast(&b), ':');
                     ret |= utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
                     val = popValue(ctx, &val_ref);
                     if (ret != 0)
@@ -2595,42 +2514,42 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                     cx(ctx).sp = @ptrCast(sp);
                 }
             }
-        } else if (JS_IsNumber(ctx, obj) != 0) {
+        } else if (value.JS_IsNumber(ctx, obj) != 0) {
             var d: f64 = undefined;
-            ret = JS_ToNumber(ctx, &d, obj);
+            ret = runtime.JS_ToNumber(ctx, &d, obj);
             if (ret != 0)
                 break :stringify;
             if (!std.math.isFinite(d)) {
-                _ = string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
+                _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
                 const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
                 cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
             } else {
-                if (string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
+                if (value.string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
                     break :stringify;
                 const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
                 cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
             }
         } else if (rt.valueGetSpecialTag(obj) == c.JS_TAG_BOOL) {
-            if (string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
+            if (value.string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
                 break :stringify;
             const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
             cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
-        } else if (JS_IsString(ctx, obj) != 0) {
+        } else if (value.JS_IsString(ctx, obj) != 0) {
             if (js_to_quoted_string(ctx, &b, obj) != 0)
                 break :stringify;
             const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
             cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         } else {
-            _ = string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
+            _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
             const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
             cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         }
     } else {
-        return string_buffer_pop(ctx, @ptrCast(&b));
+        return value.string_buffer_pop(ctx, @ptrCast(&b));
     }
 
     cx(ctx).sp = @ptrCast(stack_top);
-    _ = string_buffer_pop(ctx, @ptrCast(&b));
+    _ = value.string_buffer_pop(ctx, @ptrCast(&b));
     return c.JS_EXCEPTION;
 }
 // ********************************************************************
@@ -2685,47 +2604,47 @@ fn lre_get_flags(bc_buf: [*]const u8) c_int {
 }
 
 fn re_emit_op(s: *JSParseState, op: c_int) void {
-    emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(op));
 }
 
 fn re_emit_op_u8(s: *JSParseState, op: c_int, val: u32) void {
-    emit_u8(s, @intCast(op));
-    emit_u8(s, @intCast(val));
+    parser.emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(val));
 }
 
 fn re_emit_op_u16(s: *JSParseState, op: c_int, val: u32) void {
-    emit_u8(s, @intCast(op));
-    emit_u16(s, @intCast(val));
+    parser.emit_u8(s, @intCast(op));
+    parser.emit_u16(s, @intCast(val));
 }
 
 fn re_emit_op_u32(s: *JSParseState, op: c_int, val: u32) c_int {
-    emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(op));
     const pos: c_int = @intCast(s.byte_code_len);
-    emit_u32(s, val);
+    parser.emit_u32(s, val);
     return pos;
 }
 
 fn re_emit_goto(s: *JSParseState, op: c_int, val: c_int) c_int {
-    emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(op));
     const pos: c_int = @intCast(s.byte_code_len);
-    emit_u32(s, @bitCast(val - (pos + 4)));
+    parser.emit_u32(s, @bitCast(val - (pos + 4)));
     return pos;
 }
 
 fn re_emit_goto_u8(s: *JSParseState, op: c_int, arg: u32, val: c_int) c_int {
-    emit_u8(s, @intCast(op));
-    emit_u8(s, @intCast(arg));
+    parser.emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(arg));
     const pos: c_int = @intCast(s.byte_code_len);
-    emit_u32(s, @bitCast(val - (pos + 4)));
+    parser.emit_u32(s, @bitCast(val - (pos + 4)));
     return pos;
 }
 
 fn re_emit_goto_u8_u32(s: *JSParseState, op: c_int, arg0: u32, arg1: u32, val: c_int) c_int {
-    emit_u8(s, @intCast(op));
-    emit_u8(s, @intCast(arg0));
-    emit_u32(s, arg1);
+    parser.emit_u8(s, @intCast(op));
+    parser.emit_u8(s, @intCast(arg0));
+    parser.emit_u32(s, arg1);
     const pos: c_int = @intCast(s.byte_code_len);
-    emit_u32(s, @bitCast(val - (pos + 4)));
+    parser.emit_u32(s, @bitCast(val - (pos + 4)));
     return pos;
 }
 
@@ -2735,13 +2654,13 @@ fn re_emit_char(s: *JSParseState, ch: c_int) void {
     re_emit_op(s, REOP.char1 + @as(c_int, @intCast(n)) - 1);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        emit_u8(s, buf[i]);
+        parser.emit_u8(s, buf[i]);
     }
 }
 
 fn re_parse_expect(s: *JSParseState, ch: c_int) void {
     if (s.source_buf[s.buf_pos] != @as(u8, @intCast(ch)))
-        js_parse_error(s, "expecting '%c'", ch);
+        lexer.js_parse_error(s, "expecting '%c'", ch);
     s.buf_pos += 1;
 }
 
@@ -2840,7 +2759,7 @@ fn get_class_atom(s: *JSParseState, inclass: bool) c_int {
                         p += 1;
                     } else if (bt.reIsUnicode(s)) {
                         s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
-                        js_parse_error(s, "invalid escape sequence in regular expression");
+                        lexer.js_parse_error(s, "invalid escape sequence in regular expression");
                     } else {
                         p -= 1;
                         ch = '\\';
@@ -2849,23 +2768,23 @@ fn get_class_atom(s: *JSParseState, inclass: bool) c_int {
                 '-' => {
                     if (!inclass and bt.reIsUnicode(s)) {
                         s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
-                        js_parse_error(s, "invalid escape sequence in regular expression");
+                        lexer.js_parse_error(s, "invalid escape sequence in regular expression");
                     }
                 },
                 '^', '$', '\\', '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '/' => {},
                 else => {
                     p -= 1;
                     var len: usize = undefined;
-                    const ret = js_parse_escape(p, &len);
+                    const ret = lexer.js_parse_escape(p, &len);
                     if (ret < 0) {
                         if (bt.reIsUnicode(s)) {
                             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
-                            js_parse_error(s, "invalid escape sequence in regular expression");
+                            lexer.js_parse_error(s, "invalid escape sequence in regular expression");
                         } else {
                             var nlen: usize = undefined;
                             const nret = unicodeFromUtf8(p, cutils.UTF8_CHAR_LEN_MAX, &nlen);
                             if (nret < 0)
-                                js_parse_error(s, "malformed unicode char");
+                                lexer.js_parse_error(s, "malformed unicode char");
                             p += nlen;
                             ch = @intCast(nret);
                             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
@@ -2879,11 +2798,11 @@ fn get_class_atom(s: *JSParseState, inclass: bool) c_int {
         },
         0, '/' => {
             if (@intFromPtr(p) - @intFromPtr(s.source_buf) >= s.buf_len)
-                js_parse_error(s, "unexpected end");
+                lexer.js_parse_error(s, "unexpected end");
             var len: usize = undefined;
             const ret = unicodeFromUtf8(p, cutils.UTF8_CHAR_LEN_MAX, &len);
             if (ret < 0)
-                js_parse_error(s, "malformed unicode char");
+                lexer.js_parse_error(s, "malformed unicode char");
             p += len;
             ch = @intCast(ret);
         },
@@ -2891,7 +2810,7 @@ fn get_class_atom(s: *JSParseState, inclass: bool) c_int {
             var len: usize = undefined;
             const ret = unicodeFromUtf8(p, cutils.UTF8_CHAR_LEN_MAX, &len);
             if (ret < 0)
-                js_parse_error(s, "malformed unicode char");
+                lexer.js_parse_error(s, "malformed unicode char");
             p += len;
             ch = @intCast(ret);
         },
@@ -2902,25 +2821,25 @@ fn get_class_atom(s: *JSParseState, inclass: bool) c_int {
 
 fn re_emit_range_base1(s: *JSParseState, tab: []const u16) void {
     for (tab) |v| {
-        emit_u32(s, v);
+        parser.emit_u32(s, v);
     }
 }
 
 fn re_emit_range_base(s: *JSParseState, ch: c_int) void {
     const invert = (ch & 1) != 0;
     if (invert)
-        emit_u32(s, 0);
+        parser.emit_u32(s, 0);
     switch (ch & ~@as(c_int, 1)) {
         bt.CHAR_RANGE_d => {
-            emit_u32(s, 0x30);
-            emit_u32(s, 0x39 + 1);
+            parser.emit_u32(s, 0x30);
+            parser.emit_u32(s, 0x39 + 1);
         },
         bt.CHAR_RANGE_s => re_emit_range_base1(s, &bt.char_range_s),
         bt.CHAR_RANGE_w => re_emit_range_base1(s, &bt.char_range_w),
         else => std.posix.abort(),
     }
     if (invert)
-        emit_u32(s, 0x110000);
+        parser.emit_u32(s, 0x110000);
 }
 
 fn range_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: ?*anyopaque) c_int {
@@ -2973,10 +2892,10 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
     s.byte_code_len -= @intCast((n - n1) * 8);
 
     if (invert) {
-        emit_insert(s, range_start, 4);
+        parser.emit_insert(s, range_start, 4);
         arr = byteArr(s.byte_code);
         put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start)), 0);
-        emit_u32(s, 0x110000);
+        parser.emit_u32(s, 0x110000);
         arr = byteArr(s.byte_code);
         n = n1 + 1;
         n1 = range_compress(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start)), n);
@@ -2985,7 +2904,7 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
     n = n1;
 
     if (n > 65534)
-        js_parse_error(s, "range too big");
+        lexer.js_parse_error(s, "range too big");
 
     if (n > 0 and n < 16) {
         const tab = vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start));
@@ -3000,7 +2919,7 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
                 ch = get_u32(tab + @as(usize, @intCast(4 * i)));
                 if (ch == 0x110000)
                     ch = 0xff;
-                emit_u8(s, @intCast(ch));
+                parser.emit_u8(s, @intCast(ch));
             }
             return;
         }
@@ -3013,11 +2932,11 @@ fn add_interval_intersect(s: *JSParseState, start_in: u32, end_in: u32, start1: 
     const start = maxUint32(start_in, start1);
     const end = minUint32(end_in, end1);
     if (start < end) {
-        emit_u32(s, start);
-        emit_u32(s, end);
+        parser.emit_u32(s, start);
+        parser.emit_u32(s, end);
         if (offset != 0) {
-            emit_u32(s, @intCast(@as(i32, @intCast(start)) + offset));
-            emit_u32(s, @intCast(@as(i32, @intCast(end)) + offset));
+            parser.emit_u32(s, @intCast(@as(i32, @intCast(start)) + offset));
+            parser.emit_u32(s, @intCast(@as(i32, @intCast(end)) + offset));
         }
     }
 }
@@ -3042,12 +2961,12 @@ fn re_parse_char_class(s: *JSParseState) void {
         if (s.source_buf[s.buf_pos] == '-' and s.source_buf[s.buf_pos + 1] != ']') {
             s.buf_pos += 1;
             if (c1 >= @as(u32, @intCast(bt.CLASS_RANGE_BASE)))
-                js_parse_error(s, "invalid class range");
+                lexer.js_parse_error(s, "invalid class range");
             const c2: u32 = @intCast(get_class_atom(s, true));
             if (c2 >= @as(u32, @intCast(bt.CLASS_RANGE_BASE)))
-                js_parse_error(s, "invalid class range");
+                lexer.js_parse_error(s, "invalid class range");
             if (c2 < c1)
-                js_parse_error(s, "invalid class range");
+                lexer.js_parse_error(s, "invalid class range");
             var c2b = c2;
             c2b += 1;
             if (bt.reIgnoreCase(s)) {
@@ -3057,8 +2976,8 @@ fn re_parse_char_class(s: *JSParseState) void {
                 add_interval_intersect(s, c1, c2b, 'A', 'Z' + 1, 32);
                 add_interval_intersect(s, c1, c2b, 'a', 'z' + 1, -32);
             } else {
-                emit_u32(s, c1);
-                emit_u32(s, c2b);
+                parser.emit_u32(s, c1);
+                parser.emit_u32(s, c2b);
             }
         } else {
             if (c1 >= @as(u32, @intCast(bt.CLASS_RANGE_BASE))) {
@@ -3073,8 +2992,8 @@ fn re_parse_char_class(s: *JSParseState) void {
                     add_interval_intersect(s, c1, c2, 'A', 'Z' + 1, 32);
                     add_interval_intersect(s, c1, c2, 'a', 'z' + 1, -32);
                 } else {
-                    emit_u32(s, c1);
-                    emit_u32(s, c2);
+                    parser.emit_u32(s, c1);
+                    parser.emit_u32(s, c2);
                 }
             }
         }
@@ -3107,7 +3026,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
         },
         '{' => {
             if (!isDigit(p[1]))
-                js_parse_error(s, "invalid repetition count");
+                lexer.js_parse_error(s, "invalid repetition count");
             p += 1;
             quant_min = parse_digits(&p);
             quant_max = quant_min;
@@ -3116,7 +3035,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
                 if (isDigit(p[0])) {
                     quant_max = parse_digits(&p);
                     if (quant_max < quant_min)
-                        js_parse_error(s, "invalid repetition count");
+                        lexer.js_parse_error(s, "invalid repetition count");
                 } else {
                     quant_max = vt.JS_SHORTINT_MAX;
                 }
@@ -3136,7 +3055,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
     s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
 
     if (last_atom_start < 0)
-        js_parse_error(s, "nothing to repeat");
+        lexer.js_parse_error(s, "nothing to repeat");
 
     var need_capture_init = false;
     var arr = byteArr(s.byte_code);
@@ -3147,7 +3066,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
     );
 
     if (need_capture_init and last_capture_count != s.capture_count) {
-        emit_insert(s, last_atom_start, 3);
+        parser.emit_insert(s, last_atom_start, 3);
         var pos = last_atom_start;
         arr = byteArr(s.byte_code);
         const buf = vt.byteArrayBuf(arr);
@@ -3161,7 +3080,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
     const len: c_int = @intCast(s.byte_code_len - @as(u32, @intCast(last_atom_start)));
     if (quant_min == 0) {
         if (!need_capture_init and last_capture_count != s.capture_count) {
-            emit_insert(s, last_atom_start, 3);
+            parser.emit_insert(s, last_atom_start, 3);
             arr = byteArr(s.byte_code);
             const buf = vt.byteArrayBuf(arr);
             buf[@intCast(last_atom_start)] = @intCast(REOP.save_reset);
@@ -3175,7 +3094,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
             s.byte_code_len = @intCast(last_atom_start);
         } else if (quant_max == 1 or quant_max == vt.JS_SHORTINT_MAX) {
             const has_goto = quant_max == vt.JS_SHORTINT_MAX;
-            emit_insert(s, last_atom_start, 5 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
+            parser.emit_insert(s, last_atom_start, 5 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
             arr = byteArr(s.byte_code);
             const buf = vt.byteArrayBuf(arr);
             buf[@intCast(last_atom_start)] = @intCast(REOP.split_goto_first + @as(c_int, @intFromBool(greedy)));
@@ -3188,7 +3107,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
             if (has_goto)
                 _ = re_emit_goto(s, REOP.goto, last_atom_start);
         } else {
-            emit_insert(s, last_atom_start, 11 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
+            parser.emit_insert(s, last_atom_start, 11 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
             var pos = last_atom_start;
             arr = byteArr(s.byte_code);
             const buf = vt.byteArrayBuf(arr);
@@ -3215,7 +3134,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
     } else {
         if (quant_min == quant_max)
             add_zero_advance_check = false;
-        emit_insert(s, last_atom_start, 6 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
+        parser.emit_insert(s, last_atom_start, 6 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2);
         var pos = last_atom_start;
         arr = byteArr(s.byte_code);
         const buf = vt.byteArrayBuf(arr);
@@ -3288,9 +3207,9 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                     if (!bt.reIsUnicode(s) and !isDigit(s.source_buf[s.buf_pos + 1])) {
                         continue :sw 102;
                     }
-                    js_parse_error(s, "nothing to repeat");
+                    lexer.js_parse_error(s, "nothing to repeat");
                 },
-                '*', '+', '?' => js_parse_error(s, "nothing to repeat"),
+                '*', '+', '?' => lexer.js_parse_error(s, "nothing to repeat"),
                 '(' => {
                     if (s.source_buf[s.buf_pos + 1] == '?') {
                         const gch: c_int = s.source_buf[s.buf_pos + 2];
@@ -3315,12 +3234,12 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                             parsePushInt(s, pos);
                             return parseCall(1, pt.PARSE_FUNC_re_parse_disjunction, 0);
                         } else {
-                            js_parse_error(s, "invalid group");
+                            lexer.js_parse_error(s, "invalid group");
                         }
                     } else {
                         s.buf_pos += 1;
                         if (s.capture_count >= bt.CAPTURE_COUNT_MAX)
-                            js_parse_error(s, "too many captures");
+                            lexer.js_parse_error(s, "too many captures");
                         last_atom_start = @intCast(s.byte_code_len);
                         last_capture_count = s.capture_count;
                         const capture_index: c_int = s.capture_count;
@@ -3348,7 +3267,7 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                             s.buf_pos += 2;
                             ch = 0;
                             if (isDigit(s.source_buf[s.buf_pos]))
-                                js_parse_error(s, "invalid decimal escape in regular expression");
+                                lexer.js_parse_error(s, "invalid decimal escape in regular expression");
                             continue :sw 103;
                         },
                         '1', '2', '3', '4', '5', '6', '7', '8', '9' => {
@@ -3356,7 +3275,7 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                             ch = parse_digits(&p);
                             s.buf_pos = @intCast(@intFromPtr(p) - @intFromPtr(s.source_buf));
                             if (ch > bt.CAPTURE_COUNT_MAX)
-                                js_parse_error(s, "back reference is out of range");
+                                lexer.js_parse_error(s, "back reference is out of range");
                             last_atom_start = @intCast(s.byte_code_len);
                             last_capture_count = s.capture_count;
                             re_emit_op_u8(s, REOP.back_reference + @as(c_int, @intFromBool(bt.reIgnoreCase(s))), @intCast(ch));
@@ -3371,7 +3290,7 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                 },
                 ']', '}' => {
                     if (bt.reIsUnicode(s))
-                        js_parse_error(s, "syntax error");
+                        lexer.js_parse_error(s, "syntax error");
                     continue :sw 102;
                 },
                 else => continue :sw 102,
@@ -3434,10 +3353,10 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
                     if (ch >= 'a')
                         ch -= 32;
                     re_emit_op_u8(s, REOP.range8, 2);
-                    emit_u8(s, @intCast(ch));
-                    emit_u8(s, @intCast(ch + 1));
-                    emit_u8(s, @intCast(ch + 32));
-                    emit_u8(s, @intCast(ch + 32 + 1));
+                    parser.emit_u8(s, @intCast(ch));
+                    parser.emit_u8(s, @intCast(ch + 1));
+                    parser.emit_u8(s, @intCast(ch + 32));
+                    parser.emit_u8(s, @intCast(ch + 32 + 1));
                 } else {
                     re_emit_char(s, ch);
                 }
@@ -3488,7 +3407,7 @@ pub fn re_parse_disjunction(s: *JSParseState, state: c_int, dummy_param: c_int) 
                 return pt.PARSE_STATE_RET;
             s.buf_pos += 1;
             const len: c_int = @intCast(s.byte_code_len - @as(u32, @intCast(start)));
-            emit_insert(s, start, 5);
+            parser.emit_insert(s, start, 5);
             const arr = byteArr(s.byte_code);
             vt.byteArrayBuf(arr)[@intCast(start)] = @intCast(REOP.split_next_first);
             put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(start + 1)), @intCast(len + 5));
@@ -3524,7 +3443,7 @@ fn re_compute_register_count(s: *JSParseState, bc_buf: [*]u8, bc_buf_len: c_int)
                 stack_size += 1;
                 if (stack_size > stack_size_max) {
                     if (stack_size > bt.REGISTER_COUNT_MAX)
-                        js_parse_error(s, "too many regexp registers");
+                        lexer.js_parse_error(s, "too many regexp registers");
                     stack_size_max = stack_size;
                 }
             },
@@ -3548,7 +3467,7 @@ fn re_compute_register_count(s: *JSParseState, bc_buf: [*]u8, bc_buf_len: c_int)
             },
             REOP.back_reference, REOP.back_reference_i => {
                 if (bc_buf[@intCast(pos + 1)] >= s.capture_count)
-                    js_parse_error(s, "back reference is out of range");
+                    lexer.js_parse_error(s, "back reference is out of range");
             },
             else => {},
         }
@@ -3566,9 +3485,9 @@ pub fn js_parse_regexp(s: *JSParseState, re_flags: c_int) c.JSValue {
     s.byte_code_len = 0;
     s.capture_count = 1;
 
-    emit_u16(s, @intCast(re_flags));
-    emit_u8(s, 0);
-    emit_u8(s, 0);
+    parser.emit_u16(s, @intCast(re_flags));
+    parser.emit_u8(s, 0);
+    parser.emit_u8(s, 0);
 
     if ((re_flags & bt.LRE_FLAG_STICKY) == 0) {
         _ = re_emit_op_u32(s, REOP.split_goto_first, 1 + 5);
@@ -3577,20 +3496,20 @@ pub fn js_parse_regexp(s: *JSParseState, re_flags: c_int) c.JSValue {
     }
     re_emit_op_u8(s, REOP.save_start, 0);
 
-    js_parse_call(s, pt.PARSE_FUNC_re_parse_disjunction, 0);
+    parser.js_parse_call(s, pt.PARSE_FUNC_re_parse_disjunction, 0);
 
     re_emit_op_u8(s, REOP.save_end, 0);
     re_emit_op(s, REOP.match);
 
     if (s.buf_pos != s.buf_len)
-        js_parse_error(s, "extraneous characters at the end");
+        lexer.js_parse_error(s, "extraneous characters at the end");
 
     const arr = byteArr(s.byte_code);
     vt.byteArrayBuf(arr)[bt.RE_HEADER_CAPTURE_COUNT] = s.capture_count;
     const register_count = re_compute_register_count(s, vt.byteArrayBuf(arr) + bt.RE_HEADER_LEN, @intCast(s.byte_code_len - bt.RE_HEADER_LEN));
     vt.byteArrayBuf(arr)[bt.RE_HEADER_REGISTER_COUNT] = @intCast(register_count);
 
-    js_shrink_byte_array(s.ctx, &s.byte_code, @intCast(s.byte_code_len));
+    value.js_shrink_byte_array(s.ctx, &s.byte_code, @intCast(s.byte_code_len));
     return s.byte_code;
 }
 
@@ -3701,7 +3620,7 @@ fn lrePollInterrupt(st: *LreState) c_int {
         pushValue(ctx, &byte_code_ref, st.byte_code);
         pushValue(ctx, &str_ref, st.str);
         x.sp = @ptrCast(st.sp);
-        const ret = __js_poll_interrupt(ctx);
+        const ret = runtime.__js_poll_interrupt(ctx);
         st.str = popValue(ctx, &str_ref);
         st.byte_code = popValue(ctx, &byte_code_ref);
         st.capture_buf = popValue(ctx, &capture_buf_ref);
@@ -3745,17 +3664,17 @@ fn lreCheckStackSpace(st: *LreState, n: c_int) c_int {
     return 0;
 }
 
-fn lreSaveCapture(st: *LreState, idx: u32, value: u32) c_int {
+fn lreSaveCapture(st: *LreState, idx: u32, capture_val: u32) c_int {
     if (lreCheckStackSpace(st, 2) < 0)
         return -1;
     st.sp -= 2;
     st.sp[0] = vt.newShortInt(@intCast(idx));
     st.sp[1] = vt.newShortInt(@bitCast(st.capture[idx]));
-    st.capture[idx] = value;
+    st.capture[idx] = capture_val;
     return 0;
 }
 
-fn lreSaveCaptureCheck(st: *LreState, idx: u32, value: u32) c_int {
+fn lreSaveCaptureCheck(st: *LreState, idx: u32, capture_val: u32) c_int {
     var sp1 = st.sp;
     while (true) {
         if (@intFromPtr(sp1) < @intFromPtr(st.bp)) {
@@ -3771,7 +3690,7 @@ fn lreSaveCaptureCheck(st: *LreState, idx: u32, value: u32) c_int {
             break;
         }
     }
-    st.capture[idx] = value;
+    st.capture[idx] = capture_val;
     return 0;
 }
 
@@ -4272,16 +4191,16 @@ pub fn js_compile_regexp(ctx: *c.JSContext, pattern: c.JSValue, flags: c.JSValue
     var re_flags: c_int = 0;
     if (!vt.isUndefined(flags)) {
         var buf: vt.JSStringCharBufExt = undefined;
-        const ps: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&buf), flags)));
+        const ps: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&buf), flags)));
         const len = js_parse_regexp_flags(&re_flags, vt.stringBuf(ps));
         if (len != vt.stringLen(ps))
             return utils.JS_ThrowError(ctx, c.JS_CLASS_SYNTAX_ERROR, "invalid regular expression flags");
     }
-    return JS_Parse2(ctx, pattern, null, 0, "<regexp>", c.JS_EVAL_REGEXP | (re_flags << c.JS_EVAL_REGEXP_FLAGS_SHIFT));
+    return parser.JS_Parse2(ctx, pattern, null, 0, "<regexp>", c.JS_EVAL_REGEXP | (re_flags << c.JS_EVAL_REGEXP_FLAGS_SHIFT));
 }
 
 pub fn js_get_regexp(ctx: *c.JSContext, obj: c.JSValue) ?*rt.JSRegExpExt {
-    const p0 = js_get_object_class(ctx, obj, c.JS_CLASS_REGEXP) orelse {
+    const p0 = value.js_get_object_class(ctx, obj, c.JS_CLASS_REGEXP) orelse {
         _ = throwTypeError(ctx, "not a regular expression");
         return null;
     };
@@ -4293,7 +4212,7 @@ pub fn js_regexp_get_lastIndex(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_
     _ = argc;
     _ = argv;
     const re = js_get_regexp(ctx, this_val.*) orelse return c.JS_EXCEPTION;
-    return JS_NewInt32(ctx, re.last_index);
+    return value.JS_NewInt32(ctx, re.last_index);
 }
 
 pub fn js_regexp_get_source(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -4306,7 +4225,7 @@ pub fn js_regexp_get_source(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
 pub fn js_regexp_set_lastIndex(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
     var last_index: c_int = undefined;
-    if (JS_ToInt32(ctx, &last_index, argv[0]) != 0)
+    if (runtime.JS_ToInt32(ctx, &last_index, argv[0]) != 0)
         return c.JS_EXCEPTION;
     const re = js_get_regexp(ctx, this_val.*) orelse return c.JS_EXCEPTION;
     re.last_index = last_index;
@@ -4333,7 +4252,7 @@ pub fn dump_regexp(ctx: *c.JSContext, p0: *anyopaque) void {
     var buf: vt.JSStringCharBufExt = undefined;
     var buf2: [RE_FLAG_COUNT + 1]u8 = undefined;
     utils.js_putchar(ctx, '/');
-    const ps: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&buf), re.source)));
+    const ps: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&buf), re.source)));
     if (vt.stringLen(ps) == 0) {
         utils.js_printf(ctx, "(?:)");
     } else {
@@ -4351,7 +4270,7 @@ pub fn js_regexp_get_flags(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int,
     var buf: [RE_FLAG_COUNT + 1]u8 = undefined;
     const arr = byteArr(re.byte_code);
     const len = js_regexp_flags_str(&buf, lre_get_flags(vt.byteArrayBuf(arr)));
-    return JS_NewStringLen(ctx, &buf, len);
+    return value.JS_NewStringLen(ctx, &buf, len);
 }
 
 pub fn js_regexp_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -4359,11 +4278,11 @@ pub fn js_regexp_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c
     var argc = argc_in;
     argc &= ~c.FRAME_CF_CTOR;
 
-    argv[0] = JS_ToString(ctx, argv[0]);
+    argv[0] = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(argv[0]))
         return c.JS_EXCEPTION;
     if (!vt.isUndefined(argv[1])) {
-        argv[1] = JS_ToString(ctx, argv[1]);
+        argv[1] = runtime.JS_ToString(ctx, argv[1]);
         if (vt.isExactException(argv[1]))
             return c.JS_EXCEPTION;
     }
@@ -4372,7 +4291,7 @@ pub fn js_regexp_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c
         return c.JS_EXCEPTION;
     var byte_code_ref: c.JSGCRef = undefined;
     pushValue(ctx, &byte_code_ref, byte_code);
-    const obj = JS_NewObjectClass(ctx, c.JS_CLASS_REGEXP, @sizeOf(rt.JSRegExpExt));
+    const obj = value.JS_NewObjectClass(ctx, c.JS_CLASS_REGEXP, @sizeOf(rt.JSRegExpExt));
     byte_code = popValue(ctx, &byte_code_ref);
     if (vt.isExactException(obj))
         return obj;
@@ -4388,7 +4307,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     _ = argc;
     var re = js_get_regexp(ctx, this_val.*) orelse return c.JS_EXCEPTION;
 
-    argv[0] = JS_ToString(ctx, argv[0]);
+    argv[0] = runtime.JS_ToString(ctx, argv[0]);
     if (vt.isExactException(argv[0]))
         return c.JS_EXCEPTION;
 
@@ -4407,7 +4326,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     }
     const capture_count = lre_get_capture_count(vt.byteArrayBuf(bc_arr));
 
-    const carr0 = js_alloc_byte_array(ctx, @as(c_int, @intCast(@sizeOf(u32))) * lre_get_alloc_count(vt.byteArrayBuf(bc_arr)));
+    const carr0 = value.js_alloc_byte_array(ctx, @as(c_int, @intCast(@sizeOf(u32))) * lre_get_alloc_count(vt.byteArrayBuf(bc_arr)));
     const carr: *vt.JSByteArrayExt = @ptrCast(@alignCast(carr0 orelse {
         return c.JS_EXCEPTION;
     }));
@@ -4423,16 +4342,16 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     const last_index_utf8: u32 = if (last_index <= 0)
         0
     else
-        js_string_utf16_to_utf8_pos(ctx, argv[0], @intCast(last_index)) / 2;
+        value.js_string_utf16_to_utf8_pos(ctx, argv[0], @intCast(last_index)) / 2;
 
     var obj: c.JSValue = undefined;
-    const rc: c_int = if (last_index_utf8 > @as(u32, @intCast(js_string_byte_len(ctx, argv[0]))))
+    const rc: c_int = if (last_index_utf8 > @as(u32, @intCast(value.js_string_byte_len(ctx, argv[0]))))
         2
     else blk: {
         p = objPtr(this_val.*);
         re = rt.objectRegexp(p);
         var str_buf: vt.JSStringCharBufExt = undefined;
-        const str: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&str_buf), argv[0])));
+        const str: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&str_buf), argv[0])));
         break :blk lre_exec(ctx, capture_buf.*, re.byte_code, mc.valueFromPtr(str), @intCast(last_index_utf8));
     };
 
@@ -4455,17 +4374,17 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     } else {
         capture = @ptrCast(@alignCast(vt.byteArrayBuf(byteArr(capture_buf.*))));
         if (magic == MAGIC_REGEXP_SEARCH) {
-            obj = vt.newShortInt(@intCast(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2)));
+            obj = vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2)));
         } else {
             if (re_flags & (bt.LRE_FLAG_GLOBAL | bt.LRE_FLAG_STICKY) != 0) {
                 p = objPtr(this_val.*);
                 re = rt.objectRegexp(p);
-                re.last_index = @intCast(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[1] * 2));
+                re.last_index = @intCast(value.js_string_utf8_to_utf16_pos(ctx, argv[0], capture[1] * 2));
             }
             if (magic == MAGIC_REGEXP_TEST) {
                 obj = c.JS_TRUE;
             } else {
-                obj = JS_NewArray(ctx, capture_count);
+                obj = value.JS_NewArray(ctx, capture_count);
                 if (vt.isExactException(obj)) {
                     _ = popValue(ctx, &capture_buf_ref);
                     return c.JS_EXCEPTION;
@@ -4474,7 +4393,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
                 var obj_ref: c.JSGCRef = undefined;
                 pushValue(ctx, &obj_ref, obj);
                 capture = @ptrCast(@alignCast(vt.byteArrayBuf(byteArr(capture_buf.*))));
-                var res = JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_index), vt.newShortInt(@intCast(js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2))));
+                var res = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_index), vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2))));
                 obj = popValue(ctx, &obj_ref);
                 if (vt.isExactException(res)) {
                     _ = popValue(ctx, &capture_buf_ref);
@@ -4482,7 +4401,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
                 }
 
                 pushValue(ctx, &obj_ref, obj);
-                res = JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_input), argv[0]);
+                res = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_input), argv[0]);
                 obj = popValue(ctx, &obj_ref);
                 if (vt.isExactException(res)) {
                     _ = popValue(ctx, &capture_buf_ref);
@@ -4496,7 +4415,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
                     const end: i32 = @bitCast(capture[@intCast(2 * i + 1)]);
                     if (start != -1 and end != -1) {
                         pushValue(ctx, &obj_ref, obj);
-                        const val = js_sub_string_utf8(ctx, argv[0], @intCast(2 * start), @intCast(2 * end));
+                        const val = value.js_sub_string_utf8(ctx, argv[0], @intCast(2 * start), @intCast(2 * end));
                         obj = popValue(ctx, &obj_ref);
                         if (vt.isExactException(val)) {
                             _ = popValue(ctx, &capture_buf_ref);
@@ -4515,11 +4434,12 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
 }
 
 fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep: *c.JSValue, pos: u32, end_of_match: u32, capture_buf: ?*c.JSValue, captures_len: u32, needle: ?*c.JSValue) c_int {
-    if (JS_IsFunction(ctx, rep.*) != 0) {
+    const sb: *vt.StringBuffer = @ptrCast(@alignCast(b));
+    if (value.JS_IsFunction(ctx, rep.*) != 0) {
         if (utils.JS_StackCheck(ctx, 4 + captures_len) != 0)
             return -1;
-        JS_PushArg(ctx, str.*);
-        JS_PushArg(ctx, vt.newShortInt(@intCast(pos)));
+        runtime.JS_PushArg(ctx, str.*);
+        runtime.JS_PushArg(ctx, vt.newShortInt(@intCast(pos)));
         if (capture_buf) |cb| {
             var k: c_int = @intCast(captures_len - 1);
             while (k >= 0) : (k -= 1) {
@@ -4528,7 +4448,7 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
                 if (captures[@intCast(2 * k)] != @as(u32, @bitCast(@as(i32, -1))) and
                     captures[@intCast(2 * k + 1)] != @as(u32, @bitCast(@as(i32, -1))))
                 {
-                    val = js_sub_string_utf8(ctx, str.*, captures[@intCast(2 * k)] * 2, captures[@intCast(2 * k + 1)] * 2);
+                    val = value.js_sub_string_utf8(ctx, str.*, captures[@intCast(2 * k)] * 2, captures[@intCast(2 * k + 1)] * 2);
                     if (vt.isExactException(val))
                         return -1;
                     var val_ref: c.JSGCRef = undefined;
@@ -4540,25 +4460,25 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
                 } else {
                     val = c.JS_UNDEFINED;
                 }
-                JS_PushArg(ctx, val);
+                runtime.JS_PushArg(ctx, val);
             }
         } else {
-            JS_PushArg(ctx, needle.?.*);
+            runtime.JS_PushArg(ctx, needle.?.*);
         }
-        JS_PushArg(ctx, rep.*);
-        JS_PushArg(ctx, c.JS_UNDEFINED);
-        const res = JS_Call(ctx, @intCast(2 + captures_len));
+        runtime.JS_PushArg(ctx, rep.*);
+        runtime.JS_PushArg(ctx, c.JS_UNDEFINED);
+        const res = runtime.JS_Call(ctx, @intCast(2 + captures_len));
         if (vt.isExactException(res))
             return -1;
-        return string_buffer_concat(ctx, b, res);
+        return value.string_buffer_concat(ctx, sb, res);
     }
 
     var buf_rep: vt.JSStringCharBufExt = undefined;
-    var pstr: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&buf_rep), rep.*)));
+    var pstr: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&buf_rep), rep.*)));
     const rep_len: c_int = @intCast(vt.stringLen(pstr));
     var i: c_int = 0;
     while (true) {
-        pstr = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&buf_rep), rep.*)));
+        pstr = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&buf_rep), rep.*)));
         var j = i;
         while (j < rep_len and vt.stringBuf(pstr)[@intCast(j)] != '$')
             j += 1;
@@ -4568,19 +4488,19 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
         j += 1;
         var ch: c_int = vt.stringBuf(pstr)[@intCast(j)];
         j += 1;
-        _ = string_buffer_concat_utf8(ctx, b, rep.*, @intCast(2 * i), @intCast(2 * j0));
+        _ = value.string_buffer_concat_utf8(ctx, sb, rep.*, @intCast(2 * i), @intCast(2 * j0));
         if (ch == '$') {
-            _ = string_buffer_putc(ctx, b, '$');
+            _ = value.string_buffer_putc(ctx, sb, '$');
         } else if (ch == '&') {
             if (capture_buf != null) {
-                _ = string_buffer_concat_utf16(ctx, b, str.*, pos, end_of_match);
+                _ = value.string_buffer_concat_utf16(ctx, sb, str.*, pos, end_of_match);
             } else {
-                _ = string_buffer_concat_str(ctx, b, needle.?.*);
+                _ = value.string_buffer_concat_str(ctx, sb, needle.?.*);
             }
         } else if (ch == '`') {
-            _ = string_buffer_concat_utf16(ctx, b, str.*, 0, pos);
+            _ = value.string_buffer_concat_utf16(ctx, sb, str.*, 0, pos);
         } else if (ch == '\'') {
-            _ = string_buffer_concat_utf16(ctx, b, str.*, end_of_match, @intCast(js_string_len(ctx, str.*)));
+            _ = value.string_buffer_concat_utf16(ctx, sb, str.*, end_of_match, @intCast(value.js_string_len(ctx, str.*)));
         } else if (ch >= '0' and ch <= '9') {
             var k: c_int = ch - '0';
             if (j < rep_len) {
@@ -4595,41 +4515,41 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
                 if (captures[@intCast(2 * k)] != @as(u32, @bitCast(@as(i32, -1))) and
                     captures[@intCast(2 * k + 1)] != @as(u32, @bitCast(@as(i32, -1))))
                 {
-                    _ = string_buffer_concat_utf8(ctx, b, str.*, captures[@intCast(2 * k)] * 2, captures[@intCast(2 * k + 1)] * 2);
+                    _ = value.string_buffer_concat_utf8(ctx, sb, str.*, captures[@intCast(2 * k)] * 2, captures[@intCast(2 * k + 1)] * 2);
                 }
             } else {
-                _ = string_buffer_concat_utf8(ctx, b, rep.*, @intCast(2 * j0), @intCast(2 * j));
+                _ = value.string_buffer_concat_utf8(ctx, sb, rep.*, @intCast(2 * j0), @intCast(2 * j));
             }
         } else {
-            _ = string_buffer_concat_utf8(ctx, b, rep.*, @intCast(2 * j0), @intCast(2 * j));
+            _ = value.string_buffer_concat_utf8(ctx, sb, rep.*, @intCast(2 * j0), @intCast(2 * j));
         }
         i = j;
     }
-    return string_buffer_concat_utf8(ctx, b, rep.*, @intCast(2 * i), @intCast(2 * rep_len));
+    return value.string_buffer_concat_utf8(ctx, sb, rep.*, @intCast(2 * i), @intCast(2 * rep_len));
 }
 
 pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, is_replaceAll: c_int) c.JSValue {
     _ = argc;
     var b: vt.StringBuffer = undefined;
 
-    this_val.* = JS_ToString(ctx, this_val.*);
+    this_val.* = runtime.JS_ToString(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
-    const is_regexp = JS_GetClassID(ctx, argv[0]) == c.JS_CLASS_REGEXP;
+    const is_regexp = value.JS_GetClassID(ctx, argv[0]) == c.JS_CLASS_REGEXP;
     if (!is_regexp) {
-        argv[0] = JS_ToString(ctx, argv[0]);
+        argv[0] = runtime.JS_ToString(ctx, argv[0]);
         if (vt.isExactException(argv[0]))
             return c.JS_EXCEPTION;
     }
-    if (JS_IsFunction(ctx, argv[1]) == 0) {
-        argv[1] = JS_ToString(ctx, argv[1]);
+    if (value.JS_IsFunction(ctx, argv[1]) == 0) {
+        argv[1] = runtime.JS_ToString(ctx, argv[1]);
         if (vt.isExactException(argv[1]))
             return c.JS_EXCEPTION;
     }
-    const input_len = js_string_len(ctx, this_val.*);
+    const input_len = value.js_string_len(ctx, this_val.*);
     var endOfLastMatch: c_int = 0;
 
-    _ = string_buffer_push(ctx, @ptrCast(&b), 0);
+    _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
 
     if (is_regexp) {
         var p = objPtr(argv[0]);
@@ -4645,9 +4565,9 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
         else
             maxInt(rt.objectRegexp(p).last_index, 0);
 
-        const carr0 = js_alloc_byte_array(ctx, @as(c_int, @intCast(@sizeOf(u32))) * lre_get_alloc_count(vt.byteArrayBuf(bc_arr)));
+        const carr0 = value.js_alloc_byte_array(ctx, @as(c_int, @intCast(@sizeOf(u32))) * lre_get_alloc_count(vt.byteArrayBuf(bc_arr)));
         const carr: *vt.JSByteArrayExt = @ptrCast(@alignCast(carr0 orelse {
-            _ = string_buffer_pop(ctx, @ptrCast(&b));
+            _ = value.string_buffer_pop(ctx, @ptrCast(&b));
             return c.JS_EXCEPTION;
         }));
         var capture_buf_ref: c.JSGCRef = undefined;
@@ -4665,12 +4585,12 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
             else blk: {
                 var str_buf: vt.JSStringCharBufExt = undefined;
                 p = objPtr(argv[0]);
-                const str: *vt.JSStringExt = @ptrCast(@alignCast(get_string_ptr(ctx, @ptrCast(&str_buf), this_val.*)));
-                break :blk lre_exec(ctx, capture_buf.*, rt.objectRegexp(p).byte_code, mc.valueFromPtr(str), @intCast(js_string_utf16_to_utf8_pos(ctx, this_val.*, @intCast(last_index)) / 2));
+                const str: *vt.JSStringExt = @ptrCast(@alignCast(value.get_string_ptr(ctx, @ptrCast(&str_buf), this_val.*)));
+                break :blk lre_exec(ctx, capture_buf.*, rt.objectRegexp(p).byte_code, mc.valueFromPtr(str), @intCast(value.js_string_utf16_to_utf8_pos(ctx, this_val.*, @intCast(last_index)) / 2));
             };
             if (ret < 0) {
                 _ = popValue(ctx, &capture_buf_ref);
-                _ = string_buffer_pop(ctx, @ptrCast(&b));
+                _ = value.string_buffer_pop(ctx, @ptrCast(&b));
                 return c.JS_EXCEPTION;
             }
             if (ret == 0) {
@@ -4681,9 +4601,9 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 break;
             }
             capture = @ptrCast(@alignCast(vt.byteArrayBuf(byteArr(capture_buf.*))));
-            const start: c_int = @intCast(js_string_utf8_to_utf16_pos(ctx, this_val.*, capture[0] * 2));
-            var end: c_int = @intCast(js_string_utf8_to_utf16_pos(ctx, this_val.*, capture[1] * 2));
-            _ = string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(start));
+            const start: c_int = @intCast(value.js_string_utf8_to_utf16_pos(ctx, this_val.*, capture[0] * 2));
+            var end: c_int = @intCast(value.js_string_utf8_to_utf16_pos(ctx, this_val.*, capture[1] * 2));
+            _ = value.string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(start));
             _ = js_string_concat_subst(ctx, @ptrCast(&b), this_val, &argv[1], @intCast(start), @intCast(end), capture_buf, @intCast(capture_count), null);
             endOfLastMatch = end;
             if ((re_flags & bt.LRE_FLAG_GLOBAL) == 0) {
@@ -4694,14 +4614,14 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 break;
             }
             if (end == start) {
-                const cp = string_getcp(ctx, this_val.*, @intCast(end), c.TRUE);
+                const cp = value.string_getcp(ctx, this_val.*, @intCast(end), c.TRUE);
                 end += 1 + @as(c_int, @intFromBool(cp >= 0x10000));
             }
             last_index = end;
         }
         _ = popValue(ctx, &capture_buf_ref);
     } else {
-        const needle_len = js_string_len(ctx, argv[0]);
+        const needle_len = value.js_string_len(ctx, argv[0]);
         var is_first = true;
         while (true) {
             const pos: c_int = if (needle_len == 0) blk: {
@@ -4715,13 +4635,13 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
             } else js_string_indexof(ctx, this_val.*, argv[0], endOfLastMatch, input_len, needle_len);
             if (pos < 0) {
                 if (is_first) {
-                    _ = string_buffer_pop(ctx, @ptrCast(&b));
+                    _ = value.string_buffer_pop(ctx, @ptrCast(&b));
                     return this_val.*;
                 } else {
                     break;
                 }
             }
-            _ = string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(pos));
+            _ = value.string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(pos));
             _ = js_string_concat_subst(ctx, @ptrCast(&b), this_val, &argv[1], @intCast(pos), @intCast(pos + needle_len), null, 1, &argv[0]);
             endOfLastMatch = pos + needle_len;
             is_first = false;
@@ -4729,27 +4649,27 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 break;
         }
     }
-    _ = string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(input_len));
-    return string_buffer_pop(ctx, @ptrCast(&b));
+    _ = value.string_buffer_concat_utf16(ctx, @ptrCast(&b), this_val.*, @intCast(endOfLastMatch), @intCast(input_len));
+    return value.string_buffer_pop(ctx, @ptrCast(&b));
 }
 
 pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
     _ = argc;
-    this_val.* = JS_ToString(ctx, this_val.*);
+    this_val.* = runtime.JS_ToString(ctx, this_val.*);
     if (vt.isExactException(this_val.*))
         return c.JS_EXCEPTION;
     var lim: u32 = undefined;
     if (vt.isUndefined(argv[1])) {
         lim = 0xffffffff;
     } else {
-        if (JS_ToUint32(ctx, &lim, argv[1]) < 0)
+        if (runtime.JS_ToUint32(ctx, &lim, argv[1]) < 0)
             return c.JS_EXCEPTION;
     }
-    const is_regexp = JS_GetClassID(ctx, argv[0]) == c.JS_CLASS_REGEXP;
+    const is_regexp = value.JS_GetClassID(ctx, argv[0]) == c.JS_CLASS_REGEXP;
     var undef_sep: bool = undefined;
     if (!is_regexp) {
         undef_sep = vt.isUndefined(argv[0]);
-        argv[0] = JS_ToString(ctx, argv[0]);
+        argv[0] = runtime.JS_ToString(ctx, argv[0]);
         if (vt.isExactException(argv[0]))
             return c.JS_EXCEPTION;
     } else {
@@ -4760,27 +4680,27 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     var z_ref: c.JSGCRef = undefined;
     const A = utils.JS_PushGCRef(ctx, &A_ref);
     const z = utils.JS_PushGCRef(ctx, &z_ref);
-    A.* = JS_NewArray(ctx, 0);
+    A.* = value.JS_NewArray(ctx, 0);
     if (vt.isExactException(A.*)) {
         _ = popValue(ctx, &z_ref);
         _ = popValue(ctx, &A_ref);
         return c.JS_EXCEPTION;
     }
     var lengthA: u32 = 0;
-    const s_len = js_string_len(ctx, this_val.*);
+    const s_len = value.js_string_len(ctx, this_val.*);
     var p: c_int = 0;
     if (lim == 0) {
         _ = popValue(ctx, &z_ref);
         return popValue(ctx, &A_ref);
     }
     if (undef_sep) {
-        const T = js_sub_string(ctx, this_val.*, p, s_len);
+        const T = value.js_sub_string(ctx, this_val.*, p, s_len);
         if (vt.isExactException(T)) {
             _ = popValue(ctx, &z_ref);
             _ = popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
-        const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+        const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
         lengthA += 1;
         if (vt.isExactException(ret)) {
             _ = popValue(ctx, &z_ref);
@@ -4806,13 +4726,13 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 return c.JS_EXCEPTION;
             }
             if (z.* == c.JS_NULL) {
-                const T = js_sub_string(ctx, this_val.*, p, s_len);
+                const T = value.js_sub_string(ctx, this_val.*, p, s_len);
                 if (vt.isExactException(T)) {
                     _ = popValue(ctx, &z_ref);
                     _ = popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
-                const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+                const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                 if (vt.isExactException(ret)) {
                     _ = popValue(ctx, &z_ref);
                     _ = popValue(ctx, &A_ref);
@@ -4836,12 +4756,12 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 if ((re_flags & bt.LRE_FLAG_STICKY) == 0) {
                     break;
                 } else {
-                    const cp = string_getcp(ctx, this_val.*, @intCast(q), c.TRUE);
+                    const cp = value.string_getcp(ctx, this_val.*, @intCast(q), c.TRUE);
                     q += 1 + @as(c_int, @intFromBool(cp >= 0x10000));
                 }
             } else {
                 if ((re_flags & bt.LRE_FLAG_STICKY) == 0) {
-                    const res = JS_GetProperty(ctx, z.*, utils.js_get_atom(ctx, c.JS_ATOM_index));
+                    const res = value.JS_GetProperty(ctx, z.*, utils.js_get_atom(ctx, c.JS_ATOM_index));
                     if (vt.isExactException(res)) {
                         _ = popValue(ctx, &z_ref);
                         _ = popValue(ctx, &A_ref);
@@ -4854,16 +4774,16 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 if (e > s_len)
                     e = s_len;
                 if (e == p) {
-                    const cp = string_getcp(ctx, this_val.*, @intCast(q), c.TRUE);
+                    const cp = value.string_getcp(ctx, this_val.*, @intCast(q), c.TRUE);
                     q += 1 + @as(c_int, @intFromBool(cp >= 0x10000));
                 } else {
-                    const T = js_sub_string(ctx, this_val.*, p, q);
+                    const T = value.js_sub_string(ctx, this_val.*, p, q);
                     if (vt.isExactException(T)) {
                         _ = popValue(ctx, &z_ref);
                         _ = popValue(ctx, &A_ref);
                         return c.JS_EXCEPTION;
                     }
-                    const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+                    const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                     lengthA += 1;
                     if (vt.isExactException(ret)) {
                         _ = popValue(ctx, &z_ref);
@@ -4881,7 +4801,7 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                         p1 = objPtr(z.*);
                         const varr = valueArr(p1.u.array.tab);
                         const T2 = vt.valueArrayItems(varr)[@intCast(i)];
-                        const ret2 = JS_SetPropertyUint32(ctx, A.*, lengthA, T2);
+                        const ret2 = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T2);
                         lengthA += 1;
                         if (vt.isExactException(ret2)) {
                             _ = popValue(ctx, &z_ref);
@@ -4895,16 +4815,16 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             }
         }
     } else {
-        const r = js_string_len(ctx, argv[0]);
+        const r = value.js_string_len(ctx, argv[0]);
         if (s_len == 0) {
             if (r != 0) {
-                const T = js_sub_string(ctx, this_val.*, p, s_len);
+                const T = value.js_sub_string(ctx, this_val.*, p, s_len);
                 if (vt.isExactException(T)) {
                     _ = popValue(ctx, &z_ref);
                     _ = popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
-                const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+                const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                 if (vt.isExactException(ret)) {
                     _ = popValue(ctx, &z_ref);
                     _ = popValue(ctx, &A_ref);
@@ -4923,13 +4843,13 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             const e = js_string_indexof(ctx, this_val.*, argv[0], q, s_len, r);
             if (e < 0)
                 break;
-            const T = js_sub_string(ctx, this_val.*, p, e);
+            const T = value.js_sub_string(ctx, this_val.*, p, e);
             if (vt.isExactException(T)) {
                 _ = popValue(ctx, &z_ref);
                 _ = popValue(ctx, &A_ref);
                 return c.JS_EXCEPTION;
             }
-            const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+            const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
             lengthA += 1;
             if (vt.isExactException(ret)) {
                 _ = popValue(ctx, &z_ref);
@@ -4946,13 +4866,13 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     }
 
     {
-        const T = js_sub_string(ctx, this_val.*, p, s_len);
+        const T = value.js_sub_string(ctx, this_val.*, p, s_len);
         if (vt.isExactException(T)) {
             _ = popValue(ctx, &z_ref);
             _ = popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
-        const ret = JS_SetPropertyUint32(ctx, A.*, lengthA, T);
+        const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
         if (vt.isExactException(ret)) {
             _ = popValue(ctx, &z_ref);
             _ = popValue(ctx, &A_ref);
@@ -4990,7 +4910,7 @@ pub fn js_string_match(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
         if (result.* == c.JS_NULL)
             break;
         if (A.* == c.JS_NULL) {
-            A.* = JS_NewArray(ctx, 1);
+            A.* = value.JS_NewArray(ctx, 1);
             if (vt.isExactException(A.*)) {
                 A.* = c.JS_EXCEPTION;
                 break;
@@ -4999,7 +4919,7 @@ pub fn js_string_match(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
 
         p = objPtr(result.*);
         const varr = valueArr(p.u.array.tab);
-        const ret = JS_SetPropertyUint32(ctx, A.*, n, vt.valueArrayItems(varr)[0]);
+        const ret = value.JS_SetPropertyUint32(ctx, A.*, n, vt.valueArrayItems(varr)[0]);
         n += 1;
         if (vt.isExactException(ret)) {
             A.* = c.JS_EXCEPTION;
