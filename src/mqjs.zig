@@ -157,11 +157,18 @@ fn jsLogFunc(opaque_ptr: ?*anyopaque, buf: ?*const anyopaque, buf_len: usize) ca
 
 fn dumpError(ctx: *c.JSContext) void {
     const obj = c.JS_GetException(ctx);
-    _ = c.fprintf(c.stderr, "%s", c.term_colors[@intCast(STYLE_ERROR_MSG)]);
+    const use_color = posix.isatty(posix.STDERR_FILENO);
+    if (use_color) {
+        _ = c.fprintf(c.stderr, "%s", c.term_colors[@intCast(STYLE_ERROR_MSG)]);
+    }
     js_log_err_flag += 1;
     c.JS_PrintValueF(ctx, obj, c.JS_DUMP_LONG);
     js_log_err_flag -= 1;
-    _ = c.fprintf(c.stderr, "%s\n", c.term_colors[@intCast(COLOR_NONE)]);
+    if (use_color) {
+        _ = c.fprintf(c.stderr, "%s\n", c.term_colors[@intCast(COLOR_NONE)]);
+    } else {
+        _ = c.fputc('\n', c.stderr);
+    }
 }
 
 export fn js_print(

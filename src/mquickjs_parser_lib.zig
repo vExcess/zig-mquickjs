@@ -162,6 +162,10 @@ pub fn is_label(s: *JSParseState) c.JS_BOOL {
     return @intFromBool(s.token.val == lt.TOK_IDENT and s.source_buf[s.buf_pos] == ':');
 }
 
+fn is_var_decl_token(tok: c_int) bool {
+    return tok == lt.TOK_VAR or tok == lt.TOK_LET or tok == lt.TOK_CONST;
+}
+
 fn get_byte_code(s: *JSParseState) [*]u8 {
     return vt.byteArrayBuf(byteArr(s.byte_code));
 }
@@ -1048,9 +1052,6 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
                         OP.get_length => byte_code[@intCast(s.last_opcode_pos)] = @intCast(OP.get_length2),
                         OP.get_array_el => byte_code[@intCast(s.last_opcode_pos)] = @intCast(OP.get_array_el2),
                         OP.get_var_ref => {
-                            const var_idx = get_u16(byte_code + @as(usize, @intCast(s.last_opcode_pos + 1)));
-                            if (get_ext_var_name(s, @intCast(var_idx)) == js_get_atom(s.ctx, c.JS_ATOM_eval))
-                                js_parse_error(s, "direct eval is not supported. Use (1,eval) instead for indirect eval");
                             opcode = OP.invalid;
                         },
                         else => opcode = OP.invalid,
@@ -1809,7 +1810,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                     emit_op_pos(s, @intCast(OP.throw), op_source_pos);
                     js_parse_expect_semi(s);
                 },
-                lt.TOK_VAR => {
+                lt.TOK_VAR, lt.TOK_LET, lt.TOK_CONST => {
                     next_token(s);
                     js_parse_var(s, true);
                     js_parse_expect_semi(s);
@@ -1856,7 +1857,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                         label_next = new_label(s);
                         emit_goto(s, OP.goto, &label_expr);
                         emit_label(s, &label_next);
-                        if (s.token.val == lt.TOK_VAR) {
+                        if (is_var_decl_token(s.token.val)) {
                             next_token(s);
                             var var_kind: c_int = undefined;
                             const var_idx = define_var(s, &var_kind, s.token.value);
@@ -1889,7 +1890,7 @@ pub fn js_parse_statement(s: *JSParseState, state: c_int, dummy_param: c_int) ca
                         return parseCall(5, pt.PARSE_FUNC_js_parse_statement, 0);
                     } else {
                         if (s.token.val != ';') {
-                            if (s.token.val == lt.TOK_VAR) {
+                            if (is_var_decl_token(s.token.val)) {
                                 next_token(s);
                                 js_parse_var(s, false);
                             } else {

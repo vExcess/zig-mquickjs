@@ -49,6 +49,12 @@ test262-harness \
   "test/language/**/*.js"
 ```
 
+### Deviations from mquickjs
+My philosophy is that it's better for some programs to run correctly and some to silently fail, rather all programs that use a feature to fail.
+
+1) `eval` is enabled, but it always runs in the global scope. 
+2) `let` and `const` can be used, but they are just aliases for `var`.
+
 # Unmodified original MicroQuickJS readme below
 ## Introduction
 
