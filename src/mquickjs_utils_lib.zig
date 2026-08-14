@@ -379,7 +379,10 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
                 buf = &tmp_buf;
             },
             'o' => {
-                const val: c.JSValue = @cVaArg(vap, c.JSValue);
+                const val: c.JSValue = if (flags & PF_INT64 != 0)
+                    @cVaArg(vap, c_ulonglong)
+                else
+                    @cVaArg(vap, c_uint);
 
                 if (mc.isInt(val)) {
                     len = i32toa(buf, mc.valueGetInt(val));

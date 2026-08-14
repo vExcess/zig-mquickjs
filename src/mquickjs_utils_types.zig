@@ -137,7 +137,6 @@ pub const JSFunctionBytecodeExt = extern struct {
 
 pub const JSStringExt = extern struct {
     header: c.JSWord,
-    flags_len: c.JSWord,
     buf: [0]u8,
 };
 
@@ -202,11 +201,11 @@ pub fn objectClassId(p: *const JSObjectExt) c_int {
 }
 
 pub fn stringIsUnique(p: *const JSStringExt) bool {
-    return (p.flags_len & 1) != 0;
+    return (p.header >> 4) & 1 != 0;
 }
 
 pub fn stringLen(p: *const JSStringExt) usize {
-    return @intCast(p.flags_len >> 3);
+    return @intCast(p.header >> 7);
 }
 
 pub fn valueArraySizeField(p: *const JSValueArrayExt) c_int {
