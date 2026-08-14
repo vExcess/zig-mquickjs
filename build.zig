@@ -10,21 +10,9 @@ fn addRuntimeObjects(
     dtoa_obj: ?*std.Build.Step.Compile,
     libm_obj: ?*std.Build.Step.Compile,
     readline_obj: ?*std.Build.Step.Compile,
-    mquickjs_utils_obj: *std.Build.Step.Compile,
-    mquickjs_value_obj: *std.Build.Step.Compile,
-    mquickjs_runtime_obj: *std.Build.Step.Compile,
-    mquickjs_lexer_obj: *std.Build.Step.Compile,
-    mquickjs_parser_obj: *std.Build.Step.Compile,
-    mquickjs_gc_obj: *std.Build.Step.Compile,
-    mquickjs_builtins_obj: *std.Build.Step.Compile,
+    mquickjs_engine_obj: *std.Build.Step.Compile,
 ) void {
-    exe.addObject(mquickjs_utils_obj);
-    exe.addObject(mquickjs_value_obj);
-    exe.addObject(mquickjs_runtime_obj);
-    exe.addObject(mquickjs_lexer_obj);
-    exe.addObject(mquickjs_parser_obj);
-    exe.addObject(mquickjs_gc_obj);
-    exe.addObject(mquickjs_builtins_obj);
+    exe.addObject(mquickjs_engine_obj);
     exe.addObject(cutils_obj);
     if (dtoa_obj) |dtoa| {
         exe.addObject(dtoa);
@@ -133,82 +121,16 @@ pub fn build(b: *std.Build) !void {
     libm_obj.root_module.addOptions("build_options", libm_opts);
     libm_obj.root_module.addIncludePath(b.path("include"));
 
-    const mquickjs_utils_obj = b.addObject(.{
-        .name = "mquickjs_utils",
+    const mquickjs_engine_obj = b.addObject(.{
+        .name = "mquickjs_engine",
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_utils.zig"),
+            .root_source_file = b.path("src/mquickjs_engine.zig"),
             .link_libc = true,
         }),
     });
-    addCommonIncludes(mquickjs_utils_obj, b, wf);
-
-    const mquickjs_value_obj = b.addObject(.{
-        .name = "mquickjs_value",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_value.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_value_obj, b, wf);
-
-    const mquickjs_runtime_obj = b.addObject(.{
-        .name = "mquickjs_runtime",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_runtime.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_runtime_obj, b, wf);
-
-    const mquickjs_lexer_obj = b.addObject(.{
-        .name = "mquickjs_lexer",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_lexer.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_lexer_obj, b, wf);
-
-    const mquickjs_parser_obj = b.addObject(.{
-        .name = "mquickjs_parser",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_parser.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_parser_obj, b, wf);
-
-    const mquickjs_gc_obj = b.addObject(.{
-        .name = "mquickjs_gc",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_gc.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_gc_obj, b, wf);
-
-    const mquickjs_builtins_obj = b.addObject(.{
-        .name = "mquickjs_builtins",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .root_source_file = b.path("src/mquickjs_builtins.zig"),
-            .link_libc = true,
-        }),
-    });
-    addCommonIncludes(mquickjs_builtins_obj, b, wf);
+    addCommonIncludes(mquickjs_engine_obj, b, wf);
 
     // example
     const example_stdlib_tool = b.addExecutable(.{
@@ -258,7 +180,7 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     addCommonIncludes(example_exe, b, wf);
-    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj, mquickjs_parser_obj, mquickjs_gc_obj, mquickjs_builtins_obj);
+    addRuntimeObjects(example_exe, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_engine_obj);
     const build_example_step = b.step("example", "Build example");
     const install_example = b.addInstallArtifact(example_exe, .{});
     build_example_step.dependOn(&install_example.step);
@@ -276,7 +198,7 @@ pub fn build(b: *std.Build) !void {
             },
         }),
     });
-    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_utils_obj, mquickjs_value_obj, mquickjs_runtime_obj, mquickjs_lexer_obj, mquickjs_parser_obj, mquickjs_gc_obj, mquickjs_builtins_obj);
+    addRuntimeObjects(exe, cutils_obj, dtoa_obj, libm_obj, readline_obj, mquickjs_engine_obj);
     addCommonIncludes(exe, b, wf);
     b.installArtifact(exe);
 

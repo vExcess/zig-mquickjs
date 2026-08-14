@@ -1,6 +1,6 @@
 # Idiomatic Zig Refactor — Agent Workflow
 
-Last updated: 2026-08-13  
+Last updated: 2026-08-14  
 Zig version: **0.15.2** (see `.zigversion`)
 
 This document guides agents converting the completed C→Zig port to **idiomatic internal Zig** while preserving the **C ABI** for embedders. Read [`handoff.md`](handoff.md) first for engine internals.
@@ -28,7 +28,7 @@ Full step list: [`.cursor/plans/idiomatic_zig_refactor_f450d4a7.plan.md`](../.cu
 |---------|----------|-------|
 | Public header | [`include/mquickjs.h`](include/mquickjs.h) | Stable embedder API; do not change |
 | Private header | [`include/mquickjs_priv.h`](include/mquickjs_priv.h) | Macros, mtags, debug flags |
-| Engine exports | `src/mquickjs_{utils,value,runtime,lexer,parser,gc,builtins}.zig` | Thin `export fn` wrappers (~330 symbols) |
+| Engine exports | `src/mquickjs_c_abi.zig` | Thin `export fn` wrappers (~330 symbols); compiled via `mquickjs_engine.zig`
 | Host apps | [`src/mqjs.zig`](src/mqjs.zig), [`src/example.zig`](src/example.zig) | Use `@cImport("mquickjs.h")`; stay C-style |
 | Variadic C ABI | `JS_ThrowError`, `js_parse_error`, `js_vprintf`, … | Keep C calling convention at boundary |
 | JSValue encoding | Tagged pointer `(ptr + 1)` | Do **not** redesign; ReleaseFast/Small only |
@@ -63,7 +63,7 @@ Debug: `JS_PrintValue`, `JS_PrintValueF`, `JS_DumpValue`, `JS_DumpValueF`, `JS_D
 
 Inline macros in the header (`JS_IsInt`, `JS_IsPtr`, `JS_NewBool`, …) are reproduced as Zig helpers in types modules — keep equivalent semantics.
 
-Engine-only symbols exported beyond `mquickjs.h` (parser internals, regexp, heap helpers, etc.) must keep their current `export fn` names until the C ABI layer is explicitly consolidated in Step 5.
+Engine-only symbols exported beyond `mquickjs.h` (parser internals, regexp, heap helpers, etc.) keep their current `export fn` names in `mquickjs_c_abi.zig`.
 
 ---
 
@@ -97,6 +97,8 @@ These tests are short smoke tests; absolute times are less meaningful than **lar
 
 After structural steps (5, 6, 8b), note the new `time ./run-tests.sh` result in your session report.
 
+Step 5 timing (2026-08-14, ReleaseFast): **real 0.028 s** (softfloat: **0.030 s**). Within run-to-run variance of the 0.02–0.029 s recent range.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -108,7 +110,7 @@ After structural steps (5, 6, 8b), note the new `time ./run-tests.sh` result in 
 | **2** | `dtoa_lib.zig` (**done**) |
 | **3** | `libm_lib.zig` idiomatic cleanup (**done**) |
 | **4** | Consolidate types + `mquickjs_internal.zig` accessors (**done**) |
-| **5** | Single engine compilation unit + `mquickjs_c_abi.zig` |
+| **5** | Single engine compilation unit + `mquickjs_c_abi.zig` (**done**) |
 | **6a–6g** | Replace `extern fn` with `@import` (one module per session) |
 | **7a–7g** | Deduplicate `pushValue` / `cx` / `get_u32` boilerplate |
 | **8a–8i** | Internal idiomatic cleanup (split large `_lib` files) |
@@ -138,16 +140,13 @@ Do not create git commits unless I ask.
 
 ---
 
-## 7. Current architecture (pre-refactor)
+## 7. Current architecture (after Step 5)
 
-Seven engine object files linked via `export fn` / `extern fn`:
+One `mquickjs_engine` object. `_lib` files still use `extern fn` for circular deps (Step 6 migrates those to `@import`):
 
 ```
-utils ↔ value ↔ runtime ↔ builtins
-  ↕       ↕        ↕
- lexer   parser    gc
+mquickjs_engine.zig  @imports all *_lib.zig + mquickjs_c_abi.zig
+mquickjs_c_abi.zig   consolidated export fn symbols (never_inline into *_lib)
 ```
 
-Target (Step 5+): one `mquickjs_engine` object, `@import` between `_lib` modules, consolidated `mquickjs_c_abi.zig` exports.
-
-See the full plan for mermaid diagrams and per-step file lists.
+cutils / dtoa / libm / readline remain separate objects.
