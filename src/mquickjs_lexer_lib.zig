@@ -10,21 +10,26 @@
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
+const dtoa = @import("dtoa_lib.zig");
+const builtins = @import("mquickjs_builtins_lib.zig");
 const lt = @import("mquickjs_lexer_types.zig");
 const vt = lt.vt;
 const mc = lt.mc;
 pub const c = lt.c;
 
-extern fn string_buffer_push(ctx: *c.JSContext, s: *anyopaque, len: c_int) c_int;
-extern fn string_buffer_putc(ctx: *c.JSContext, s: *anyopaque, ch: c_int) c_int;
-extern fn string_buffer_pop(ctx: *c.JSContext, s: *anyopaque) c.JSValue;
-extern fn js_alloc_string(ctx: *c.JSContext, buf_len: u32) ?*anyopaque;
-extern fn js_alloc_byte_array(ctx: *c.JSContext, size: c_int) ?*anyopaque;
-extern fn JS_MakeUniqueString(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn is_ascii_string(buf: [*c]const u8, len: usize) c.JS_BOOL;
-extern fn js_atod(str: [*c]const u8, pnext: [*c][*c]const u8, radix: c_int, flags: c_int, tmp_mem: *c.JSATODTempMem) f64;
-extern fn js_parse_regexp_flags(pre_flags: *c_int, buf: [*]const u8) usize;
-extern fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) noreturn;
+extern fn longjmp(env: *anyopaque, val: c_int) noreturn;
+
+pub fn js_parse_error_va(s: *lt.JSParseState, fmt: [*:0]const u8, ap: *anyopaque) noreturn {
+    _ = utils.js_vsnprintf(@ptrCast(&s.error_msg), s.error_msg.len, fmt, ap);
+    longjmp(@ptrCast(&s.jmp_env), 1);
+}
+
+pub fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) callconv(.c) noreturn {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    js_parse_error_va(s, fmt, @ptrCast(&ap));
+}
 
 fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
     _ = utils.JS_PushGCRef(ctx, ref);
@@ -278,7 +283,7 @@ pub fn js_parse_string(s: *lt.JSParseState, ppos: *u32, sep: c_int) c.JSValue {
     const ctx = s.ctx;
     var b: vt.StringBuffer = undefined;
 
-    if (string_buffer_push(ctx, @ptrCast(&b), 16) != 0)
+    if (value.string_buffer_push(ctx, &b, 16) != 0)
         js_parse_error_mem(s);
     var buf: [*]const u8 = s.source_buf;
     var pos = ppos.*;
@@ -314,12 +319,12 @@ pub fn js_parse_string(s: *lt.JSParseState, ppos: *u32, sep: c_int) c.JSValue {
             }
             ch = @intCast(uc);
         }
-        if (string_buffer_putc(ctx, @ptrCast(&b), @intCast(ch)) != 0)
+        if (value.string_buffer_putc(ctx, &b, @intCast(ch)) != 0)
             break;
         buf = s.source_buf;
     }
     ppos.* = pos;
-    const res = string_buffer_pop(ctx, @ptrCast(&b));
+    const res = value.string_buffer_pop(ctx, &b);
     if (lt.isExactException(res))
         js_parse_error_mem(s);
     return res;
@@ -329,9 +334,9 @@ pub fn js_parse_ident(s: *lt.JSParseState, token: *lt.JSToken, ppos: *u32, first
     const ctx = s.ctx;
     var b: vt.StringBuffer = undefined;
 
-    if (string_buffer_push(ctx, @ptrCast(&b), 16) != 0)
+    if (value.string_buffer_push(ctx, &b, 16) != 0)
         js_parse_error_mem(s);
-    _ = string_buffer_putc(ctx, @ptrCast(&b), first_c);
+    _ = value.string_buffer_putc(ctx, &b, first_c);
     var buf: [*]const u8 = s.source_buf;
     var pos = ppos.*;
     while (pos < s.buf_len) {
@@ -339,15 +344,15 @@ pub fn js_parse_ident(s: *lt.JSParseState, token: *lt.JSToken, ppos: *u32, first
         if (utils.is_ident_next(ch) == 0)
             break;
         pos += 1;
-        if (string_buffer_putc(ctx, @ptrCast(&b), ch) != 0)
+        if (value.string_buffer_putc(ctx, &b, ch) != 0)
             break;
         buf = s.source_buf;
     }
     token.val = lt.TOK_IDENT;
-    var val2 = string_buffer_pop(ctx, @ptrCast(&b));
+    var val2 = value.string_buffer_pop(ctx, &b);
     var val2_ref: c.JSGCRef = undefined;
     pushValue(ctx, &val2_ref, val2);
-    const val = JS_MakeUniqueString(ctx, val2);
+    const val = value.JS_MakeUniqueString(ctx, val2);
     val2 = popValue(ctx, &val2_ref);
     if (lt.isExactException(val))
         js_parse_error_mem(s);
@@ -400,15 +405,14 @@ pub fn js_parse_regexp_token(s: *lt.JSParseState, ppos: *u32) void {
     const end_pos: c_int = @intCast(pos - 1);
 
     var re_flags: c_int = 0;
-    clen = js_parse_regexp_flags(&re_flags, s.source_buf + pos);
+    clen = builtins.js_parse_regexp_flags(&re_flags, s.source_buf + pos);
     pos += @intCast(clen);
     if (utils.is_ident_next(s.source_buf[pos]) != 0)
         js_parse_error(s, "invalid regular expression flags");
 
     const str_len: u32 = @intCast(end_pos - start_pos);
-    const p_raw = js_alloc_string(ctx, str_len) orelse js_parse_error_mem(s);
-    const p: *vt.JSStringExt = @ptrCast(@alignCast(p_raw));
-    vt.stringSetAscii(p, is_ascii_string(s.source_buf + @as(usize, @intCast(start_pos)), str_len) != 0);
+    const p = value.js_alloc_string(ctx, str_len) orelse js_parse_error_mem(s);
+    vt.stringSetAscii(p, value.is_ascii_string(s.source_buf + @as(usize, @intCast(start_pos)), str_len) != 0);
     @memcpy(vt.stringBuf(p)[0..str_len], (s.source_buf + @as(usize, @intCast(start_pos)))[0..str_len]);
 
     ppos.* = pos;
@@ -690,18 +694,17 @@ pub fn next_token(s: *lt.JSParseState) void {
 
 fn parseNumber(s: *lt.JSParseState, pp: *[*]const u8) void {
     var p = pp.*;
-    const tmp_arr_ptr = js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse
+    const tmp_arr = value.js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse
         js_parse_error_mem(s);
-    const tmp_arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(tmp_arr_ptr));
     var p_char: [*c]const u8 = p;
-    const d = js_atod(
+    const d = dtoa.js_atod(
         p_char,
         @ptrCast(&p_char),
         0,
         c.JS_ATOD_ACCEPT_BIN_OCT | c.JS_ATOD_ACCEPT_UNDERSCORES,
         @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr))),
     );
-    utils.js_free(s.ctx, tmp_arr_ptr);
+    utils.js_free(s.ctx, @ptrCast(tmp_arr));
     p = p_char;
     if (std.math.isNan(d))
         js_parse_error(s, "invalid number literal");

@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const utils = @import("mquickjs_utils_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
 const gt = @import("mquickjs_gc_types.zig");
 const rt = gt.rt;
 const vt = gt.vt;
@@ -16,10 +17,6 @@ const mc = gt.mc;
 pub const c = gt.c;
 
 const JSParseState = gt.JSParseState;
-
-extern fn js_rehash_props(ctx: *c.JSContext, p: *anyopaque, gc_rehash: c.JS_BOOL) void;
-extern fn find_atom(ctx: *c.JSContext, pidx: *c_int, arr: *const anyopaque, len: c_int, val: c.JSValue) c.JSValue;
-extern fn js_get_short_float(v: c.JSValue) f64;
 
 inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
     return mc.ctxExt(ctx);
@@ -558,7 +555,7 @@ pub fn gc_compact_heap(ctx: *c.JSContext) void {
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
         const size = get_mblock_size(ptr);
         if (utils.js_get_mtag(ptr) == mc.JS_MTAG_OBJECT) {
-            js_rehash_props(ctx, ptr, c.TRUE);
+            value.js_rehash_props(ctx, @ptrCast(@alignCast(ptr)), c.TRUE);
         }
         ptr += @intCast(size);
     }
@@ -766,7 +763,7 @@ fn expand_short_float(ctx: *c.JSContext, pval: *c.JSValue) c_int {
         const f = utils.js_malloc(ctx, @intCast(@sizeOf(vt.JSFloat64Ext)), mc.JS_MTAG_FLOAT64) orelse
             return -1;
         const fp: *vt.JSFloat64Ext = @ptrCast(@alignCast(f));
-        fp.dval = js_get_short_float(pval.*);
+        fp.dval = value.js_get_short_float(pval.*);
         pval.* = mc.valueFromPtr(f);
     }
     return 0;
@@ -862,7 +859,7 @@ pub fn bc_reloc_value(s: *gt.BCRelocState, pval: *c.JSValue) void {
                 while (i < x.n_rom_atom_tables) : (i += 1) {
                     const arr1: *const vt.JSValueArrayExt = @ptrCast(@alignCast(x.rom_atom_tables[i]));
                     var a: c_int = undefined;
-                    const str = find_atom(ctx, &a, arr1, vt.valueArraySize(arr1), val);
+                    const str = value.find_atom(ctx, &a, arr1, vt.valueArraySize(arr1), val);
                     if (!mc.isNull(str)) {
                         val = str;
                         break;

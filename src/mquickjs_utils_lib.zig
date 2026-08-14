@@ -27,6 +27,11 @@
 
 const std = @import("std");
 const cutils = @import("cutils_lib.zig");
+const dtoa = @import("dtoa_lib.zig");
+const gc = @import("mquickjs_gc_lib.zig");
+const value = @import("mquickjs_value_lib.zig");
+const runtime = @import("mquickjs_runtime_lib.zig");
+const builtins = @import("mquickjs_builtins_lib.zig");
 const mc = @import("mquickjs_utils_types.zig");
 
 pub const c = mc.c;
@@ -35,30 +40,11 @@ const min_int = cutils.min_int;
 const unicode_to_utf8 = cutils.unicode_to_utf8;
 const utf8_get = cutils.utf8_get;
 
+extern fn js_lrint(x: f64) c_long;
+
 inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
     return mc.ctxExt(ctx);
 }
-
-extern fn u32toa(buf: [*c]u8, n: c_uint) usize;
-extern fn i32toa(buf: [*c]u8, n: c_int) usize;
-extern fn u64toa(buf: [*c]u8, n: c_ulonglong) usize;
-extern fn i64toa(buf: [*c]u8, n: c_longlong) usize;
-extern fn u64toa_radix(buf: [*c]u8, n: c_ulonglong, radix: c_uint) usize;
-extern fn js_dtoa(buf: [*c]u8, d: f64, radix: c_int, n_digits: c_int, flags: c_int, tmp_mem: *c.JSDTOATempMem) c_int;
-extern fn js_lrint(x: f64) c_long;
-
-extern fn JS_GC(ctx: *c.JSContext) void;
-extern fn get_mblock_size(ptr: *const anyopaque) c_int;
-extern fn JS_NewString(ctx: *c.JSContext, buf: [*:0]const u8) c.JSValue;
-extern fn JS_NewObjectProtoClass(ctx: *c.JSContext, proto: c.JSValue, class_id: c_int, extra_size: c_int) c.JSValue;
-extern fn find_own_property(ctx: *c.JSContext, p: *anyopaque, prop: c.JSValue) ?*mc.JSPropertyExt;
-extern fn get_special_prop(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn reloc_c_func_name(ctx: *c.JSContext, val: c.JSValue) c.JSValue;
-extern fn is_num(ch: c_int) c_int;
-extern fn js_get_short_float(v: c.JSValue) f64;
-extern fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]const u8, line_num: c_int, col_num: c_int, skip_level: c_int) void;
-extern fn dump_regexp(ctx: *c.JSContext, p: *anyopaque) void;
-extern fn JS_IsString(ctx: *c.JSContext, val: c.JSValue) c.JS_BOOL;
 
 const PF_ZERO_PAD: c_int = 1 << 0;
 const PF_ALT_FORM: c_int = 1 << 1;
@@ -150,7 +136,7 @@ fn check_free_mem(ctx: *c.JSContext, stack_bottom: *c.JSValue, size: c_uint) c_i
     const x = cx(ctx);
     const stack_ptr: [*c]u8 = @ptrCast(stack_bottom);
     if (@intFromPtr(stack_ptr) - @intFromPtr(x.heap_free) < size + x.min_free_size) {
-        JS_GC(ctx);
+        gc.JS_GC(ctx);
         if (@intFromPtr(stack_ptr) - @intFromPtr(x.heap_free) < size + x.min_free_size) {
             _ = JS_ThrowOutOfMemory(ctx);
             return -1;
@@ -198,7 +184,7 @@ pub fn js_free(ctx: *c.JSContext, ptr: ?*anyopaque) void {
     if (ptr == null) return;
     const x = cx(ctx);
     var ptr1: [*c]u8 = @ptrCast(ptr);
-    ptr1 += @intCast(get_mblock_size(ptr1));
+    ptr1 += @intCast(gc.get_mblock_size(ptr1));
     if (ptr1 == x.heap_free)
         x.heap_free = @ptrCast(ptr);
 }
@@ -214,7 +200,7 @@ pub fn js_shrink(ctx: *c.JSContext, ptr: ?*anyopaque, new_size: c_uint) ?*anyopa
         js_free(ctx, ptr);
         return null;
     }
-    const old_size: c_uint = @intCast(get_mblock_size(ptr.?));
+    const old_size: c_uint = @intCast(gc.get_mblock_size(ptr.?));
     std.debug.assert(aligned_new <= old_size);
     const diff = old_size - aligned_new;
     if (diff == 0)
@@ -352,29 +338,29 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
             },
             'd' => {
                 if (flags & PF_INT64 != 0) {
-                    len = i64toa(buf, @cVaArg(vap, c_longlong));
+                    len = dtoa.i64toa(buf, @cVaArg(vap, c_longlong));
                 } else {
-                    len = i32toa(buf, @cVaArg(vap, c_int));
+                    len = dtoa.i32toa(buf, @cVaArg(vap, c_int));
                 }
             },
             'u' => {
                 if (flags & PF_INT64 != 0) {
-                    len = u64toa(buf, @cVaArg(vap, c_ulonglong));
+                    len = dtoa.u64toa(buf, @cVaArg(vap, c_ulonglong));
                 } else {
-                    len = u32toa(buf, @cVaArg(vap, c_uint));
+                    len = dtoa.u32toa(buf, @cVaArg(vap, c_uint));
                 }
             },
             'x' => {
                 if (flags & PF_INT64 != 0) {
-                    len = u64toa_radix(buf, @cVaArg(vap, c_ulonglong), 16);
+                    len = dtoa.u64toa_radix(buf, @cVaArg(vap, c_ulonglong), 16);
                 } else {
-                    len = u64toa_radix(buf, @cVaArg(vap, c_uint), 16);
+                    len = dtoa.u64toa_radix(buf, @cVaArg(vap, c_uint), 16);
                 }
             },
             'p' => {
                 tmp_buf[0] = '0';
                 tmp_buf[1] = 'x';
-                len = u64toa_radix(tmp_buf[2..].ptr, @cVaArg(vap, usize), 16);
+                len = dtoa.u64toa_radix(tmp_buf[2..].ptr, @cVaArg(vap, usize), 16);
                 len += 2;
                 buf = &tmp_buf;
             },
@@ -385,7 +371,7 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
                     @cVaArg(vap, c_uint);
 
                 if (mc.isInt(val)) {
-                    len = i32toa(buf, mc.valueGetInt(val));
+                    len = dtoa.i32toa(buf, mc.valueGetInt(val));
                 } else if (mc.isShortFloat(val)) {
                     buf = cstr("[short_float]");
                     len = 13;
@@ -504,13 +490,13 @@ pub fn jsThrowErrorVa(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*
     var buf: [128]u8 = undefined;
     _ = js_vsnprintf(&buf, buf.len, fmt, ap);
 
-    const msg = JS_NewString(ctx, @ptrCast(&buf));
+    const msg = value.JS_NewString(ctx, @ptrCast(&buf));
     var msg_ref: c.JSGCRef = undefined;
     jsPushValue(ctx, &msg_ref, msg);
 
     const x = cx(ctx);
     const class_proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
-    const error_obj = JS_NewObjectProtoClass(ctx, class_proto[@intCast(error_num)], c.JS_CLASS_ERROR, @sizeOf(mc.JSErrorDataExt));
+    const error_obj = value.JS_NewObjectProtoClass(ctx, class_proto[@intCast(error_num)], c.JS_CLASS_ERROR, @sizeOf(mc.JSErrorDataExt));
     const msg_val = jsPopValue(ctx, &msg_ref);
     if (mc.isException(error_obj))
         return error_obj;
@@ -522,7 +508,7 @@ pub fn jsThrowErrorVa(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*
     if (error_num != c.JS_CLASS_SYNTAX_ERROR) {
         var error_obj_ref: c.JSGCRef = undefined;
         jsPushValue(ctx, &error_obj_ref, error_obj);
-        build_backtrace(ctx, error_obj, null, 0, 0, 0);
+        runtime.build_backtrace(ctx, error_obj, null, 0, 0, 0);
         _ = jsPopValue(ctx, &error_obj_ref);
     }
 
@@ -554,7 +540,7 @@ fn is_ident_first(ch: c_int) c_int {
 }
 
 pub fn is_ident_next(ch: c_int) c_int {
-    return @intFromBool(is_ident_first(ch) != 0 or is_num(ch) != 0);
+    return @intFromBool(is_ident_first(ch) != 0 or value.is_num(ch) != 0);
 }
 
 // JS_DUMP is always defined in mquickjs_priv.h for this project.
@@ -578,13 +564,13 @@ fn js_find_class_name(ctx: *c.JSContext, class_id: c_int) c.JSValue {
     {
         fd += 1;
     }
-    return reloc_c_func_name(ctx, fd.*.name);
+    return runtime.reloc_c_func_name(ctx, fd.*.name);
 }
 
 fn js_dump_float64(ctx: *c.JSContext, d: f64) void {
     var buf: [32]u8 = undefined;
-    var tmp_mem: c.JSDTOATempMem = undefined;
-    _ = js_dtoa(&buf, d, 10, 0, c.JS_DTOA_FORMAT_FREE | c.JS_DTOA_MINUS_ZERO, &tmp_mem);
+    var tmp_mem: dtoa.JSDTOATempMem = undefined;
+    _ = dtoa.js_dtoa(&buf, d, 10, 0, c.JS_DTOA_FORMAT_FREE | c.JS_DTOA_MINUS_ZERO, &tmp_mem);
     js_printf(ctx, "%s", @as([*c]u8, @ptrCast(&buf)));
 }
 
@@ -593,7 +579,7 @@ fn js_dump_error(ctx: *c.JSContext, p: *mc.JSObjectExt) void {
     if (p.proto != c.JS_NULL)
         p1 = @ptrCast(@alignCast(mc.valueToPtr(p.proto)));
 
-    const pr = find_own_property(ctx, p1, js_get_atom(ctx, c.JS_ATOM_name));
+    const pr = value.find_own_property(ctx, p1, js_get_atom(ctx, c.JS_ATOM_name));
     const name: c.JSValue = if (pr == null or c.JS_IsString(ctx, pr.?.value) == 0)
         js_get_atom(ctx, c.JS_ATOM_Error)
     else
@@ -618,11 +604,11 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
             },
             c.JS_CLASS_C_FUNCTION => {
                 js_printf(ctx, "function ");
-                JS_PrintValueF(ctx, reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(p.u.cfunc.idx)].name), c.JS_DUMP_NOQUOTE);
+                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(p.u.cfunc.idx)].name), c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
             },
             c.JS_CLASS_ERROR => js_dump_error(ctx, p),
-            c.JS_CLASS_REGEXP => dump_regexp(ctx, p),
+            c.JS_CLASS_REGEXP => builtins.dump_regexp(ctx, p),
             c.JS_CLASS_ARRAY, c.JS_CLASS_OBJECT => {
                 if (class_id >= c.JS_CLASS_UINT8C_ARRAY and class_id <= c.JS_CLASS_FLOAT64_ARRAY) {
                     var i: c_int = 0;
@@ -713,7 +699,7 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
                             JS_PrintValueF(ctx, pr.key, c.JS_DUMP_NOQUOTE);
                             js_printf(ctx, ": ");
                             if (flags & c.JS_DUMP_RAW == 0 and mc.propType(pr) == mc.JS_PROP_SPECIAL)
-                                JS_PrintValue(ctx, get_special_prop(ctx, pr.value))
+                                JS_PrintValue(ctx, value.get_special_prop(ctx, pr.value))
                             else
                                 JS_PrintValue(ctx, pr.value);
                             is_first = c.FALSE;
@@ -809,7 +795,7 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
     if (mc.isInt(val)) {
         js_printf(ctx, "%d", mc.valueGetInt(val));
     } else if (mc.isShortFloat(val)) {
-        js_dump_float64(ctx, js_get_short_float(val));
+        js_dump_float64(ctx, value.js_get_short_float(val));
     } else if (!mc.isPtr(val)) {
         switch (mc.valueGetSpecialTag(val)) {
             c.JS_TAG_NULL, c.JS_TAG_UNDEFINED, c.JS_TAG_UNINITIALIZED, c.JS_TAG_BOOL => js_printf(ctx, "%" ++ mc.JSValue_PRI, val),
@@ -818,7 +804,7 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
             c.JS_TAG_SHORT_FUNC => {
                 const idx = mc.valueGetSpecialValue(val);
                 js_printf(ctx, "function ");
-                JS_PrintValueF(ctx, reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(idx)].name), c.JS_DUMP_NOQUOTE);
+                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(idx)].name), c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
             },
             c.JS_TAG_STRING_CHAR => {
@@ -907,7 +893,7 @@ pub fn JS_DumpMemory(ctx: *c.JSContext, is_long: c.JS_BOOL) void {
         const w: c.JSWord = @as(*const c.JSWord, @ptrCast(@alignCast(ptr))).*;
         const mtag = mc.mbGetMtag(ptr);
         const gc_mark = w & 1;
-        const size: c_int = get_mblock_size(ptr);
+        const size: c_int = gc.get_mblock_size(ptr);
         mtag_mem_size[@intCast(mtag)] += @intCast(size);
         mtag_count[@intCast(mtag)] += 1;
         tot_size += @intCast(size);

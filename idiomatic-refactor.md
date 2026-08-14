@@ -99,6 +99,12 @@ After structural steps (5, 6, 8b), note the new `time ./run-tests.sh` result in 
 
 Step 5 timing (2026-08-14, ReleaseFast): **real 0.028 s** (softfloat: **0.030 s**). Within run-to-run variance of the 0.02–0.029 s recent range.
 
+Step 6a timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 6b timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 6c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.03 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -111,7 +117,10 @@ Step 5 timing (2026-08-14, ReleaseFast): **real 0.028 s** (softfloat: **0.030 s*
 | **3** | `libm_lib.zig` idiomatic cleanup (**done**) |
 | **4** | Consolidate types + `mquickjs_internal.zig` accessors (**done**) |
 | **5** | Single engine compilation unit + `mquickjs_c_abi.zig` (**done**) |
-| **6a–6g** | Replace `extern fn` with `@import` (one module per session) |
+| **6a** | `mquickjs_gc_lib.zig` — replace 3 value-only `extern fn` with `@import` (**done**) |
+| **6b** | `mquickjs_lexer_lib.zig` — replace 10 `extern fn` with `@import` (**done**) |
+| **6c** | `mquickjs_utils_lib.zig` — replace 18 `extern fn` with `@import`; `js_lrint` stays extern (libm is separate object) (**done**) |
+| **6d–6g** | Replace remaining `extern fn` with `@import` (one module per session) |
 | **7a–7g** | Deduplicate `pushValue` / `cx` / `get_u32` boilerplate |
 | **8a–8i** | Internal idiomatic cleanup (split large `_lib` files) |
 | **9a–9b** | Optional: reduce internal `@cImport` |

@@ -44,8 +44,6 @@ const gt = @import("mquickjs_gc_types.zig");
 const bt = @import("mquickjs_builtins_types.zig");
 const c = mc.c;
 
-extern fn longjmp(env: *anyopaque, val: c_int) noreturn;
-
 fn abiCall(comptime f: anytype, args: std.meta.ArgsTuple(@TypeOf(f))) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
     // Keep C ABI wrappers as optimization barriers. Same-CU extern+export
     // would otherwise inline across old object boundaries and change codegen
@@ -857,8 +855,7 @@ export fn get_line_col(pcol_num: *c_int, buf: [*]const u8, len: usize) c_int {
 export fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) callconv(.c) noreturn {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    _ = abiCall(utils.js_vsnprintf, .{ @ptrCast(&s.error_msg), s.error_msg.len, fmt, @ptrCast(&ap) });
-    longjmp(@ptrCast(&s.jmp_env), 1);
+    abiCall(lexer.js_parse_error_va, .{ s, fmt, @ptrCast(&ap) });
 }
 
 export fn js_parse_error_mem(s: *lt.JSParseState) void {
