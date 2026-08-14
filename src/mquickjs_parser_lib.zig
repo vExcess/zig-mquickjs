@@ -2317,9 +2317,27 @@ fn define_hoisted_functions(s: *JSParseState, is_eval: bool) void {
     s.byte_code_len = saved_byte_code_len;
 }
 
+const MAX_DEFAULT_PARAMS: c_int = 64;
+
+fn emit_arg_default(s: *JSParseState, arg_idx: c_int, default_pos: *const JSParsePos) void {
+    js_parse_seek_token(s, default_pos);
+    const source_pos = s.pc2line_source_pos;
+    emit_var(s, OP.get_arg, arg_idx, source_pos);
+    emit_op(s, @intCast(OP.undefined));
+    emit_op(s, @intCast(OP.strict_eq));
+    var label = new_label(s);
+    emit_goto(s, OP.if_false, &label);
+    js_parse_assign_expr2(s, 0);
+    put_var(s, rt.JS_VARREF_KIND_ARG, arg_idx, source_pos);
+    emit_label(s, &label);
+}
+
 fn js_parse_function(s: *JSParseState) void {
     next_token(s);
     js_parse_expect(s, '(');
+    var default_arg_idx: [MAX_DEFAULT_PARAMS]c_int = undefined;
+    var default_pos: [MAX_DEFAULT_PARAMS]JSParsePos = undefined;
+    var default_count: c_int = 0;
     while (s.token.val != ')') {
         if (s.token.val != lt.TOK_IDENT)
             js_parse_error(s, "missing formal parameter");
@@ -2332,7 +2350,17 @@ fn js_parse_function(s: *JSParseState) void {
         if (find_var(s, name) >= 0)
             js_parse_error(s, "duplicate argument name");
         _ = add_var(s, name);
+        const arg_idx = s.local_vars_len - 1;
         next_token(s);
+        if (s.token.val == '=') {
+            if (default_count >= MAX_DEFAULT_PARAMS)
+                js_parse_error(s, "too many default parameters");
+            next_token(s);
+            js_parse_get_pos(s, &default_pos[@intCast(default_count)]);
+            js_skip_expr(s);
+            default_arg_idx[@intCast(default_count)] = arg_idx;
+            default_count += 1;
+        }
         if (s.token.val == ')')
             break;
         js_parse_expect(s, ',');
@@ -2342,6 +2370,14 @@ fn js_parse_function(s: *JSParseState) void {
     pt.bytecodeSetArgCount(b, @intCast(arg_count));
     next_token(s);
     js_parse_expect(s, '{');
+
+    var body_pos: JSParsePos = undefined;
+    js_parse_get_pos(s, &body_pos);
+    var i: c_int = 0;
+    while (i < default_count) : (i += 1) {
+        emit_arg_default(s, default_arg_idx[@intCast(i)], &default_pos[@intCast(i)]);
+    }
+    js_parse_seek_token(s, &body_pos);
 
     b = funcBc(s.cur_func);
     if (pt.bytecodeHasArguments(b)) {
