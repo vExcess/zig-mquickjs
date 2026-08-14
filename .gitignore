@@ -1,6 +1,8 @@
 .zig-cache
 zig-out
 
+test262
+
 mqjs
 mqjs.exe
 example

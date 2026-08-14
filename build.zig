@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     if (optimize == .Debug or optimize == .ReleaseSafe) {
-        std.debug.print("The C version of mquickjs relies on undefined behavior to function.\nIt cannot be compiled in debug or safe mode.\nRun zig build with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall\n", .{});
+        std.debug.print("The engine uses tagged-pointer JSValues that violate Zig's alignment checks in Debug/ReleaseSafe. \nRun zig build with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall\n", .{});
         return;
     }
 

@@ -36,6 +36,19 @@ According to the microbenchmarks, there is a 1.7% performance decrease after hav
 
 I pretty much guarentee you that the AI introduced more bugs into the Zig port than are in the original mquickjs. I would not use the vibe coded Zig port if you want anything that is stable to use.
 
+### Run test262
+```sh
+git clone https://github.com/tc39/test262.git --depth 1
+cd test262
+
+npm install -g test262-harness
+
+test262-harness \
+  --host-type=qjs \
+  --host-path=../mqjs-test262.sh \
+  "test/language/**/*.js"
+```
+
 # Unmodified original MicroQuickJS readme below
 ## Introduction
 
