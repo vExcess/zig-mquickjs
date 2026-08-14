@@ -5,6 +5,7 @@
 const std = @import("std");
 
 pub const mc = @import("mquickjs_utils_types.zig");
+pub const mi = @import("mquickjs_internal.zig");
 pub const c = mc.c;
 
 pub const JS_SHORTINT_MIN: i32 = -(@as(i32, 1) << 30);
@@ -56,43 +57,16 @@ pub const JSFloat64Ext = extern struct {
     dval: f64,
 };
 
-pub const JSStringExt = extern struct {
-    header: c.JSWord,
-    buf: [0]u8,
-};
-
+pub const JSStringExt = mc.JSStringExt;
 pub const JSStringCharBufExt = extern struct {
     header: c.JSWord,
     buf: [5]u8,
 };
 
-pub const JSValueArrayExt = extern struct {
-    header: c.JSWord,
-    arr: [0]c.JSValue,
-};
-
-pub const JSByteArrayExt = extern struct {
-    header: c.JSWord,
-    buf: [0]u8,
-};
-
-pub const JSVarRefExt = extern struct {
-    header: c.JSWord,
-    u: extern union {
-        value: c.JSValue,
-        live: extern struct {
-            next: c.JSValue,
-            pvalue: *c.JSValue,
-        },
-    },
-};
-
-pub const JSPropertyExt = extern struct {
-    key: c.JSValue,
-    value: c.JSValue,
-    hash_and_type: u32,
-    _pad: u32 = 0,
-};
+pub const JSValueArrayExt = mc.JSValueArrayExt;
+pub const JSByteArrayExt = mc.JSByteArrayExt;
+pub const JSVarRefExt = mc.JSVarRefExt;
+pub const JSPropertyExt = mc.JSPropertyExt;
 
 pub const JSCFunctionDefExt = extern struct {
     func: ?*const anyopaque,
@@ -111,8 +85,7 @@ pub fn rotl64(a: u64, n: u6) u64 {
 }
 
 pub fn valueGetInt(v: c.JSValue) c_int {
-    const as_int: i32 = @bitCast(@as(u32, @truncate(v)));
-    return as_int >> 1;
+    return mi.valueGetInt(v);
 }
 
 pub fn newShortInt(val: i32) c.JSValue {
@@ -193,115 +166,32 @@ pub fn objectUserOpaque(p: *mc.JSObjectExt) *?*anyopaque {
     return @ptrCast(@alignCast(&p.u));
 }
 
-pub fn stringBuf(p: *const JSStringExt) [*]u8 {
-    return @constCast(@ptrCast(@alignCast(&p.buf)));
-}
-
-pub fn stringLen(p: *const JSStringExt) usize {
-    return @intCast(p.header >> 7);
-}
-
-pub fn stringIsUnique(p: *const JSStringExt) bool {
-    return (p.header >> 4) & 1 != 0;
-}
-
-pub fn stringIsAscii(p: *const JSStringExt) bool {
-    return (p.header >> 5) & 1 != 0;
-}
-
-pub fn stringIsNumeric(p: *const JSStringExt) bool {
-    return (p.header >> 6) & 1 != 0;
-}
-
-pub fn stringSetMeta(p: *JSStringExt, is_unique: bool, is_ascii: bool, is_numeric: bool, len: usize) void {
-    p.header = (p.header & 0xf) |
-        (if (is_unique) @as(c.JSWord, 1) << 4 else 0) |
-        (if (is_ascii) @as(c.JSWord, 1) << 5 else 0) |
-        (if (is_numeric) @as(c.JSWord, 1) << 6 else 0) |
-        (@as(c.JSWord, @intCast(len)) << 7);
-}
-
-pub fn stringSetUnique(p: *JSStringExt, v: bool) void {
-    if (v) {
-        p.header |= @as(c.JSWord, 1) << 4;
-    } else {
-        p.header &= ~(@as(c.JSWord, 1) << 4);
-    }
-}
-
-pub fn stringSetAscii(p: *JSStringExt, v: bool) void {
-    if (v) {
-        p.header |= @as(c.JSWord, 1) << 5;
-    } else {
-        p.header &= ~(@as(c.JSWord, 1) << 5);
-    }
-}
-
-pub fn stringSetNumeric(p: *JSStringExt, v: bool) void {
-    if (v) {
-        p.header |= @as(c.JSWord, 1) << 6;
-    } else {
-        p.header &= ~(@as(c.JSWord, 1) << 6);
-    }
-}
-
-pub fn mbSetMtag(ptr: *anyopaque, mtag: c_int) void {
-    const w: *c.JSWord = @ptrCast(@alignCast(ptr));
-    w.* = (w.* & ~@as(c.JSWord, 0xe)) | (@as(c.JSWord, @intCast(mtag)) << 1);
-}
-
-pub fn valueArraySize(p: *const JSValueArrayExt) c_int {
-    return @intCast(p.header >> 4);
-}
-
-pub fn valueArraySetSize(p: *JSValueArrayExt, size: c_int) void {
-    p.header = (p.header & 0xf) | (@as(c.JSWord, @intCast(size)) << 4);
-}
-
-pub fn valueArrayItems(arr: *const JSValueArrayExt) [*]c.JSValue {
-    return @constCast(@ptrCast(@alignCast(&arr.arr)));
-}
-
-pub fn byteArraySize(p: *const JSByteArrayExt) c_int {
-    return @intCast(p.header >> 4);
-}
-
-pub fn byteArraySetSize(p: *JSByteArrayExt, size: c_int) void {
-    p.header = (p.header & 0xf) | (@as(c.JSWord, @intCast(size)) << 4);
-}
-
-pub fn byteArrayBuf(arr: *const JSByteArrayExt) [*]u8 {
-    return @constCast(@ptrCast(@alignCast(&arr.buf)));
-}
-
-pub fn varRefSetDetached(p: *JSVarRefExt, detached: bool) void {
-    if (detached) {
-        p.header |= @as(c.JSWord, 1) << 4;
-    } else {
-        p.header &= ~(@as(c.JSWord, 1) << 4);
-    }
-}
-
-pub fn propHashNext(pr: *const JSPropertyExt) u32 {
-    return pr.hash_and_type & 0x3fffffff;
-}
-
-pub fn propSetHashNext(pr: *JSPropertyExt, v: u32) void {
-    pr.hash_and_type = (pr.hash_and_type & 0xc0000000) | (v & 0x3fffffff);
-}
-
-pub fn propType(pr: *const JSPropertyExt) u32 {
-    return pr.hash_and_type >> 30;
-}
-
-pub fn propSetType(pr: *JSPropertyExt, t: u32) void {
-    pr.hash_and_type = (pr.hash_and_type & 0x3fffffff) | (t << 30);
-}
+pub const stringBuf = mi.stringBuf;
+pub const stringLen = mi.stringLen;
+pub const stringIsUnique = mi.stringIsUnique;
+pub const stringIsAscii = mi.stringIsAscii;
+pub const stringIsNumeric = mi.stringIsNumeric;
+pub const stringSetMeta = mi.stringSetMeta;
+pub const stringSetUnique = mi.stringSetUnique;
+pub const stringSetAscii = mi.stringSetAscii;
+pub const stringSetNumeric = mi.stringSetNumeric;
+pub const mbSetMtag = mi.mbSetMtag;
+pub const valueArraySize = mi.valueArraySize;
+pub const valueArraySetSize = mi.valueArraySetSize;
+pub const valueArrayItems = mi.valueArrayItems;
+pub const byteArraySize = mi.byteArraySize;
+pub const byteArraySetSize = mi.byteArraySetSize;
+pub const byteArrayBuf = mi.byteArrayBuf;
+pub const varRefSetDetached = mi.varRefSetDetached;
+pub const propHashNext = mi.propHashNext;
+pub const propSetHashNext = mi.propSetHashNext;
+pub const propType = mi.propType;
+pub const propSetType = mi.propSetType;
 
 pub fn findOwnPropertyInlined(p: *mc.JSObjectExt, prop: c.JSValue) ?*JSPropertyExt {
     const arr: *JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(p.props)));
     const items = valueArrayItems(arr);
-    const hash_mask: u32 = @intCast(mc.valueGetInt(items[1]));
+    const hash_mask: u32 = @intCast(mi.valueGetInt(items[1]));
     const h = hashProp(prop) & hash_mask;
     var idx: c.JSValue = items[2 + h];
     const jsw_half: c.JSValue = @intCast(@sizeOf(c.JSValue) / 2);

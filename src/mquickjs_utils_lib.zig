@@ -712,7 +712,7 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
                                 js_printf(ctx, ", ");
                             JS_PrintValueF(ctx, pr.key, c.JS_DUMP_NOQUOTE);
                             js_printf(ctx, ": ");
-                            if (flags & c.JS_DUMP_RAW == 0 and pr.prop_type == mc.JS_PROP_SPECIAL)
+                            if (flags & c.JS_DUMP_RAW == 0 and mc.propType(pr) == mc.JS_PROP_SPECIAL)
                                 JS_PrintValue(ctx, get_special_prop(ctx, pr.value))
                             else
                                 JS_PrintValue(ctx, pr.value);
@@ -846,11 +846,11 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
             },
             mc.JS_MTAG_VALUE_ARRAY => {
                 const arr: *mc.JSValueArrayExt = @ptrCast(@alignCast(ptr));
-                js_dump_array(ctx, arr, mc.valueArraySizeField(arr));
+                js_dump_array(ctx, arr, mc.valueArraySize(arr));
             },
             mc.JS_MTAG_BYTE_ARRAY => {
                 const arr: *mc.JSByteArrayExt = @ptrCast(@alignCast(ptr));
-                js_printf(ctx, "byte_array(%llu)", @as(c_ulonglong, mc.byteArraySizeField(arr)));
+                js_printf(ctx, "byte_array(%llu)", @as(c_ulonglong, @intCast(mc.byteArraySize(arr))));
             },
             mc.JS_MTAG_FUNCTION_BYTECODE => {
                 const b: *mc.JSFunctionBytecodeExt = @ptrCast(@alignCast(ptr));

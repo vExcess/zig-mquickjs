@@ -142,19 +142,16 @@ pub const JSStringExt = extern struct {
 
 pub const JSValueArrayExt = extern struct {
     header: c.JSWord,
-    size_field: c.JSWord,
     arr: [0]c.JSValue,
 };
 
 pub const JSByteArrayExt = extern struct {
     header: c.JSWord,
-    size_field: c.JSWord,
     buf: [0]u8,
 };
 
 pub const JSVarRefExt = extern struct {
     header: c.JSWord,
-    flags: c.JSWord,
     u: extern union {
         value: c.JSValue,
         live: extern struct {
@@ -167,8 +164,8 @@ pub const JSVarRefExt = extern struct {
 pub const JSPropertyExt = extern struct {
     key: c.JSValue,
     value: c.JSValue,
-    hash_next: c_uint,
-    prop_type: c_uint,
+    hash_and_type: u32,
+    _pad: u32 = 0,
 };
 
 pub const JS_STACK_SLACK: c_uint = 16;
@@ -176,108 +173,44 @@ pub const JS_MIN_FREE_SIZE: c_uint = 512;
 pub const JS_MIN_CRITICAL_FREE_SIZE: c_uint = JS_MIN_FREE_SIZE - 256;
 pub const JS_PROP_SPECIAL: c_uint = 3;
 
-pub fn ctxExt(ctx: *c.JSContext) *JSContextExt {
-    return @ptrCast(@alignCast(ctx));
-}
+const mi = @import("mquickjs_internal.zig");
 
-pub fn mbInit(ptr: *anyopaque, mtag: c_int) void {
-    const w: *c.JSWord = @ptrCast(@alignCast(ptr));
-    w.* = @as(c.JSWord, @intCast(mtag)) << 1;
-}
-
-pub fn mbGetMtag(ptr: *anyopaque) c_int {
-    const w: *const c.JSWord = @ptrCast(@alignCast(ptr));
-    return @intCast((w.* >> 1) & 0x7);
-}
-
-pub fn mbSetFreeBlock(ptr: *anyopaque, size: c_uint) void {
-    const w: *c.JSWord = @ptrCast(@alignCast(ptr));
-    const payload_words = (size - @sizeOf(c.JSWord)) / @sizeOf(c.JSWord);
-    w.* = (@as(c.JSWord, @intCast(JS_MTAG_FREE)) << 1) | (@as(c.JSWord, payload_words) << 4);
-}
-
-pub fn objectClassId(p: *const JSObjectExt) c_int {
-    return @intCast((p.header >> 4) & 0xff);
-}
-
-pub fn stringIsUnique(p: *const JSStringExt) bool {
-    return (p.header >> 4) & 1 != 0;
-}
-
-pub fn stringLen(p: *const JSStringExt) usize {
-    return @intCast(p.header >> 7);
-}
-
-pub fn valueArraySizeField(p: *const JSValueArrayExt) c_int {
-    return @intCast(p.size_field >> 4);
-}
-
-pub fn byteArraySizeField(p: *const JSByteArrayExt) u64 {
-    return p.size_field >> 4;
-}
-
-pub fn varRefIsDetached(p: *const JSVarRefExt) bool {
-    return (p.flags & 1) != 0;
-}
-
-pub fn float64Value(ptr: *anyopaque) f64 {
-    const bp: [*c]u8 = @ptrCast(ptr);
-    const dptr: *f64 = @ptrCast(@alignCast(bp + @sizeOf(c.JSWord)));
-    return dptr.*;
-}
-
-pub fn valueFromPtr(ptr: *anyopaque) c.JSValue {
-    return @as(c.JSWord, @intCast(@intFromPtr(ptr))) + 1;
-}
-
-pub fn valueToPtr(val: c.JSValue) *anyopaque {
-    return @ptrFromInt(@as(usize, @intCast(val - 1)));
-}
-
-pub fn valueGetInt(v: c.JSValue) c_int {
-    return @as(c_int, @intCast(v >> 1));
-}
-
-pub fn valueGetSpecialTag(v: c.JSValue) c.JSWord {
-    return v & ((@as(c.JSWord, 1) << c.JS_TAG_SPECIAL_BITS) - 1);
-}
-
-pub fn valueGetSpecialValue(v: c.JSValue) c_int {
-    return @as(c_int, @intCast(v >> c.JS_TAG_SPECIAL_BITS));
-}
-
-pub fn isInt(v: c.JSValue) bool {
-    return (v & 1) == c.JS_TAG_INT;
-}
-
-pub fn isPtr(v: c.JSValue) bool {
-    return (v & (c.JSW - 1)) == c.JS_TAG_PTR;
-}
-
-pub fn isShortFloat(v: c.JSValue) bool {
-    return (v & (c.JSW - 1)) == c.JS_TAG_SHORT_FLOAT;
-}
-
-pub fn isNull(v: c.JSValue) bool {
-    return valueGetSpecialTag(v) == c.JS_TAG_NULL;
-}
-
-pub fn isException(v: c.JSValue) bool {
-    return valueGetSpecialTag(v) == c.JS_TAG_EXCEPTION;
-}
-
-pub fn alignUp(size: c_uint, alignment: c_uint) c_uint {
-    return (size + alignment - 1) & ~@as(c_uint, alignment - 1);
-}
-
-pub fn valueArrayItems(arr: *const JSValueArrayExt) [*]c.JSValue {
-    return @constCast(@ptrCast(@alignCast(&arr.arr)));
-}
-
-pub fn byteArrayBuf(arr: *const JSByteArrayExt) [*]u8 {
-    return @constCast(@ptrCast(@alignCast(&arr.buf)));
-}
-
-pub fn stringBuf(p: *const JSStringExt) [*]u8 {
-    return @constCast(@ptrCast(@alignCast(&p.buf)));
-}
+pub const ctxExt = mi.ctxExt;
+pub const mbInit = mi.mbInit;
+pub const mbGetMtag = mi.mbGetMtag;
+pub const mbSetFreeBlock = mi.mbSetFreeBlock;
+pub const mbSetMtag = mi.mbSetMtag;
+pub const objectClassId = mi.objectClassId;
+pub const float64Value = mi.float64Value;
+pub const valueFromPtr = mi.valueFromPtr;
+pub const valueToPtr = mi.valueToPtr;
+pub const valueGetInt = mi.valueGetInt;
+pub const valueGetSpecialTag = mi.valueGetSpecialTag;
+pub const valueGetSpecialValue = mi.valueGetSpecialValue;
+pub const isInt = mi.isInt;
+pub const isPtr = mi.isPtr;
+pub const isShortFloat = mi.isShortFloat;
+pub const isNull = mi.isNull;
+pub const isException = mi.isException;
+pub const alignUp = mi.alignUp;
+pub const stringBuf = mi.stringBuf;
+pub const stringLen = mi.stringLen;
+pub const stringIsUnique = mi.stringIsUnique;
+pub const stringIsAscii = mi.stringIsAscii;
+pub const stringIsNumeric = mi.stringIsNumeric;
+pub const stringSetMeta = mi.stringSetMeta;
+pub const stringSetUnique = mi.stringSetUnique;
+pub const stringSetAscii = mi.stringSetAscii;
+pub const stringSetNumeric = mi.stringSetNumeric;
+pub const valueArrayItems = mi.valueArrayItems;
+pub const valueArraySize = mi.valueArraySize;
+pub const valueArraySetSize = mi.valueArraySetSize;
+pub const byteArrayBuf = mi.byteArrayBuf;
+pub const byteArraySize = mi.byteArraySize;
+pub const byteArraySetSize = mi.byteArraySetSize;
+pub const varRefIsDetached = mi.varRefIsDetached;
+pub const varRefSetDetached = mi.varRefSetDetached;
+pub const propHashNext = mi.propHashNext;
+pub const propSetHashNext = mi.propSetHashNext;
+pub const propType = mi.propType;
+pub const propSetType = mi.propSetType;

@@ -25,13 +25,11 @@
 // Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
+const mem = std.mem;
 const cutils = @import("cutils_lib.zig");
 
 const min_int = cutils.min_int;
 const strstart = cutils.strstart;
-const BOOL = cutils.BOOL;
-const TRUE = cutils.TRUE;
-const FALSE = cutils.FALSE;
 
 const USE_POW5_TABLE = true;
 const USE_FAST_INT = true;
@@ -88,7 +86,7 @@ inline fn ctz32(a: u32) c_int {
 }
 
 inline fn max_int(a: c_int, b: c_int) c_int {
-    return if (a > b) a else b;
+    return @max(a, b);
 }
 
 inline fn float64_as_uint64(d: f64) u64 {
@@ -113,19 +111,26 @@ inline fn unlikely(v: bool) bool {
     return v;
 }
 
+fn bufOffset(base: [*]u8, cur: [*]u8) usize {
+    return @intFromPtr(cur) - @intFromPtr(base);
+}
+
+fn digitToChar(digit: u64) u8 {
+    if (digit < 10) return @intCast(digit + '0');
+    return @intCast(digit + 'a' - 10);
+}
+
 fn overlap_move_left(buf: [*]u8, len: usize) void {
-    var i: usize = 0;
-    while (i < len) : (i += 1) {
-        buf[i] = buf[i + 1];
-    }
+    if (len == 0) return;
+    mem.copyForwards(u8, buf[0..len], buf[1 .. len + 1]);
 }
 
 fn insert_dot(buf: [*]u8, dot_pos: c_int, len: *c_int) void {
-    var i: c_int = len.* - 1;
-    while (i >= dot_pos) : (i -= 1) {
-        buf[@intCast(i + 1)] = buf[@intCast(i)];
-    }
-    buf[@intCast(dot_pos)] = '.';
+    const out_len: usize = @intCast(len.*);
+    const pos: usize = @intCast(dot_pos);
+    const out = buf[0 .. out_len + 1];
+    mem.copyBackwards(u8, out[pos + 1 .. out_len + 1], out[pos..out_len]);
+    out[pos] = '.';
     len.* += 1;
 }
 
@@ -480,13 +485,9 @@ fn u64toa_bin_len(buf: [*]u8, n: u64, radix_bits: u32, len: c_int) void {
     const mask = (@as(u32, 1) << @intCast(radix_bits)) - 1;
     var i: c_int = len - 1;
     while (i >= 0) : (i -= 1) {
-        var digit: u32 = @truncate(n1 & mask);
+        const digit = n1 & mask;
         n1 >>= @intCast(radix_bits);
-        if (digit < 10)
-            digit += '0'
-        else
-            digit += 'a' - 10;
-        buf[@intCast(i)] = @intCast(digit);
+        buf[@intCast(i)] = digitToChar(@intCast(digit));
     }
 }
 
@@ -497,29 +498,25 @@ fn limb_to_a(buf: [*]u8, n: limb_t, radix: u32, len: c_int) void {
         var n1 = n;
         var i: c_int = len - 1;
         while (i >= 0) : (i -= 1) {
-            var digit = n1 % radix;
+            const digit = n1 % radix;
             n1 = n1 / radix;
-            if (digit < 10)
-                digit += '0'
-            else
-                digit += 'a' - 10;
-            buf[@intCast(i)] = @intCast(digit);
+            buf[@intCast(i)] = digitToChar(digit);
         }
     }
 }
 
 pub fn u32toa(buf: [*]u8, n: u32) usize {
-    var buf1: [10]u8 = undefined;
+    var digits: [10]u8 = undefined;
     var n1 = n;
-    var q: [*]u8 = buf1[0..].ptr + buf1.len;
+    var end: usize = digits.len;
     while (true) {
-        q -= 1;
-        q[0] = @intCast(n1 % 10 + '0');
+        end -= 1;
+        digits[end] = @intCast(n1 % 10 + '0');
         n1 /= 10;
         if (n1 == 0) break;
     }
-    const len = @intFromPtr(&buf1[0]) + buf1.len - @intFromPtr(q);
-    std.mem.copyForwards(u8, buf[0..len], q[0..len]);
+    const len = digits.len - end;
+    @memcpy(buf[0..len], digits[end..]);
     return len;
 }
 
@@ -535,30 +532,29 @@ pub fn i32toa(buf: [*]u8, n: i32) usize {
 pub fn u64toa(buf: [*]u8, n_in: u64) usize {
     if (n_in < 0x100000000) {
         return u32toa(buf, @truncate(n_in));
-    } else {
-        var n = n_in;
-        var q: [*]u8 = buf;
-        var n1 = n / 1000000000;
-        n = n % 1000000000;
-        if (n1 >= 0x100000000) {
-            var n2: u32 = @truncate(n1 / 1000000000);
-            n1 = n1 % 1000000000;
-            if (n2 >= 10) {
-                q[0] = @intCast(n2 / 10 + '0');
-                q += 1;
-                n2 %= 10;
-            }
-            q[0] = @intCast(n2 + '0');
-            q += 1;
-            u32toa_len(q, @truncate(n1), 9);
-            q += 9;
-        } else {
-            q += u32toa(q, @truncate(n1));
-        }
-        u32toa_len(q, @truncate(n), 9);
-        q += 9;
-        return @intFromPtr(q) - @intFromPtr(buf);
     }
+    var n = n_in;
+    var offset: usize = 0;
+    var n1 = n / 1000000000;
+    n = n % 1000000000;
+    if (n1 >= 0x100000000) {
+        var n2: u32 = @truncate(n1 / 1000000000);
+        n1 = n1 % 1000000000;
+        if (n2 >= 10) {
+            buf[offset] = @intCast(n2 / 10 + '0');
+            offset += 1;
+            n2 %= 10;
+        }
+        buf[offset] = @intCast(n2 + '0');
+        offset += 1;
+        u32toa_len(buf + offset, @truncate(n1), 9);
+        offset += 9;
+    } else {
+        offset += u32toa(buf + offset, @truncate(n1));
+    }
+    u32toa_len(buf + offset, @truncate(n), 9);
+    offset += 9;
+    return offset;
 }
 
 pub fn i64toa(buf: [*]u8, n: i64) usize {
@@ -582,22 +578,18 @@ pub fn u64toa_radix(buf: [*]u8, n: u64, radix: u32) usize {
         u64toa_bin_len(buf, n, radix_bits, @intCast(l));
         return l;
     } else {
-        var buf1: [41]u8 = undefined;
+        var digits: [41]u8 = undefined;
         var n1 = n;
-        var q: [*]u8 = buf1[0..].ptr + buf1.len;
+        var end: usize = digits.len;
         while (true) {
-            var digit = n1 % radix;
+            const digit = n1 % radix;
             n1 /= radix;
-            if (digit < 10)
-                digit += '0'
-            else
-                digit += 'a' - 10;
-            q -= 1;
-            q[0] = @intCast(digit);
+            end -= 1;
+            digits[end] = digitToChar(digit);
             if (n1 == 0) break;
         }
-        const len = @intFromPtr(&buf1[0]) + buf1.len - @intFromPtr(q);
-        std.mem.copyForwards(u8, buf[0..len], q[0..len]);
+        const len = digits.len - end;
+        @memcpy(buf[0..len], digits[end..]);
         return len;
     }
 }
@@ -689,7 +681,7 @@ fn output_digits(
     return len;
 }
 
-fn mul_pow(a: *mpb_t, radix1: c_int, radix_shift: c_int, f: c_int, is_int: BOOL, e: c_int) c_int {
+fn mul_pow(a: *mpb_t, radix1: c_int, radix_shift: c_int, f: c_int, is_int: bool, e: c_int) c_int {
     var e_offset = -f * radix_shift;
     if (radix1 != 1) {
         const d = digits_per_limb_table[@as(usize, @intCast(radix1 - 2))];
@@ -714,7 +706,7 @@ fn mul_pow(a: *mpb_t, radix1: c_int, radix_shift: c_int, f: c_int, is_int: BOOL,
             var f1 = -f;
             const l = @divTrunc(f1 + d - 1, d);
             e_offset += @intCast(l * LIMB_BITS);
-            const extra_bits: c_int = if (is_int == FALSE)
+            const extra_bits: c_int = if (!is_int)
                 max_int(e - mpb_floor_log2(a), 0)
             else
                 max_int(2 + e - e_offset, 0);
@@ -757,7 +749,7 @@ fn mul_pow_round(
     rnd_mode: c_int,
 ) void {
     mpb_set_u64(tmp1, m);
-    const e_offset = mul_pow(tmp1, radix1, radix_shift, f, TRUE, e);
+    const e_offset = mul_pow(tmp1, radix1, radix_shift, f, true, e);
     mpb_shr_round(tmp1, -e + e_offset, rnd_mode);
 }
 
@@ -793,7 +785,7 @@ fn mul_pow_round_to_d(
     f: c_int,
     rnd_mode: c_int,
 ) u64 {
-    const e_offset = mul_pow(a, radix1, radix_shift, f, FALSE, 55);
+    const e_offset = mul_pow(a, radix1, radix_shift, f, false, 55);
     return round_to_d(pe, a, e_offset, rnd_mode);
 }
 
@@ -801,13 +793,14 @@ fn mpb_alloc_size(limbs: usize) usize {
     return @offsetOf(mpb_t, "tab") + limbs * @sizeOf(limb_t);
 }
 
-fn dtoa_malloc(mptr: *[*]u64, size: usize) [*]u8 {
+fn dtoaAlloc(mptr: *[*]u64, limbs: usize) *mpb_t {
+    const size = mpb_alloc_size(limbs);
     const ret: [*]u8 = @ptrCast(mptr.*);
     mptr.* = mptr.* + (size + 7) / 8;
-    return ret;
+    return @ptrCast(@alignCast(ret));
 }
 
-fn dtoa_free(_: [*]u8) void {}
+fn dtoa_free(_: *mpb_t) void {}
 
 pub fn js_dtoa_max_len(d: f64, radix: c_int, n_digits: c_int, flags: c_int) c_int {
     const fmt = flags & JS_DTOA_FORMAT_MASK;
@@ -858,8 +851,8 @@ pub fn js_dtoa(
     tmp_mem: *JSDTOATempMem,
 ) c_int {
     var mptr: [*]u64 = tmp_mem.mem[0..].ptr;
-    const tmp1: *mpb_t = @ptrCast(@alignCast(dtoa_malloc(&mptr, mpb_alloc_size(DBIGNUM_LEN_MAX))));
-    const mant_max: *mpb_t = @ptrCast(@alignCast(dtoa_malloc(&mptr, mpb_alloc_size(MANT_LEN_MAX))));
+    const tmp1 = dtoaAlloc(&mptr, DBIGNUM_LEN_MAX);
+    const mant_max = dtoaAlloc(&mptr, MANT_LEN_MAX);
 
     const fmt = flags & JS_DTOA_FORMAT_MASK;
     const radix_shift = ctz32(@intCast(radix));
@@ -886,9 +879,9 @@ pub fn js_dtoa(
             q += 3;
         }
         q[0] = 0;
-        dtoa_free(@ptrCast(mant_max));
-        dtoa_free(@ptrCast(tmp1));
-        return @intCast(@intFromPtr(q) - @intFromPtr(buf));
+        dtoa_free(mant_max);
+        dtoa_free(tmp1);
+        return @intCast(bufOffset(buf, q));
     }
 
     if (e == 0) {
@@ -931,9 +924,9 @@ pub fn js_dtoa(
             m >>= @intCast(53 - e);
             q += u64toa_radix(q, m, @intCast(radix));
             q[0] = 0;
-            dtoa_free(@ptrCast(mant_max));
-            dtoa_free(@ptrCast(tmp1));
-            return @intCast(@intFromPtr(q) - @intFromPtr(buf));
+            dtoa_free(mant_max);
+            dtoa_free(tmp1);
+            return @intCast(bufOffset(buf, q));
         }
 
         E = 1 + mul_log2_radix(e - 1, radix);
@@ -993,15 +986,15 @@ pub fn js_dtoa(
             }
             q += @intCast(len);
             q[0] = 0;
-            dtoa_free(@ptrCast(mant_max));
-            dtoa_free(@ptrCast(tmp1));
-            return @intCast(@intFromPtr(q) - @intFromPtr(buf));
+            dtoa_free(mant_max);
+            dtoa_free(tmp1);
+            return @intCast(bufOffset(buf, q));
         } else {
             std.debug.assert(n_digits >= 1 and n_digits <= JS_DTOA_MAX_DIGITS);
             P = n_digits;
             mant_max.len = 1;
             mant_max.tab[0] = 1;
-            const pow_shift = mul_pow(mant_max, radix1, @intCast(radix_shift), P, FALSE, 0);
+            const pow_shift = mul_pow(mant_max, radix1, @intCast(radix_shift), P, false, 0);
             mpb_shr_round(mant_max, pow_shift, JS_RNDZ);
             while (true) {
                 mul_pow_round(tmp1, m, e - 53, radix1, @intCast(radix_shift), P - E, JS_RNDNA);
@@ -1059,9 +1052,9 @@ pub fn js_dtoa(
     }
 
     q[0] = 0;
-    dtoa_free(@ptrCast(mant_max));
-    dtoa_free(@ptrCast(tmp1));
-    return @intCast(@intFromPtr(q) - @intFromPtr(buf));
+    dtoa_free(mant_max);
+    dtoa_free(tmp1);
+    return @intCast(bufOffset(buf, q));
 }
 
 inline fn to_digit(c: u8) c_int {
@@ -1101,7 +1094,7 @@ pub fn js_atod(
     tmp_mem: *JSATODTempMem,
 ) f64 {
     var mptr: [*]u64 = tmp_mem.mem[0..].ptr;
-    const tmp0: *mpb_t = @ptrCast(@alignCast(dtoa_malloc(&mptr, mpb_alloc_size(DBIGNUM_LEN_MAX))));
+    const tmp0 = dtoaAlloc(&mptr, DBIGNUM_LEN_MAX);
 
     var sep: c_int = if ((flags & JS_ATOD_ACCEPT_UNDERSCORES) != 0) '_' else 256;
     var p: [*c]const u8 = str;
@@ -1217,12 +1210,12 @@ pub fn js_atod(
         mpb_mul1_base(tmp0, @truncate(pow_ui(@intCast(radix), @intCast(limb_digit_count))), cur_limb);
     }
 
-    var is_zero: BOOL = undefined;
+    var is_zero: bool = undefined;
     if (digit_count == 0) {
-        is_zero = TRUE;
+        is_zero = true;
         expn_offset = 0;
     } else {
-        is_zero = FALSE;
+        is_zero = false;
         if (dot_pos < 0) dot_pos = pos;
         expn_offset = sig_pos + digit_count - dot_pos;
     }
@@ -1232,8 +1225,8 @@ pub fn js_atod(
     }
 
     var expn: c_int = 0;
-    var expn_overflow: BOOL = FALSE;
-    var is_bin_exp: BOOL = FALSE;
+    var expn_overflow = false;
+    var is_bin_exp = false;
 
     if ((flags & JS_ATOD_INT_ONLY) == 0 and
         ((radix == 10 and (p[0] == 'e' or p[0] == 'E')) or
@@ -1241,7 +1234,7 @@ pub fn js_atod(
                 (radix_bits >= 1 and radix_bits <= 4 and (p[0] == 'p' or p[0] == 'P'))))) and
         p > p_start)
     {
-        is_bin_exp = if (p[0] == 'p' or p[0] == 'P') TRUE else FALSE;
+        is_bin_exp = p[0] == 'p' or p[0] == 'P';
         p += 1;
         var exp_is_neg: c_int = 0;
         if (p[0] == '+') {
@@ -1258,9 +1251,9 @@ pub fn js_atod(
             if (p[0] == sep and to_digit(p[1]) < 10) p += 1;
             c = to_digit(p[0]);
             if (c >= 10) break;
-            if (expn_overflow == FALSE) {
+            if (!expn_overflow) {
                 if (unlikely(expn > ((std.math.maxInt(i32) - 2 - 9) / 10))) {
-                    expn_overflow = TRUE;
+                    expn_overflow = true;
                 } else {
                     expn = expn * 10 + c;
                 }
@@ -1268,7 +1261,7 @@ pub fn js_atod(
             p += 1;
         }
         if (exp_is_neg != 0) expn = -expn;
-        if (is_zero == FALSE and expn_overflow == TRUE) {
+        if (!is_zero and expn_overflow) {
             if (exp_is_neg != 0) {
                 return js_atod_done(pnext, p, is_neg, 0, tmp0);
             } else {
@@ -1280,12 +1273,12 @@ pub fn js_atod(
     if (p == p_start) return js_atod_fail(pnext, p, tmp0);
 
     var a: u64 = undefined;
-    if (is_zero != FALSE) {
+    if (is_zero) {
         a = 0;
     } else {
         var expn1: c_int = undefined;
         if (radix_bits != 0) {
-            if (is_bin_exp == FALSE) expn *= radix_bits;
+            if (!is_bin_exp) expn *= radix_bits;
             expn -= expn_offset * radix_bits;
             expn1 = expn + digit_count * radix_bits;
             if (expn1 >= 1024 + radix_bits) {
@@ -1330,14 +1323,14 @@ fn js_atod_build_float(m: u64, e: c_int) u64 {
 fn js_atod_done(pnext: ?*[*c]const u8, p: [*c]const u8, is_neg: c_int, a_in: u64, tmp0: *mpb_t) f64 {
     var a = a_in;
     if (pnext) |pp| pp.* = p;
-    dtoa_free(@ptrCast(tmp0));
+    dtoa_free(tmp0);
     a |= @as(u64, @intCast(is_neg)) << 63;
     return uint64_as_float64(a);
 }
 
 fn js_atod_fail(pnext: ?*[*c]const u8, p: [*c]const u8, tmp0: *mpb_t) f64 {
     if (pnext) |pp| pp.* = p;
-    dtoa_free(@ptrCast(tmp0));
+    dtoa_free(tmp0);
     return std.math.nan(f64);
 }
 

@@ -46,11 +46,11 @@ const use_hw_sqrt = builtin.cpu.arch == .x86_64 or
     builtin.cpu.arch == .x86 or
     builtin.cpu.arch == .aarch64;
 
-inline fn float64_as_uint64(a: f64) u64 {
+inline fn float64AsUint64(a: f64) u64 {
     return @bitCast(a);
 }
 
-inline fn uint64_as_float64(a: u64) f64 {
+inline fn uint64AsFloat64(a: u64) f64 {
     return @bitCast(a);
 }
 
@@ -58,34 +58,48 @@ inline fn clz64(a: u64) c_int {
     return @intCast(@clz(a));
 }
 
-inline fn extract_words(ix0: *u32, ix1: *u32, d: f64) void {
-    const u = float64_as_uint64(d);
+inline fn extractWords(ix0: *u32, ix1: *u32, d: f64) void {
+    const u = float64AsUint64(d);
     ix0.* = @truncate(u >> 32);
     ix1.* = @truncate(u);
 }
 
-inline fn get_high_word(d: f64) u32 {
-    return @truncate(float64_as_uint64(d) >> 32);
+inline fn extractWordsAsSigned(hi: *i32, lo: *u32, d: f64) void {
+    var hu: u32 = undefined;
+    extractWords(&hu, lo, d);
+    hi.* = @bitCast(hu);
 }
 
-inline fn get_low_word(d: f64) u32 {
-    return @truncate(float64_as_uint64(d));
+inline fn extractWordsSignedPair(hi: *i32, lo: *i32, d: f64) void {
+    var hu: u32 = undefined;
+    var lu: u32 = undefined;
+    extractWords(&hu, &lu, d);
+    hi.* = @bitCast(hu);
+    lo.* = @bitCast(lu);
 }
 
-inline fn set_high_word(d: f64, h: u32) f64 {
-    var u = float64_as_uint64(d);
+inline fn getHighWord(d: f64) u32 {
+    return @truncate(float64AsUint64(d) >> 32);
+}
+
+inline fn getLowWord(d: f64) u32 {
+    return @truncate(float64AsUint64(d));
+}
+
+inline fn setHighWord(d: f64, h: u32) f64 {
+    var u = float64AsUint64(d);
     u = (u & 0xffffffff) | (@as(u64, h) << 32);
-    return uint64_as_float64(u);
+    return uint64AsFloat64(u);
 }
 
-inline fn zero_low(x: f64) f64 {
-    var u = float64_as_uint64(x);
+inline fn zeroLow(x: f64) f64 {
+    var u = float64AsUint64(x);
     u &= 0xffffffff00000000;
-    return uint64_as_float64(u);
+    return uint64AsFloat64(u);
 }
 
-inline fn float64_from_u32(h: u32, l: u32) f64 {
-    return uint64_as_float64((@as(u64, h) << 32) | l);
+inline fn float64FromU32(h: u32, l: u32) f64 {
+    return uint64AsFloat64((@as(u64, h) << 32) | l);
 }
 
 const zero: f64 = 0.0;
@@ -97,8 +111,8 @@ const huge_val: f64 = 1.0e300;
 const two54: f64 = 1.80143985094819840000e+16;
 const twom54: f64 = 5.55111512312578270212e-17;
 
-inline fn rint_sf64(a: f64, rm: c_int) f64 {
-    var u = float64_as_uint64(a);
+inline fn rintSf64(a: f64, rm: c_int) f64 {
+    var u = float64AsUint64(a);
     var frac_mask: u64 = undefined;
     var one_u: u64 = undefined;
     var m: u64 = undefined;
@@ -142,31 +156,31 @@ inline fn rint_sf64(a: f64, rm: c_int) f64 {
         u += addend;
         u &= ~frac_mask;
     }
-    return uint64_as_float64(u);
+    return uint64AsFloat64(u);
 }
 
 pub fn js_lrint(a: f64) i32 {
-    return libm_cvt_sf64_i32(float64_as_uint64(a), RM_RNE);
+    return libm_cvt_sf64_i32(float64AsUint64(a), RM_RNE);
 }
 
 pub fn js_fmod(a: f64, b: f64) f64 {
-    return uint64_as_float64(libm_fmod_sf64(float64_as_uint64(a), float64_as_uint64(b)));
+    return uint64AsFloat64(libm_fmod_sf64(float64AsUint64(a), float64AsUint64(b)));
 }
 
 pub fn js_floor(x: f64) f64 {
-    return rint_sf64(x, RM_RDN);
+    return rintSf64(x, RM_RDN);
 }
 
 pub fn js_ceil(x: f64) f64 {
-    return rint_sf64(x, RM_RUP);
+    return rintSf64(x, RM_RUP);
 }
 
 pub fn js_trunc(x: f64) f64 {
-    return rint_sf64(x, RM_RTZ);
+    return rintSf64(x, RM_RTZ);
 }
 
 pub fn js_round_inf(x: f64) f64 {
-    return rint_sf64(x, RM_RMMUP);
+    return rintSf64(x, RM_RMMUP);
 }
 
 pub fn js_fabs(x: f64) f64 {
@@ -178,12 +192,12 @@ pub fn js_scalbn(x: f64, n: c_int) f64 {
     var k: c_int = undefined;
     var hx: u32 = undefined;
     var lx: u32 = undefined;
-    extract_words(&hx, &lx, xv);
+    extractWords(&hx, &lx, xv);
     k = @as(c_int, @intCast((hx & 0x7ff00000) >> 20));
     if (k == 0) {
         if ((lx | (hx & 0x7fffffff)) == 0) return xv;
         const xx = xv * two54;
-        hx = get_high_word(xx);
+        hx = getHighWord(xx);
         k = @as(c_int, @intCast((hx & 0x7ff00000) >> 20)) - 54;
         if (n < -50000) return tiny_val * xx;
         xv = xx;
@@ -192,7 +206,7 @@ pub fn js_scalbn(x: f64, n: c_int) f64 {
     k += n;
     if (k > 0x7fe) return huge_val * std.math.copysign(huge_val, xv);
     if (k > 0) {
-        return set_high_word(xv, (hx & 0x800fffff) | (@as(u32, @intCast(k)) << 20));
+        return setHighWord(xv, (hx & 0x800fffff) | (@as(u32, @intCast(k)) << 20));
     }
     if (k <= -54) {
         if (n > 50000)
@@ -200,11 +214,11 @@ pub fn js_scalbn(x: f64, n: c_int) f64 {
         return tiny_val * std.math.copysign(tiny_val, xv);
     }
     k += 54;
-    xv = set_high_word(xv, (hx & 0x800fffff) | (@as(u32, @intCast(k)) << 20));
+    xv = setHighWord(xv, (hx & 0x800fffff) | (@as(u32, @intCast(k)) << 20));
     return xv * twom54;
 }
 
-fn js_sqrt_soft(x: f64) f64 {
+fn jsSqrtSoft(x: f64) f64 {
     var ix0: c_int = undefined;
     var ix1: c_int = undefined;
     const sign: u32 = 0x80000000;
@@ -217,7 +231,7 @@ fn js_sqrt_soft(x: f64) f64 {
     var m: c_int = undefined;
     var t: c_int = undefined;
     var i: c_int = undefined;
-    extract_words(@ptrCast(&ix0), @ptrCast(&ix1), x);
+    extractWordsSignedPair(&ix0, &ix1, x);
     if ((ix0 & 0x7ff00000) == 0x7ff00000) {
         return x * x + x;
     }
@@ -300,24 +314,25 @@ fn js_sqrt_soft(x: f64) f64 {
     ix1 = @as(c_int, @intCast(q1 >> 1));
     if ((q & 1) == 1) ix1 |= @as(c_int, @bitCast(sign));
     ix0 += m << 20;
-    return float64_from_u32(@intCast(ix0), @intCast(ix1));
+    return float64FromU32(@intCast(ix0), @intCast(ix1));
 }
 
 pub fn js_sqrt(x: f64) f64 {
     if (use_softfloat) {
-        return uint64_as_float64(softfp.sf64.sqrt_sf(float64_as_uint64(x), RM_RNE));
+        return uint64AsFloat64(softfp.sf64.sqrt_sf(float64AsUint64(x), RM_RNE));
     }
     if (use_hw_sqrt) {
         return @sqrt(x);
     }
-    return js_sqrt_soft(x);
+    return jsSqrtSoft(x);
 }
 
-inline fn eval_poly(x: f64, coefs: []const f64, n: c_int) f64 {
-    var r = coefs[@intCast(n - 1)];
-    var i: c_int = n - 2;
-    while (i >= 0) : (i -= 1) {
-        r = r * x + coefs[@intCast(i)];
+inline fn evalPoly(x: f64, coefs: []const f64) f64 {
+    var r = coefs[coefs.len - 1];
+    var i: usize = coefs.len;
+    while (i > 1) {
+        i -= 1;
+        r = r * x + coefs[i - 1];
     }
     return r;
 }
@@ -331,15 +346,15 @@ const S_tab = [_]f64{
     1.58969099521155010221e-10,
 };
 
-inline fn kernel_sin(x: f64, y: f64, iy: c_int) f64 {
-    const ix = get_high_word(x) & 0x7fffffff;
+inline fn kernelSin(x: f64, y: f64, compensate: bool) f64 {
+    const ix = getHighWord(x) & 0x7fffffff;
     if (ix < 0x3e400000) {
         if (@as(c_int, @intFromFloat(x)) == 0) return x;
     }
     const z = x * x;
     const v = z * x;
-    const r = eval_poly(z, &S_tab, 5);
-    if (iy == 0) return x + v * (S1 + z * r);
+    const r = evalPoly(z, S_tab[0..]);
+    if (!compensate) return x + v * (S1 + z * r);
     return x - ((z * (half * y - v * r) - y) - v * S1);
 }
 
@@ -352,27 +367,25 @@ const C_tab = [_]f64{
     -1.13596475577881948265e-11,
 };
 
-inline fn kernel_cos(x: f64, y: f64) f64 {
-    const ix = get_high_word(x) & 0x7fffffff;
+inline fn kernelCos(x: f64, y: f64) f64 {
+    const ix = getHighWord(x) & 0x7fffffff;
     if (ix < 0x3e400000) {
         if (@as(c_int, @intFromFloat(x)) == 0) return one;
     }
     const z = x * x;
-    const r = z * eval_poly(z, &C_tab, 6);
+    const r = z * evalPoly(z, C_tab[0..]);
     if (ix < 0x3FD33333) {
         return one - (0.5 * z - (z * r - x * y));
     } else {
         const qx: f64 = if (ix > 0x3fe90000)
             0.28125
         else
-            float64_from_u32(ix - 0x00200000, 0);
+            float64FromU32(ix - 0x00200000, 0);
         const hz = 0.5 * z - qx;
         const a = one - qx;
         return a - (hz - (z * r - x * y));
     }
 }
-
-const t_len: u32 = 19;
 
 const T = [_]u64{
     0x1580cc11bf1edaea,
@@ -396,22 +409,25 @@ const T = [_]u64{
     0x28be60db9391054a,
 };
 
+const t_len: u32 = @intCast(T.len);
+
 const PIO4 = [_]u64{
     0xc4c6628b80dc1cd1,
     0xc90fdaa22168c234,
 };
 
-inline fn get_u64_at_bit(tab: []const u64, tab_len: u32, pos: u32) u64 {
+inline fn getU64AtBit(tab: []const u64, pos: u32) u64 {
     const p = pos / 64;
     const shift: u6 = @intCast(pos % 64);
     var v = tab[p] >> shift;
-    if (shift != 0 and (p + 1) < tab_len)
+    if (shift != 0 and (p + 1) < tab.len)
         v |= tab[p + 1] << @as(u6, @intCast(64 - @as(u32, shift)));
     return v;
 }
 
-fn rem_pio2_large(x: f64, y: *[2]f64) c_int {
-    var m = float64_as_uint64(x);
+fn remPio2Large(x: f64, y: []f64) c_int {
+    std.debug.assert(y.len >= 2);
+    var m = float64AsUint64(x);
     const sgn: u32 = @truncate(m >> 63);
     var e: c_int = @intCast((m >> 52) & 0x7ff);
     m = (m & ((@as(u64, 1) << 52) - 1)) | (@as(u64, 1) << 52);
@@ -423,7 +439,7 @@ fn rem_pio2_large(x: f64, y: *[2]f64) c_int {
     var carry: u32 = undefined;
     var carry1: u32 = undefined;
     for (0..3) |ii| {
-        d[ii] = get_u64_at_bit(&T, t_len, j + @as(u32, @intCast(ii)) * 64);
+        d[ii] = getU64AtBit(T[0..], j + @as(u32, @intCast(ii)) * 64);
     }
     r1 = libm_mul_u64(&r0, m, d[0]);
     c[0] = r1;
@@ -472,7 +488,7 @@ fn rem_pio2_large(x: f64, y: *[2]f64) c_int {
         dd[1] = dd[1] << @intCast(e);
         m0 = (dd[2] >> 11) & ((@as(u64, 1) << 52) - 1);
         m1 = ((dd[2] & 0x7ff) << 42) | (dd[1] >> @intCast(64 - 42));
-        y[0] = uint64_as_float64((@as(u64, y_sgn) << 63) |
+        y[0] = uint64AsFloat64((@as(u64, y_sgn) << 63) |
             (@as(u64, @intCast(1023 - e)) << 52) |
             m0);
         if (m1 == 0) {
@@ -480,7 +496,7 @@ fn rem_pio2_large(x: f64, y: *[2]f64) c_int {
         } else {
             e1 = clz64(m1) - 11;
             m1 = (m1 << @intCast(e1)) & ((@as(u64, 1) << 52) - 1);
-            y[1] = uint64_as_float64((@as(u64, y_sgn) << 63) |
+            y[1] = uint64AsFloat64((@as(u64, y_sgn) << 63) |
                 (@as(u64, @intCast(1023 - e - 53 - e1)) << 52) |
                 m1);
         }
@@ -504,11 +520,12 @@ const pio2_t_tab = [_]f64{
 const rem_pio2_emax = [2]u8{ 16, 49 };
 
 pub fn js_rem_pio2(x: f64, y: [*]f64) c_int {
-    return js_rem_pio2_impl(x, y[0..2]);
+    return jsRemPio2Impl(x, y[0..2]);
 }
 
-fn js_rem_pio2_impl(x: f64, y: *[2]f64) c_int {
-    const hx = get_high_word(x);
+fn jsRemPio2Impl(x: f64, y: []f64) c_int {
+    std.debug.assert(y.len >= 2);
+    const hx = getHighWord(x);
     const ix = hx & 0x7fffffff;
     if (ix <= 0x3fe921fb) {
         y[0] = x;
@@ -521,7 +538,7 @@ fn js_rem_pio2_impl(x: f64, y: *[2]f64) c_int {
             y[1] = y[0];
             return 0;
         }
-        return rem_pio2_large(x, y);
+        return remPio2Large(x, y);
     }
     if (ix <= 0x413921fb) {
         var t = @abs(x);
@@ -544,7 +561,7 @@ fn js_rem_pio2_impl(x: f64, y: *[2]f64) c_int {
             w = fn_val * pio2_t_tab[@intCast(it)];
             y[0] = r - w;
             j = @as(c_int, @intCast(hx >> 20));
-            i = j - @as(c_int, @intCast((get_high_word(y[0]) >> 20) & 0x7ff));
+            i = j - @as(c_int, @intCast((getHighWord(y[0]) >> 20) & 0x7ff));
             if (it == 2 or i <= rem_pio2_emax[@intCast(it)])
                 break;
             t = r;
@@ -564,26 +581,26 @@ fn js_rem_pio2_impl(x: f64, y: *[2]f64) c_int {
         y[1] = y[0];
         return 0;
     }
-    return rem_pio2_large(x, y);
+    return remPio2Large(x, y);
 }
 
-fn js_sin_cos(x: f64, flag: c_int) f64 {
+fn jsSinCos(x: f64, flag: c_int) f64 {
     var y: [2]f64 = undefined;
     var s: f64 = 0;
     var c: f64 = 0;
-    const ix = get_high_word(x);
+    const ix = getHighWord(x);
     if (ix >= 0x7ff00000)
         return x - x;
     const n: u32 = @intCast(js_rem_pio2(x, &y));
     if (flag == 3 or (n & 1) == @as(u32, @intCast(flag))) {
-        s = kernel_sin(y[0], y[1], 1);
+        s = kernelSin(y[0], y[1], true);
         if (flag != 3) {
             if ((n + @as(u32, @intCast(flag))) & 2 != 0) s = -s;
             return s;
         }
     }
     if (flag == 3 or (n & 1) != @as(u32, @intCast(flag))) {
-        c = kernel_cos(y[0], y[1]);
+        c = kernelCos(y[0], y[1]);
         if (flag != 3) {
             s = c;
             if ((n + @as(u32, @intCast(flag))) & 2 != 0) s = -s;
@@ -595,15 +612,15 @@ fn js_sin_cos(x: f64, flag: c_int) f64 {
 }
 
 pub fn js_sin(x: f64) f64 {
-    return js_sin_cos(x, 0);
+    return jsSinCos(x, 0);
 }
 
 pub fn js_cos(x: f64) f64 {
-    return js_sin_cos(x, 1);
+    return jsSinCos(x, 1);
 }
 
 pub fn js_tan(x: f64) f64 {
-    return js_sin_cos(x, 3);
+    return jsSinCos(x, 3);
 }
 
 const pio2_hi: f64 = 1.57079632679489655800e+00;
@@ -626,9 +643,9 @@ const qS = [_]f64{
     7.70381505559019352791e-02,
 };
 
-inline fn R_poly(t: f64) f64 {
-    const p = t * eval_poly(t, &pS, 6);
-    const q = one + t * eval_poly(t, &qS, 4);
+inline fn rPoly(t: f64) f64 {
+    const p = t * evalPoly(t, pS[0..]);
+    const q = one + t * evalPoly(t, qS[0..]);
     return p / q;
 }
 
@@ -640,10 +657,10 @@ pub fn js_asin(x: f64) f64 {
     var c: f64 = undefined;
     var p: f64 = undefined;
     var q: f64 = undefined;
-    const hx = get_high_word(x);
+    const hx = getHighWord(x);
     const ix = hx & 0x7fffffff;
     if (ix >= 0x3ff00000) {
-        if (((ix - 0x3ff00000) | get_low_word(x)) == 0)
+        if (((ix - 0x3ff00000) | getLowWord(x)) == 0)
             return x * pio2_hi + x * pio2_lo;
         return (x - x) / (x - x);
     } else if (ix < 0x3fe00000) {
@@ -651,19 +668,19 @@ pub fn js_asin(x: f64) f64 {
             if (huge_val + x > one) return x;
         } else {
             t = x * x;
-            w = R_poly(t);
+            w = rPoly(t);
             return x + x * w;
         }
     }
     w = one - @abs(x);
     t = w * 0.5;
-    r = R_poly(t);
+    r = rPoly(t);
     s = js_sqrt(t);
     if (ix >= 0x3FEF3333) {
         w = r;
         t = pio2_hi - (2.0 * (s + s * w) - pio2_lo);
     } else {
-        w = zero_low(s);
+        w = zeroLow(s);
         c = (t - w * w) / (s + w);
         p = 2.0 * s * r - (pio2_lo - 2.0 * c);
         q = pio4_hi - 2.0 * w;
@@ -681,10 +698,10 @@ pub fn js_acos(x: f64) f64 {
     var s: f64 = undefined;
     var c: f64 = undefined;
     var df: f64 = undefined;
-    const hx = get_high_word(x);
+    const hx = getHighWord(x);
     const ix = hx & 0x7fffffff;
     if (ix >= 0x3ff00000) {
-        if (((ix - 0x3ff00000) | get_low_word(x)) == 0) {
+        if (((ix - 0x3ff00000) | getLowWord(x)) == 0) {
             if (hx > 0) return 0.0;
             return pi_val + 2.0 * pio2_lo;
         }
@@ -693,17 +710,17 @@ pub fn js_acos(x: f64) f64 {
     if (ix < 0x3fe00000) {
         if (ix <= 0x3c600000) return pio2_hi + pio2_lo;
         z = x * x;
-        r = R_poly(z);
+        r = rPoly(z);
         return pio2_hi - (x - (pio2_lo - x * r));
     } else {
         z = (one - @abs(x)) * 0.5;
-        r = R_poly(z);
+        r = rPoly(z);
         s = js_sqrt(z);
         if (hx < 0) {
             w = r * s - pio2_lo;
             return pi_val - 2.0 * (s + w);
         } else {
-            df = zero_low(s);
+            df = zeroLow(s);
             c = (z - df * df) / (s + df);
             w = r * s + c;
             return 2.0 * (df + w);
@@ -748,11 +765,11 @@ pub fn js_atan(x: f64) f64 {
     var s1: f64 = undefined;
     var s2: f64 = undefined;
     var z: f64 = undefined;
-    const hx = get_high_word(x);
+    const hx = getHighWord(x);
     const ix = hx & 0x7fffffff;
     var id: c_int = undefined;
     if (ix >= 0x44100000) {
-        if (ix > 0x7ff00000 or (ix == 0x7ff00000 and get_low_word(x) != 0))
+        if (ix > 0x7ff00000 or (ix == 0x7ff00000 and getLowWord(x) != 0))
             return x + x;
         if (hx > 0) return atanhi[3] + atanlo[3];
         return -atanhi[3] - atanlo[3];
@@ -784,8 +801,8 @@ pub fn js_atan(x: f64) f64 {
     }
     z = xx * xx;
     w = z * z;
-    s1 = z * eval_poly(w, &aT_even, 6);
-    s2 = w * eval_poly(w, &aT_odd, 5);
+    s1 = z * evalPoly(w, aT_even[0..]);
+    s2 = w * evalPoly(w, aT_odd[0..]);
     if (id < 0) return xx - xx * (s1 + s2);
     z = atanhi[@intCast(id)] - ((xx * (s1 + s2) - atanlo[@intCast(id)]) - xx);
     if (hx < 0) return -z;
@@ -806,8 +823,8 @@ pub fn js_atan2(y: f64, x: f64) f64 {
     var iy: c_int = undefined;
     var lx: u32 = undefined;
     var ly: u32 = undefined;
-    extract_words(@ptrCast(&hx), &lx, x);
-    extract_words(@ptrCast(&hy), &ly, y);
+    extractWordsAsSigned(&hx, &lx, x);
+    extractWordsAsSigned(&hy, &ly, y);
     ix = hx & 0x7fffffff;
     iy = hy & 0x7fffffff;
     if ((ix > 0x7ff00000 or (ix == 0x7ff00000 and lx != 0)) or
@@ -841,7 +858,7 @@ pub fn js_atan2(y: f64, x: f64) f64 {
     switch (m) {
         0 => return z,
         1 => {
-            z = set_high_word(z, get_high_word(z) ^ 0x80000000);
+            z = setHighWord(z, getHighWord(z) ^ 0x80000000);
             return z;
         },
         2 => return pi_val - (z - pi_lo),
@@ -866,17 +883,17 @@ const P_tab = [_]f64{
     4.13813679705723846039e-08,
 };
 
-inline fn kernel_exp(z: f64, w: f64, lo: f64, hi: f64, n: c_int) f64 {
+inline fn kernelExp(z: f64, w: f64, lo: f64, hi: f64, n: c_int) f64 {
     const t = z * z;
-    const t1 = z - t * eval_poly(t, &P_tab, 5);
+    const t1 = z - t * evalPoly(t, P_tab[0..]);
     const r = (z * t1) / (t1 - two) - (w + z * w);
     var zz = one - ((lo + r) - hi);
-    var j: c_int = @intCast(get_high_word(zz));
+    var j: c_int = @intCast(getHighWord(zz));
     j += n << 20;
     if ((j >> 20) <= 0) {
         zz = js_scalbn(zz, n);
     } else {
-        zz = set_high_word(zz, get_high_word(zz) + @as(u32, @intCast(n << 20)));
+        zz = setHighWord(zz, getHighWord(zz) + @as(u32, @intCast(n << 20)));
     }
     return zz;
 }
@@ -887,12 +904,12 @@ pub fn js_exp(x: f64) f64 {
     var lo: f64 = 0;
     var t: f64 = undefined;
     var k: c_int = undefined;
-    const hx = get_high_word(xv);
+    const hx = getHighWord(xv);
     const xsb: c_int = @intCast((hx >> 31) & 1);
     const hx_abs = hx & 0x7fffffff;
     if (hx_abs >= 0x40862E42) {
         if (hx_abs >= 0x7ff00000) {
-            if (((hx & 0xfffff) | get_low_word(xv)) != 0)
+            if (((hx & 0xfffff) | getLowWord(xv)) != 0)
                 return xv + xv;
             return if (xsb == 0) xv else 0.0;
         }
@@ -921,7 +938,7 @@ pub fn js_exp(x: f64) f64 {
         lo = 0;
         hi = xv;
     }
-    return kernel_exp(xv, 0, lo, hi, k);
+    return kernelExp(xv, 0, lo, hi, k);
 }
 
 const bp = [_]f64{ 1.0, 1.5 };
@@ -951,7 +968,7 @@ const L_tab = [_]f64{
     2.06975017800338417784e-01,
 };
 
-fn kernel_log2(pt1: *f64, pt2: *f64, ax: f64) void {
+fn kernelLog2(out: *[2]f64, ax: f64) void {
     var t: f64 = undefined;
     var u: f64 = undefined;
     var v: f64 = undefined;
@@ -973,11 +990,11 @@ fn kernel_log2(pt1: *f64, pt2: *f64, ax: f64) void {
     var z_h: f64 = undefined;
     var z_l: f64 = undefined;
     var xx = ax;
-    ix = @as(c_int, @bitCast(get_high_word(ax)));
+    ix = @as(c_int, @bitCast(getHighWord(ax)));
     if (ix < 0x00100000) {
         xx *= two53;
         n -= 53;
-        ix = @as(c_int, @bitCast(get_high_word(xx)));
+        ix = @as(c_int, @bitCast(getHighWord(xx)));
     }
     n += (ix >> 20) - 0x3ff;
     j = ix & 0x000fffff;
@@ -991,43 +1008,42 @@ fn kernel_log2(pt1: *f64, pt2: *f64, ax: f64) void {
         n += 1;
         ix -= 0x00100000;
     }
-    xx = set_high_word(xx, @intCast(ix));
+    xx = setHighWord(xx, @intCast(ix));
     u = xx - bp[@intCast(k)];
     v = one / (xx + bp[@intCast(k)]);
     ss = u * v;
-    s_h = zero_low(ss);
+    s_h = zeroLow(ss);
     t_h = zero;
-    t_h = set_high_word(t_h, @as(u32, @intCast((@as(u32, @bitCast(ix)) >> 1) | 0x20000000)) + 0x00080000 + @as(u32, @intCast(k << 18)));
+    t_h = setHighWord(t_h, @as(u32, @intCast((@as(u32, @bitCast(ix)) >> 1) | 0x20000000)) + 0x00080000 + @as(u32, @intCast(k << 18)));
     t_l = xx - (t_h - bp[@intCast(k)]);
     s_l = v * ((u - s_h * t_h) - s_h * t_l);
     s2 = ss * ss;
-    r = s2 * s2 * eval_poly(s2, &L_tab, 6);
+    r = s2 * s2 * evalPoly(s2, L_tab[0..]);
     r += s_l * (s_h + ss);
     s2 = s_h * s_h;
-    t_h = zero_low(3.0 + s2 + r);
+    t_h = zeroLow(3.0 + s2 + r);
     t_l = r - ((t_h - 3.0) - s2);
     u = s_h * t_h;
     v = s_l * t_h + t_l * ss;
-    p_h = zero_low(u + v);
+    p_h = zeroLow(u + v);
     p_l = v - (p_h - u);
     z_h = cp_h * p_h;
     z_l = cp_l * p_h + p_l * cp + dp_l[@intCast(k)];
     t = @floatFromInt(n);
-    t1 = zero_low(((z_h + z_l) + dp_h[@intCast(k)]) + t);
+    t1 = zeroLow(((z_h + z_l) + dp_h[@intCast(k)]) + t);
     t2 = z_l - (((t1 - t) - dp_h[@intCast(k)]) - z_h);
-    pt1.* = t1;
-    pt2.* = t2;
+    out[0] = t1;
+    out[1] = t2;
 }
 
-fn js_log_internal(x: f64, flag: c_int) f64 {
-    var p_h: f64 = undefined;
-    var p_l: f64 = undefined;
+fn jsLogInternal(x: f64, flag: c_int) f64 {
+    var log_out: [2]f64 = undefined;
     var t: f64 = undefined;
     var u: f64 = undefined;
     var v: f64 = undefined;
     var hx: c_int = undefined;
     var lx: u32 = undefined;
-    extract_words(@ptrCast(&hx), &lx, x);
+    extractWordsAsSigned(&hx, &lx, x);
     if (hx <= 0) {
         if ((@as(u32, @bitCast(hx)) & 0x7fffffff) | lx == 0)
             return -std.math.inf(f64);
@@ -1036,12 +1052,14 @@ fn js_log_internal(x: f64, flag: c_int) f64 {
     } else if (hx >= 0x7ff00000) {
         return x + x;
     }
-    kernel_log2(&p_h, &p_l, x);
+    kernelLog2(&log_out, x);
+    const p_h = log_out[0];
+    const p_l = log_out[1];
     t = p_h + p_l;
     if (flag == 0) {
         return t;
     } else {
-        t = zero_low(t);
+        t = zeroLow(t);
         if (flag == 1) {
             u = t * lg2_h;
             v = (p_l - (t - p_h)) * lg2 + t * lg2_l;
@@ -1054,15 +1072,15 @@ fn js_log_internal(x: f64, flag: c_int) f64 {
 }
 
 pub fn js_log2(x: f64) f64 {
-    return js_log_internal(x, 0);
+    return jsLogInternal(x, 0);
 }
 
 pub fn js_log(x: f64) f64 {
-    return js_log_internal(x, 1);
+    return jsLogInternal(x, 1);
 }
 
 pub fn js_log10(x: f64) f64 {
-    return js_log_internal(x, 2);
+    return jsLogInternal(x, 2);
 }
 
 pub fn js_pow(x: f64, y: f64) f64 {
@@ -1090,8 +1108,8 @@ pub fn js_pow(x: f64, y: f64) f64 {
     var iy: c_int = undefined;
     var lx: u32 = undefined;
     var ly: u32 = undefined;
-    extract_words(@ptrCast(&hx), &lx, x);
-    extract_words(@ptrCast(&hy), &ly, y);
+    extractWordsAsSigned(&hx, &lx, x);
+    extractWordsAsSigned(&hy, &ly, y);
     ix = hx & 0x7fffffff;
     iy = hy & 0x7fffffff;
     if (@as(u32, @intCast(iy)) | ly == 0) return one;
@@ -1160,16 +1178,19 @@ pub fn js_pow(x: f64, y: f64) f64 {
         w = (t * t) * (0.5 - t * (0.3333333333333333333333 - t * 0.25));
         u = ivln2_h * t;
         v = t * ivln2_l - w * ivln2;
-        t1 = zero_low(u + v);
+        t1 = zeroLow(u + v);
         t2 = v - (t1 - u);
     } else {
-        kernel_log2(&t1, &t2, ax);
+        var log_parts: [2]f64 = undefined;
+        kernelLog2(&log_parts, ax);
+        t1 = log_parts[0];
+        t2 = log_parts[1];
     }
-    y1 = zero_low(y);
+    y1 = zeroLow(y);
     p_l = (y - y1) * t1 + y * t2;
     p_h = y1 * t1;
     z = p_l + p_h;
-    extract_words(&jz, &i, z);
+    extractWords(&jz, &i, z);
     if (jz >= 0x40900000) {
         if (((jz -% 0x40900000) | i) != 0)
             return s * huge_val * huge_val;
@@ -1188,49 +1209,49 @@ pub fn js_pow(x: f64, y: f64) f64 {
         n = @as(c_int, @bitCast(jz)) + @as(c_int, @intCast(@as(u32, 0x00100000) >> @intCast(k + 1)));
         k = ((n & 0x7fffffff) >> 20) - 0x3ff;
         t = zero;
-        t = set_high_word(t, @as(u32, @intCast(@as(c_int, @bitCast(n)) & ~(@as(c_int, 0x000fffff) >> @intCast(k)))));
+        t = setHighWord(t, @as(u32, @intCast(@as(c_int, @bitCast(n)) & ~(@as(c_int, 0x000fffff) >> @intCast(k)))));
         n = ((n & 0x000fffff) | 0x00100000) >> @intCast(20 - k);
         if (@as(c_int, @bitCast(jz)) < 0) n = -n;
         p_h -= t;
     }
-    t = zero_low(p_l + p_h);
+    t = zeroLow(p_l + p_h);
     u = t * lg2_h;
     v = (p_l - (t - p_h)) * lg2 + t * lg2_l;
     z = u + v;
     w = v - (z - u);
-    return s * kernel_exp(z, w, 0, z, n);
+    return s * kernelExp(z, w, 0, z, n);
 }
 
-inline fn float_as_uint(a: f32) u32 {
+inline fn floatAsUint(a: f32) u32 {
     return @bitCast(a);
 }
 
-inline fn uint_as_float(a: u32) f32 {
+inline fn uintAsFloat(a: u32) f32 {
     return @bitCast(a);
 }
 
 pub fn __adddf3(a: f64, b: f64) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.add_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+    return uint64AsFloat64(softfp.sf64.add_sf(float64AsUint64(a), float64AsUint64(b), RM_RNE));
 }
 
 pub fn __subdf3(a: f64, b: f64) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.sub_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+    return uint64AsFloat64(softfp.sf64.sub_sf(float64AsUint64(a), float64AsUint64(b), RM_RNE));
 }
 
 pub fn __muldf3(a: f64, b: f64) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.mul_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+    return uint64AsFloat64(softfp.sf64.mul_sf(float64AsUint64(a), float64AsUint64(b), RM_RNE));
 }
 
 pub fn __divdf3(a: f64, b: f64) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.div_sf(float64_as_uint64(a), float64_as_uint64(b), RM_RNE));
+    return uint64AsFloat64(softfp.sf64.div_sf(float64AsUint64(a), float64AsUint64(b), RM_RNE));
 }
 
 pub fn __eqdf2(a: f64, b: f64) callconv(.c) c_int {
-    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    return softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
 }
 
 pub fn __nedf2(a: f64, b: f64) callconv(.c) c_int {
-    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    const ret = softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
     if (ret == 2) {
         @branchHint(.unlikely);
         return 0;
@@ -1239,15 +1260,15 @@ pub fn __nedf2(a: f64, b: f64) callconv(.c) c_int {
 }
 
 pub fn __ledf2(a: f64, b: f64) callconv(.c) c_int {
-    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    return softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
 }
 
 pub fn __ltdf2(a: f64, b: f64) callconv(.c) c_int {
-    return softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    return softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
 }
 
 pub fn __gedf2(a: f64, b: f64) callconv(.c) c_int {
-    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    const ret = softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
     if (ret == 2) {
         @branchHint(.unlikely);
         return -1;
@@ -1256,7 +1277,7 @@ pub fn __gedf2(a: f64, b: f64) callconv(.c) c_int {
 }
 
 pub fn __gtdf2(a: f64, b: f64) callconv(.c) c_int {
-    const ret = softfp.sf64.cmp_sf(float64_as_uint64(a), float64_as_uint64(b));
+    const ret = softfp.sf64.cmp_sf(float64AsUint64(a), float64AsUint64(b));
     if (ret == 2) {
         @branchHint(.unlikely);
         return -1;
@@ -1265,30 +1286,30 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.c) c_int {
 }
 
 pub fn __unorddf2(a: f64, b: f64) callconv(.c) c_int {
-    return @intFromBool(softfp.sf64.isnan_sf(float64_as_uint64(a)) or
-        softfp.sf64.isnan_sf(float64_as_uint64(b)));
+    return @intFromBool(softfp.sf64.isnan_sf(float64AsUint64(a)) or
+        softfp.sf64.isnan_sf(float64AsUint64(b)));
 }
 
 pub fn __floatsidf(a: i32) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.cvt_i32_sf(a, RM_RNE));
+    return uint64AsFloat64(softfp.sf64.cvt_i32_sf(a, RM_RNE));
 }
 
 pub fn __floatdidf(a: i64) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.cvt_i64_sf(a, RM_RNE));
+    return uint64AsFloat64(softfp.sf64.cvt_i64_sf(a, RM_RNE));
 }
 
 pub fn __floatunsidf(a: c_uint) callconv(.c) f64 {
-    return uint64_as_float64(softfp.sf64.cvt_u32_sf(a, RM_RNE));
+    return uint64AsFloat64(softfp.sf64.cvt_u32_sf(a, RM_RNE));
 }
 
 pub fn __fixdfsi(a: f64) callconv(.c) i32 {
-    return softfp.sf64.cvt_sf_i32(float64_as_uint64(a), RM_RTZ);
+    return softfp.sf64.cvt_sf_i32(float64AsUint64(a), RM_RTZ);
 }
 
 pub fn __extendsfdf2(a: f32) callconv(.c) f64 {
-    return uint64_as_float64(softfp.cvt_sf32_sf64(float_as_uint(a)));
+    return uint64AsFloat64(softfp.cvt_sf32_sf64(floatAsUint(a)));
 }
 
 pub fn __truncdfsf2(a: f64) callconv(.c) f32 {
-    return uint_as_float(softfp.cvt_sf64_sf32(float64_as_uint64(a), RM_RNE));
+    return uintAsFloat(softfp.cvt_sf64_sf32(float64AsUint64(a), RM_RNE));
 }

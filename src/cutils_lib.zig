@@ -32,188 +32,177 @@ pub const BOOL = c_int;
 pub const FALSE = 0;
 pub const TRUE = 1;
 
-pub fn min_int(a: c_int, b: c_int) c_int {
-    return if (a < b) a else b;
-}
-
 pub const UTF8_CHAR_LEN_MAX = 4;
 
+fn cString(ptr: [*c]const u8) [*:0]const u8 {
+    std.debug.assert(ptr != null);
+    return @ptrCast(ptr);
+}
+
+fn cStringSlice(ptr: [*c]const u8) [:0]const u8 {
+    return mem.span(cString(ptr));
+}
+
+fn plenPtr(plen: [*c]usize) *usize {
+    std.debug.assert(plen != null);
+    return @ptrCast(plen);
+}
+
+fn boolToCInt(v: bool) c_int {
+    return @intFromBool(v);
+}
+
+pub fn min_int(a: c_int, b: c_int) c_int {
+    return @min(a, b);
+}
+
 pub fn strlen(buf: [*c]const u8) usize {
-    return std.mem.len(@as([*:0]const u8, buf));
+    return mem.len(cString(buf));
 }
 
-pub fn pstrcpy(_buf: [*c]u8, _bufSize: c_int, _str: [*c]const u8) void {
-    if (_bufSize <= 0) return;
+pub fn pstrcpy(buf: [*c]u8, buf_size: c_int, str: [*c]const u8) void {
+    if (buf_size <= 0) return;
 
-    std.debug.assert(_buf != null);
-    std.debug.assert(_str != null);
+    std.debug.assert(buf != null);
+    std.debug.assert(str != null);
 
-    const bufSize: usize = @intCast(_bufSize);
-    const dst = _buf[0..bufSize];
-    const srcStr: [*:0]const u8 = @ptrCast(_str);
+    const dst = buf[0..@intCast(buf_size)];
+    const src = cStringSlice(str);
+    const copy_len = @min(src.len, dst.len - 1);
 
-    var i: usize = 0;
-    const max_write = bufSize - 1;
-
-    while (i < max_write) {
-        const c = srcStr[i];
-        if (c == 0) break;
-        dst[i] = c;
-        i += 1;
+    if (copy_len > 0) {
+        @memcpy(dst[0..copy_len], src[0..copy_len]);
     }
-
-    dst[i] = '\x00';
+    dst[copy_len] = 0;
 }
 
-pub fn pstrcat(buf: [*c]u8, bufSize: c_int, s: [*c]const u8) [*c]u8 {
+pub fn pstrcat(buf: [*c]u8, buf_size: c_int, s: [*c]const u8) [*c]u8 {
     const len = strlen(buf);
-    if (len < bufSize) {
-        pstrcpy(buf + len, bufSize - @as(c_int, @intCast(len)), s);
+    const capacity = @as(usize, @intCast(buf_size));
+    if (len < capacity) {
+        pstrcpy(buf + len, @intCast(capacity - len), s);
     }
     return buf;
 }
 
-pub fn strstart(_str: [*c]const u8, _val: [*c]const u8, ptr: ?*[*c]const u8) c_int {
-    std.debug.assert(_str != null);
-    std.debug.assert(_val != null);
+pub fn strstart(str: [*c]const u8, val: [*c]const u8, ptr: ?*[*c]const u8) c_int {
+    std.debug.assert(str != null);
+    std.debug.assert(val != null);
 
-    const str: [*:0]const u8 = @ptrCast(_str);
-    const val: [*:0]const u8 = @ptrCast(_val);
+    const haystack = cStringSlice(str);
+    const prefix = cStringSlice(val);
+    if (!mem.startsWith(u8, haystack, prefix)) return FALSE;
 
-    var i: usize = 0;
-    while (val[i] != '\x00') : (i += 1) {
-        if (str[i] != val[i]) return 0;
+    if (ptr) |out| {
+        out.* = str + prefix.len;
     }
-
-    if (ptr) |out_ptr| {
-        out_ptr.* = str + i;
-    }
-
-    return 1;
+    return TRUE;
 }
 
-pub fn has_suffix(_str: [*c]const u8, _suffix: [*c]const u8) c_int {
-    std.debug.assert(_str != null);
-    std.debug.assert(_suffix != null);
-
-    const len = strlen(_str);
-    const slen = strlen(_suffix);
-
-    const str = _str[0..len];
-    const suffix = _suffix[0..slen];
-
-    if (len >= slen) {
-        const endOfStr = str[(len - slen)..];
-
-        if (mem.eql(u8, endOfStr, suffix)) {
-            return 1;
-        }
-    }
-    return 0;
+pub fn has_suffix(str: [*c]const u8, suffix: [*c]const u8) c_int {
+    std.debug.assert(str != null);
+    std.debug.assert(suffix != null);
+    return boolToCInt(mem.endsWith(u8, cStringSlice(str), cStringSlice(suffix)));
 }
 
-pub fn unicode_to_utf8_impl(_buf: [*c]u8, _c: c_uint) usize {
-    const buf: [*]u8 = @ptrCast(_buf);
-    const c: u32 = @intCast(_c);
-
+fn encodeUnicodeToUtf8(buf: []u8, cp: u32) usize {
     var q: usize = 0;
 
-    if (c < 0x800) {
-        buf[q] = @intCast((c >> 6) | 0xc0);
+    if (cp < 0x800) {
+        buf[q] = @intCast((cp >> 6) | 0xc0);
         q += 1;
     } else {
-        if (c < 0x10000) {
-            buf[q] = @intCast((c >> 12) | 0xe0);
+        if (cp < 0x10000) {
+            buf[q] = @intCast((cp >> 12) | 0xe0);
             q += 1;
         } else {
-            if (c < 0x00200000) {
-                buf[q] = @intCast((c >> 18) | 0xf0);
+            if (cp < 0x00200000) {
+                buf[q] = @intCast((cp >> 18) | 0xf0);
                 q += 1;
             } else {
                 return 0;
             }
-            buf[q] = @intCast(((c >> 12) & 0x3f) | 0x80);
+            buf[q] = @intCast(((cp >> 12) & 0x3f) | 0x80);
             q += 1;
         }
-        buf[q] = @intCast(((c >> 6) & 0x3f) | 0x80);
+        buf[q] = @intCast(((cp >> 6) & 0x3f) | 0x80);
         q += 1;
     }
-    buf[q] = @intCast((c & 0x3f) | 0x80);
+    buf[q] = @intCast((cp & 0x3f) | 0x80);
     q += 1;
 
     return q;
 }
 
-pub inline fn unicode_to_utf8(buf: [*c]u8, c: u32) usize {
-    if (c < 0x80) {
-        buf[0] = @as(u8, @intCast(c));
-        return 1;
-    } else {
-        return unicode_to_utf8_impl(buf, c);
-    }
+pub fn unicode_to_utf8_impl(buf: [*c]u8, c: c_uint) usize {
+    std.debug.assert(buf != null);
+    return encodeUnicodeToUtf8(@as([*]u8, @ptrCast(buf))[0..UTF8_CHAR_LEN_MAX], @intCast(c));
 }
 
-pub fn unicode_from_utf8(_p: [*c]const u8, maxLen: usize, _plen: [*c]usize) c_int {
-    std.debug.assert(_p != null);
-    std.debug.assert(_plen != null);
-    std.debug.assert(maxLen != 0);
+pub inline fn unicode_to_utf8(buf: [*c]u8, c: u32) usize {
+    if (c < 0x80) {
+        buf[0] = @intCast(c);
+        return 1;
+    }
+    return unicode_to_utf8_impl(buf, c);
+}
 
-    const p = _p[0..maxLen];
-    const plen: *usize = @ptrCast(_plen);
+fn decodeUnicodeFromUtf8(p: []const u8, plen: *usize) c_int {
+    std.debug.assert(p.len != 0);
 
     var len: usize = 1;
-    var c: u32 = p[0];
+    var cp: u32 = p[0];
 
-    if (c < 0xc0) {
+    if (cp < 0xc0) {
         plen.* = len;
         return -1;
-    } else if (c < 0xe0) {
-        if (maxLen < 2 or (p[1] & 0xc0) != 0x80) {
+    } else if (cp < 0xe0) {
+        if (p.len < 2 or (p[1] & 0xc0) != 0x80) {
             plen.* = len;
             return -1;
         }
-        c = ((@as(u32, p[0]) & 0x1f) << 6) | (@as(u32, p[1]) & 0x3f);
+        cp = ((@as(u32, p[0]) & 0x1f) << 6) | (@as(u32, p[1]) & 0x3f);
         len = 2;
-        if (c < 0x80) {
+        if (cp < 0x80) {
             plen.* = len;
             return -1;
         }
-    } else if (c < 0xf0) {
-        if (maxLen < 2 or (p[1] & 0xc0) != 0x80) {
+    } else if (cp < 0xf0) {
+        if (p.len < 2 or (p[1] & 0xc0) != 0x80) {
             plen.* = len;
             return -1;
         }
-        if (maxLen < 3 or (p[2] & 0xc0) != 0x80) {
+        if (p.len < 3 or (p[2] & 0xc0) != 0x80) {
             len = 2;
             plen.* = len;
             return -1;
         }
-        c = ((@as(u32, p[0]) & 0x0f) << 12) | ((@as(u32, p[1]) & 0x3f) << 6) | (@as(u32, p[2]) & 0x3f);
+        cp = ((@as(u32, p[0]) & 0x0f) << 12) | ((@as(u32, p[1]) & 0x3f) << 6) | (@as(u32, p[2]) & 0x3f);
         len = 3;
-        if (c < 0x800) {
+        if (cp < 0x800) {
             plen.* = len;
             return -1;
         }
-    } else if (c < 0xf8) {
-        if (maxLen < 2 or (p[1] & 0xc0) != 0x80) {
+    } else if (cp < 0xf8) {
+        if (p.len < 2 or (p[1] & 0xc0) != 0x80) {
             plen.* = len;
             return -1;
         }
-        if (maxLen < 3 or (p[2] & 0xc0) != 0x80) {
+        if (p.len < 3 or (p[2] & 0xc0) != 0x80) {
             len = 2;
             plen.* = len;
             return -1;
         }
-        if (maxLen < 4 or (p[3] & 0xc0) != 0x80) {
+        if (p.len < 4 or (p[3] & 0xc0) != 0x80) {
             len = 3;
             plen.* = len;
             return -1;
         }
 
-        c = ((@as(u32, p[0]) & 0x07) << 18) | ((@as(u32, p[1]) & 0x3f) << 12) | ((@as(u32, p[2]) & 0x3f) << 6) | (@as(u32, p[3]) & 0x3f);
+        cp = ((@as(u32, p[0]) & 0x07) << 18) | ((@as(u32, p[1]) & 0x3f) << 12) | ((@as(u32, p[2]) & 0x3f) << 6) | (@as(u32, p[3]) & 0x3f);
         len = 4;
 
-        if (c < 0x10000 or c > 0x10ffff) {
+        if (cp < 0x10000 or cp > 0x10ffff) {
             @branchHint(.unlikely);
             plen.* = len;
             return -1;
@@ -224,33 +213,41 @@ pub fn unicode_from_utf8(_p: [*c]const u8, maxLen: usize, _plen: [*c]usize) c_in
     }
 
     plen.* = len;
-    return @bitCast(c);
+    return @bitCast(cp);
 }
 
-pub fn utf8_get_impl(_p: [*c]const u8, _plen: [*c]usize) c_int {
-    const p: [*]const u8 = @ptrCast(_p);
-    const plen: *usize = @ptrCast(_plen);
+pub fn unicode_from_utf8(p: [*c]const u8, max_len: usize, plen: [*c]usize) c_int {
+    std.debug.assert(p != null);
+    std.debug.assert(max_len != 0);
+    return decodeUnicodeFromUtf8(p[0..max_len], plenPtr(plen));
+}
 
+fn decodeUtf8Codepoint(p: [*]const u8, plen: *usize) c_int {
     var len: usize = undefined;
-    var c: u32 = p[0];
+    var cp: u32 = p[0];
 
-    if (c < 0xc0) {
+    if (cp < 0xc0) {
         len = 1;
-    } else if (c < 0xe0) {
-        c = ((@as(u32, p[0]) & 0x1f) << 6) | (@as(u32, p[1]) & 0x3f);
+    } else if (cp < 0xe0) {
+        cp = ((@as(u32, p[0]) & 0x1f) << 6) | (@as(u32, p[1]) & 0x3f);
         len = 2;
-    } else if (c < 0xf0) {
-        c = ((@as(u32, p[0]) & 0x0f) << 12) | ((@as(u32, p[1]) & 0x3f) << 6) | (@as(u32, p[2]) & 0x3f);
+    } else if (cp < 0xf0) {
+        cp = ((@as(u32, p[0]) & 0x0f) << 12) | ((@as(u32, p[1]) & 0x3f) << 6) | (@as(u32, p[2]) & 0x3f);
         len = 3;
-    } else if (c < 0xf8) {
-        c = ((@as(u32, p[0]) & 0x07) << 18) | ((@as(u32, p[1]) & 0x3f) << 12) | ((@as(u32, p[2]) & 0x3f) << 6) | (@as(u32, p[3]) & 0x3f);
+    } else if (cp < 0xf8) {
+        cp = ((@as(u32, p[0]) & 0x07) << 18) | ((@as(u32, p[1]) & 0x3f) << 12) | ((@as(u32, p[2]) & 0x3f) << 6) | (@as(u32, p[3]) & 0x3f);
         len = 4;
     } else {
         len = 1;
     }
 
     plen.* = len;
-    return @bitCast(c);
+    return @bitCast(cp);
+}
+
+pub fn utf8_get_impl(p: [*c]const u8, plen: [*c]usize) c_int {
+    std.debug.assert(p != null);
+    return decodeUtf8Codepoint(@ptrCast(p), plenPtr(plen));
 }
 
 pub inline fn utf8_get(buf: [*c]const u8, plen: [*c]usize) i32 {
@@ -258,7 +255,6 @@ pub inline fn utf8_get(buf: [*c]const u8, plen: [*c]usize) i32 {
         @branchHint(.likely);
         plen.* = 1;
         return @intCast(buf[0]);
-    } else {
-        return utf8_get_impl(buf, plen);
     }
+    return utf8_get_impl(buf, plen);
 }

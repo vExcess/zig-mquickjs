@@ -81,7 +81,7 @@ pub fn bytecodeArgCount(b: *const JSFunctionBytecodeExt) c_int {
 }
 
 pub fn varRefIsDetached(p: *const vt.JSVarRefExt) bool {
-    return (p.header >> 4) & 1 != 0;
+    return vt.mi.varRefIsDetached(p);
 }
 
 pub fn makeSpecial(tag: c.JSWord, v: c_int) c.JSValue {
