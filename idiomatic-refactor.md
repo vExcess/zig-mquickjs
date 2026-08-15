@@ -123,6 +123,8 @@ Step 7d–7g timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.0
 
 Step 8a timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
 
+Step 8b timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -150,7 +152,8 @@ Step 8a timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 | **7f** | Migrate `mquickjs_builtins_lib.zig` — remove local `cx`/`pushValue`/`popValue`/byte readers, use shared helpers (**done**) |
 | **7g** | Migrate `mquickjs_utils_lib.zig` — remove local `cx`, use `mc.ctxExt` (**done**) |
 | **8a** | Split `mquickjs_builtins_regexp_lib.zig` from `mquickjs_builtins_lib.zig` (**done**) |
-| **8b–8i** | Internal idiomatic cleanup (split remaining large `_lib` files) (**next: 8b**) |
+| **8b** | Split `mquickjs_builtins_std_lib.zig` (Math/TypedArray/Date/Global/JSON) from `mquickjs_builtins_lib.zig` (**done**) |
+| **8c–8i** | Internal idiomatic cleanup (split next large `_lib` file) (**next: 8c**) |
 | **9a–9b** | Optional: reduce internal `@cImport` |
 | **10** | Update `handoff.md` and `README.md` |
 
