@@ -127,6 +127,8 @@ Step 8b timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 
 Step 8c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
 
+Step 8d timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -156,7 +158,8 @@ Step 8c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 | **8a** | Split `mquickjs_builtins_regexp_lib.zig` from `mquickjs_builtins_lib.zig` (**done**) |
 | **8b** | Split `mquickjs_builtins_std_lib.zig` (Math/TypedArray/Date/Global/JSON) from `mquickjs_builtins_lib.zig` (**done**) |
 | **8c** | Split `mquickjs_runtime_coerce_lib.zig` (coercion/slow paths/closures) from `mquickjs_runtime_lib.zig` (**done**) |
-| **8d–8i** | Internal idiomatic cleanup (split next large `_lib` file) (**next: 8d**) |
+| **8d** | Split `mquickjs_runtime_call_lib.zig` (`JS_Call` VM + frame helpers) from `mquickjs_runtime_lib.zig` (**done**) |
+| **8e–8i** | Internal idiomatic cleanup (split next large `_lib` file) (**next: 8e**) |
 | **9a–9b** | Optional: reduce internal `@cImport` |
 | **10** | Update `handoff.md` and `README.md` |
 
