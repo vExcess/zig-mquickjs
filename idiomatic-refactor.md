@@ -133,6 +133,12 @@ Step 8e timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 
 Step 8f timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
 
+Step 8g timing (2026-08-14, ReleaseFast): **real 0.027 s** (softfloat: **0.027 s**). No regression.
+
+Step 8h timing (2026-08-14, ReleaseFast): **real 0.027 s** (softfloat: **0.027 s**). No regression.
+
+Step 8i timing (2026-08-14, ReleaseFast): **real 0.027 s** (softfloat: **0.026 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -165,8 +171,10 @@ Step 8f timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 | **8d** | Split `mquickjs_runtime_call_lib.zig` (`JS_Call` VM + frame helpers) from `mquickjs_runtime_lib.zig` (**done**) |
 | **8e** | Split `mquickjs_parser_emit_lib.zig` (bytecode emit/pc2line/var/lvalue helpers) from `mquickjs_parser_lib.zig` (**done**) |
 | **8f** | Split `mquickjs_parser_expr_lib.zig` (expression parser) from `mquickjs_parser_lib.zig` (**done**) |
-| **8g–8i** | Internal idiomatic cleanup (split next large `_lib` file) (**next: 8g**) |
-| **9a–9b** | Optional: reduce internal `@cImport` |
+| **8g** | Split `mquickjs_parser_stmt_lib.zig` (statement parser) from `mquickjs_parser_lib.zig` (**done**) |
+| **8h** | Split `mquickjs_builtins_array_lib.zig` (Array builtins) from `mquickjs_builtins_lib.zig` (**done**) |
+| **8i** | Split `mquickjs_builtins_string_lib.zig` (String builtins) from `mquickjs_builtins_lib.zig` (**done**) |
+| **9a–9b** | Optional: reduce internal `@cImport` (**next**) |
 | **10** | Update `handoff.md` and `README.md` |
 
 ---
