@@ -374,7 +374,7 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
                     var val_ref: c.JSGCRef = undefined;
                     utils.pushValue(ctx, &val_ref, val);
                     const ret = utils.JS_StackCheck(ctx, @intCast(3 + k));
-                    _ = utils.popValue(ctx, &val_ref);
+                    val = utils.popValue(ctx, &val_ref);
                     if (ret != 0)
                         return -1;
                 } else {

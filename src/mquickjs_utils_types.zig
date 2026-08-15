@@ -120,21 +120,6 @@ pub const JSObjectExt = extern struct {
     },
 };
 
-pub const JSFunctionBytecodeExt = extern struct {
-    header: c.JSWord,
-    flags: c.JSWord,
-    func_name: c.JSValue,
-    byte_code: c.JSValue,
-    cpool: c.JSValue,
-    vars: c.JSValue,
-    ext_vars: c.JSValue,
-    stack_size: u16,
-    ext_vars_len: u16,
-    filename: c.JSValue,
-    pc2line: c.JSValue,
-    source_pos: c_uint,
-};
-
 pub const JSStringExt = extern struct {
     header: c.JSWord,
     buf: [0]u8,

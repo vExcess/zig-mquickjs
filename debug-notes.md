@@ -1,14 +1,13 @@
 # zig-mquickjs debugging notes
 
-Read this before chasing Octane / GC / parse crashes. Compare Zig against
-`/home/vexcess/Sync/Workspace/mquickjs/mquickjs.c` (and `libm.c` / `libm_lib.zig`).
-Only `zig-mquickjs` and `mquickjs` matter. Do not search other workspace trees.
+Read this before diagnosing GC / parse / math / correctness issues. Compare
+Zig against `/home/vexcess/Sync/Workspace/mquickjs/mquickjs.c` (and
+`libm.c` / `libm_lib.zig`). Only `zig-mquickjs` and `mquickjs` matter. Do
+not search other workspace trees.
 
 Build with `-Doptimize=ReleaseFast` and Zig 0.15.2
 (`/home/vexcess/zig-x86_64-linux-0.15.2/zig`). Debug/ReleaseSafe cannot run
-this engine (tagged pointers). **Do not iterate with full `zig build octane`**
-— it is slow. Reproduce with a heaped wrapper, then ask the user to verify
-full Octane.
+this engine (tagged pointers).
 
 ```sh
 export ZIG=/home/vexcess/zig-x86_64-linux-0.15.2/zig
@@ -16,146 +15,169 @@ $ZIG build -Doptimize=ReleaseFast
 ./zig-out/bin/mqjs --memory-limit 256M path/to/repro.js
 ```
 
-Fix **one** correctness bug, then stop for a manual verify. Leave performance
-for last. Do not rewrite subsystems. Keep the fixes listed below; they are
-real.
+Fix **one** correctness bug per turn, then stop for manual verify. Leave
+performance for last. Do not rewrite subsystems. Keep the fixes listed below;
+they are real.
 
 ---
 
-## Octane status (2026-08-15 afternoon) — HANDOFF
+## Octane status — RESOLVED (2026-08-15 evening)
 
-C reference ~2485. Zig has **finished** full Octane (score ~2242–2377) on
-some process runs. Other runs of the **same binary** fail in different
-places. Each `zig build octane` is a **new process** (not leftover heap
-from the previous invocation). Non-determinism is ASLR + Octane’s
-`Date.now()` time budget (different iteration counts → different GC
-timing). `random_state` starts at 1.
+**All Octane suites pass.** User ran `zig build octane -Doptimize=ReleaseFast`
+**9 times in a row** with no crashes or suite errors (including Typescript
+`parseErrors.length` 192/193 and DeltaBlue `addConstraint`).
 
-These are **not** suite-logic ports. Same class: interned-string identity
-and/or stale pointers after GC. Property lookup is **pointer equality** on
-unique strings. Two unique `"addConstraint"` objects → method miss.
-Wrong intern in the TS compiler → `parseErrors.length` not 192/193.
+C reference score ~2485. Zig scores ~2300–2370 vary with Octane’s
+`Date.now()` time budget (different iteration counts). That is normal; the
+engine bug class is fixed.
 
-### User verify after label_name popValue (2026-08-15)
+Octane remains the **regression gate** after future fixes. Do not use full
+Octane for discovery iteration (slow); use targeted repros below, then ask
+the user to batch-verify Octane.
 
-Typescript still `Parse errors.` after the break-entry assign-back.
+### What broke Octane (bug classes — still hunt these elsewhere)
 
-Static audit vs C `JS_POP_VALUE` (same class as fix 8). Three sites
-where Zig discarded the relocated pointer and then stored/called it:
+These were **not** suite-logic ports. Same classes likely exist in code
+paths Octane never exercised:
 
-1. `js_create_property` — after alloc/resize GC, `pr.key = prop` and
-   `hash_prop(prop)` used the **pre-GC** key. Lookup is pointer
-   equality. This is the intern-identity miss (TS parse count).
-2. `JS_ToPrimitive` — after `JS_StackCheck`, `method` was discarded
-   then `JS_PushArg(method)`.
-3. `js_function_bound` — after `JS_StackCheck`, `params` was discarded
-   then `valueArr(params)`.
+| Class | Symptom | Example fix |
+|-------|---------|-------------|
+| Stale `JSValue` after GC | Missing property/method, wrong parse count | `_ = popValue` then use local |
+| Intern identity | Two unique strings for same text | Property key stored under old pointer |
+| Raw pointer across alloc | UAF, wrong bytecode | `source_buf`, `JSFunctionBytecode *` |
+| Numeric UB | Wrong math / checksum | `libm_lib.zig` signedness/precedence |
+| Layout drift vs C | Rare heap corruption | `utils_types` vs `runtime_types` |
 
-Do not “fix” `newShortInt` (`val << 1` as i32 is in range for
-`JS_SHORTINT_MIN/MAX`). Do not re-add MakeUniqueString extras.
-
-`this.v1` is undefined **or** `v1` exists but has no `addConstraint`
-(prototype lookup used a different interned key than the one stored on
-`Variable.prototype`). Log which before assuming.
-
-| Suite | Notes |
-|-------|--------|
-| Richards | Usually prints a score |
-| DeltaBlue | Intermittent `addConstraint` of undefined |
-| Crypto / RayTrace | Fixed (libm UB); still print scores |
-| CodeLoad | Was SEGV; `byte_code` re-bind + `JS_POP_VALUE` reload. Do not revert |
-| Typescript | Intermittent `Parse errors.` (`parseErrors.length` not 192 or 193) |
-| Splay score | ~1600 vs ~2200+ ⇒ heap/intern corruption, not a Splay port |
+Property lookup uses **pointer equality** on unique strings. Two unique
+`"foo"` objects → method miss / wrong compiler behavior.
 
 ---
 
-## What the previous agent got wrong (do not repeat)
+## Post-Octane audit plan
 
-The GC **mark/compact loop matches C** closely (`src/mquickjs_gc_lib.zig`
-vs `mquickjs.c` ~11837–12438). Do **not** rewrite the GC. Do **not**
-change `js_resize_value_array2` copy length for all arrays.
+Goal: find silent correctness bugs (same classes as Octane) before they
+surface in other workloads. Work in order; do not skip Phase 1.
 
-Failed attempts this session:
+### Phase 1 — Static audit (highest ROI)
 
-1. **Generic resize “copy post-GC `valueArraySize`”** (`js_resize_value_array2`).
-   If the source pointer was not a value array after GC, copy_n=0 and the
-   new table was filled with `JS_UNDEFINED` → wipes **property arrays**
-   (DeltaBlue). Reverted to C’s `memcpy(old_size)`. **Leave it reverted.**
+#### 1A. Complete the `JS_POP_VALUE` audit
 
-2. **Unique-string compact `j==0`: keep a marked empty array** instead of
-   C’s unmark + `unique_strings = JS_NULL`. Diverges from C; reverted.
+Grep `_ = utils.popValue` in `src/` (~57 sites). Most are safe (pop only
+cleans GC roots). **Dangerous pattern:**
 
-3. **Compact scanned `unique_strings_len` instead of `arr->size`.**
-   Reverted 2026-08-15: `gc_mark_all` again matches C
-   `for (i = 0; i < arr->size; i++)`. If `len` was short, compact dropped
-   live interned strings still used as property keys, then
-   `JS_MakeUniqueString` inserted a second unique copy (DeltaBlue
-   `addConstraint` + Typescript `parseErrors`). **Do not re-apply
-   compact-by-len.**
-
-4. Extra `find_atom` after resize + `[len, cap)` `JS_UNDEFINED` fill in
-   `JS_MakeUniqueString`. Removed 2026-08-15 to match C. Keep the
-   **numeric** re-lookup (fix 7). Do not re-add the resize re-lookup or
-   the capacity fill.
-
-Keep fixes 1–8 below. They were verified on earlier successful full runs.
-
----
-
-## Current failure: Typescript `Parse errors.`
-
-`tests/octane/typescript.js` `runTypescript()`:
-
-```javascript
-compiler.addUnit(compiler_input, "compiler_input.ts");
-parseErrors = [];
-compiler.reTypeCheck();
-compiler.emit(...);
-if (parseErrors.length != 192 && parseErrors.length != 193)
-  throw new Error("Parse errors.");
+```
+pushValue(ctx, &ref, local)
+  → js_malloc / js_alloc_* / js_resize_* / JS_StackCheck / JS_GC
+  → _ = popValue(...)     // BUG if local used after
+  → store / call / compare local
 ```
 
-`parseErrors` is filled by `compiler.setErrorCallback`. The compiler is the
-bundled `typescript-compiler.js` (~1.2M) parsing `typescript-input.js`
-(`compiler_input`, ~1.3M). Expected error count is **192 or 193**. Any other
-count fails. A later check is `outfile` checksum (`Wrong checksum.`) — not
-hit yet.
+For each site: open matching C in `mquickjs.c`. C `JS_POP_VALUE(ctx, v)`
+**assigns** `v = v_ref.val`. Triage: **must fix** / **safe** / **needs test**.
 
-This is the TypeScript *compiler running as JS*, not Zig parsing TS. Wrong
-`parseErrors.length` means the engine evaluated the compiler/input differently
-(corrupted strings, wrong atoms, flaky `eval`/parse, broken property keys).
+Hot files (compare to C line-by-line):
+- `mquickjs_builtins_string_lib.zig` (~45 discards)
+- `mquickjs_builtins_regexp_lib.zig`
+- `mquickjs_parser_lib.zig` (`js_parse_function_decl` end pops)
+- `mquickjs_value_lib.zig` (error paths only — success path fixed)
 
-Same class as earlier CodeLoad flakes: works on a fresh-enough heap, fails
-after more GC. Do not assume a deterministic TS parse bug.
+**Deliverable:** checklist in this file (file:line, C ref, verdict).
 
-### How to reproduce without full Octane
+Already fixed (do not revert): CodeLoad `func`/`byte_code`; parser
+`cpool_add`/`add_var`/`add_func_ext_var`; `push_break_entry`/`emit_break`
+`label_name`; `js_create_property` `prop`; `JS_ToPrimitive` `method`;
+`js_function_bound` `params`.
 
-1. **Do not** use `mqjs tests/octane/run.js typescript` — extra script args
-   crash the host argv path (see below).
-2. Wrapper must not use globals named `files` or `i` (mandreel/box2d/compiler
-   overwrite them). Use `octane_file_list` / `octane_fi`.
-3. `run.js` defines `var read = function() {};` for zlib. Include that if you
-   load zlib.
-4. Isolated Typescript (only those three files) often **passes**. Need heap
-   pressure: load all Octane sources, and/or actually run Box2D+zlib first,
-   then Typescript. Two back-to-back full runs is how the user hit it.
-5. Pipe through `stdbuf -oL` — mqjs stdout is fully buffered when not a TTY,
-   so a crash can look like “no output”.
-6. Delete `/tmp/run_*.js` repros when done. Do not leave `tests/repro_*.js`.
+#### 1B. Raw-pointer-across-alloc audit
 
-gdb on a silent SEGV: `mov -0x1(%reg)` is `valueToPtr`. `rax=0x7` is `JS_NULL`.
+Grep locals holding `source_buf`, raw `p` into source, or `*Ext` from
+`valueToPtr` across `js_malloc`. C saves **offsets** (`pos`, `buf_pos`) and
+refreshes `JSParseState.source_buf` from `source_str` after GC. Parser and
+lexer are main targets.
 
-`DEBUG_GC` in `include/mquickjs_priv.h` (GC on every malloc) makes stale
-pointers fail immediately. Slow.
+#### 1C. Intern / property-key audit
+
+Any path that stores a string/`JSValue` as property key, label, or table
+slot after a GC-capable call without `popValue` reload. Check comparison
+sites (`pr.key == prop`, label break/continue).
+
+#### 1D. Layout / type overlay audit
+
+Compare struct sizes and field order for GC-marked types vs C:
+- `JSFunctionBytecodeExt` (extra `flags` in `utils_types` — parser/GC use
+  `runtime_types`)
+- `JSObjectExt` / regexp overlay on `&p.u`
+
+### Phase 2 — Targeted runtime tests
+
+Use `/tmp/gc_stress_*.js` (delete when done). Low memory forces GC:
+
+```sh
+./zig-out/bin/mqjs --memory-limit 8M /tmp/gc_stress_foo.js
+```
+
+Scripts to write and run **10× back-to-back**:
+1. Labeled `break`/`continue` (label intern identity)
+2. 10k+ unique property names, then read back
+3. `Function.prototype.bind` chains under stack pressure
+4. Large nested `eval` / function declarations (parser finalize)
+5. RegExp with many captures (string builtin GC roots)
+6. Math edge cases (`Math.pow`, `floor` near zero) vs Node or C mqjs
+
+`DEBUG_GC` in `include/mquickjs_priv.h` (GC every malloc): slow; use to
+**validate a fix**, not daily iteration.
+
+### Phase 3 — Differential vs C reference
+
+Build C `mqjs` from `../mquickjs`. Run Phase 2 scripts on Zig and C; diff
+stdout + exit code. Any divergence is a port bug.
+
+### Phase 4 — Hardening
+
+- Document: after `pushValue` + GC-capable call, always `local = popValue`.
+- Update this file as audits complete.
+- Host fix when useful: `mqjs` argv SEGV for `run.js <suite>` (Zig slice
+  as `char**`).
+
+### Execution order
+
+1. Phase 1A checklist → fix must-fix sites one at a time
+2. Phase 2 scripts for each fix
+3. User batch Octane (9+ runs) as regression
+4. Phases 1B–1D, 3, 4 in parallel as 1A narrows
+
+### Success criteria
+
+| Milestone | Gate |
+|-----------|------|
+| 1A complete | Every `_ = popValue` has C-verified verdict |
+| GC-stress | 10/10 runs match oracle on all scripts |
+| C differential | Zero diffs on property/intern/bind/eval scripts |
+| Octane regression | 9+ consecutive full runs (current bar) |
+
+### Do not do yet
+
+- Rewrite GC or intern algorithm
+- Change `js_resize_value_array2` memcpy for all arrays
+- Re-apply compact-by-`unique_strings_len` or MakeUniqueString extras
+- “Fix” `newShortInt` without C proof
+- Chase Octane score deltas (timing noise)
 
 ---
 
-## Do not use `mqjs tests/octane/run.js <suite>`
+## What previous agents got wrong (do not repeat)
 
-`std.process.argsAlloc` returns `[][:0]u8`. `evalFile` treats
-`script_argv.ptr` as C `char **`. One script arg works (full Octane). A second
-arg makes `argv[1]` the **length** of `run.js` (`0x13`) and `JS_NewString`
-segfaults. Host bug, not the engine suite bug.
+The GC **mark/compact loop matches C** (`src/mquickjs_gc_lib.zig` vs
+`mquickjs.c` ~11837–12438). Do **not** rewrite the GC.
+
+Failed attempts (reverted — leave reverted):
+
+1. **Generic resize “copy post-GC `valueArraySize`”** — wiped property arrays.
+2. **Unique-string compact keep empty array at j==0** — diverged from C.
+3. **Compact scan `unique_strings_len` instead of `arr->size`** — dropped live
+   interned keys (DeltaBlue + Typescript). Restored C loop.
+4. **MakeUniqueString post-resize `find_atom` + `[len, cap)` UNDEFINED fill**
+   — diverged from C. Removed; keep numeric re-lookup only (fix 7).
 
 ---
 
@@ -163,157 +185,112 @@ segfaults. Host bug, not the engine suite bug.
 
 ### 1. `Math.floor` / `ceil` / `trunc` / `round` no-op in ReleaseFast
 
-`src/libm_lib.zig` `rintSf64`. Unbiased exp was `((u >> 52) & 0x7ff) -% 0x3ff`
-then `@intCast` to `i32`. `|x| < 1` wraps; ReleaseFast deletes the `< 1`
-branch. Crypto: `Math.floor(4/28)` stayed fractional.
-
-Fix: `exp_field - 0x3ff` as signed `c_int`.
+`src/libm_lib.zig` `rintSf64`. Fix: `exp_field - 0x3ff` as signed `c_int`.
 
 ### 2–3. `Math.pow`
 
-Same file, `js_pow`. (a) `iy | ly == 0` dropped C parens → always 1 for
-integer `y`. (b) overflow test used `u32`; negative `z` (result < 1) looked
-like overflow → Infinity. RayTrace checksum 2321.
+`js_pow` precedence and overflow signedness vs C.
 
 ### 4. `parseNumber` UAF
 
-`src/mquickjs_lexer_lib.zig`. C saves `pos`, allocs `JSATODTempMem` (may GC),
-then `p = source_buf + pos`. Zig kept the old `p`.
+`src/mquickjs_lexer_lib.zig`. C saves `pos`, allocs (may GC), then
+`p = source_buf + pos`.
 
 ### 5. `check_free_mem` signed subtract
 
-`src/mquickjs_utils_lib.zig`. C uses signed `ptrdiff_t`
-`(stack_bottom - heap_free)`. Zig usize wrap skipped GC when `heap_free` was
-already past `stack_bottom` (`js_parse_local_functions` raises `stack_bottom`).
+`src/mquickjs_utils_lib.zig`. C uses signed `ptrdiff_t`.
 
 ### 6. `byte_code` not attached at finalize (CodeLoad / zlib SEGV)
 
-`src/mquickjs_parser_lib.zig` `js_parse_local_functions`, `cpool_pos == 0`.
-
-C sets `b->byte_code = s->byte_code` at the end of `js_parse_program` /
-`js_parse_function`. Under GC that write is lost (stale `JSFunctionBytecode *`).
-Then `convert_ext_vars_to_local_vars` does `byteArr(b.byte_code)` while it is
-still `JS_NULL` (`0x7`) and patches “bytecode” at address 6 → heap corruption.
-Closures (zlib/Emscripten) hit this; later crashes look random
-(`mbGetMtag`, `next_token`).
-
-Current code (keep this order):
-
-```zig
-s.cur_func = pf.*;
-var b = funcBc(pf.*);
-b.byte_code = s.byte_code;          // BEFORE convert
-convert_ext_vars_to_local_vars(s);
-b = funcBc(pf.*);                   // refresh after possible GC
-js_shrink_byte_array(...);
-```
-
-Assigning only *after* convert is not enough.
+`src/mquickjs_parser_lib.zig` `js_parse_local_functions`. Assign
+`b.byte_code` **before** `convert_ext_vars_to_local_vars`; refresh `b` after.
 
 ### 7. Unique-string insert after `js_is_numeric_string` GC
 
-`src/mquickjs_value_lib.zig` `JS_MakeUniqueString`.
+`JS_MakeUniqueString`: re-lookup `a` after numeric GC only. Do not revert.
 
-`find_atom` records insertion index `a`, then `js_is_numeric_string` allocates a dtoa temp (may GC). The unique-string table is a **weak** ref, so compact can drop dead entries or set the table to `JS_NULL` and `unique_strings_len = 0`. C then `memmove`s `unique_strings_len - a` slots. If `a` is stale and `len` shrank, that subtract underflows and the move writes off the new array.
+### 8. Discarded `JS_POP_VALUE` (parse / resize / CodeLoad)
 
-Zig hit this more often than C (full Octane heap + numeric-looking idents). Symptom: same binary, first run OK, second run Typescript `parseErrors.length` not 192/193; Splay score jumps.
+`cpool_add`, `add_var`, `add_func_ext_var`, `js_parse_local_functions`
+`func`, etc.
 
-Fix: skip `find_atom` when the table is `JS_NULL`; after `js_is_numeric_string`, look up again before resize/insert.
+### 9. Unique-string GC compact + intern identity (Octane fixes)
 
-### 8. Discarded `JS_POP_VALUE` after parse/resize GC (CodeLoad SEGV)
+- `gc_mark_all`: scan `arr->size` like C (~12151). Do not compact-by-len.
+- `JS_MakeUniqueString`: match C insert path; numeric re-lookup only.
+- `push_break_entry` / `emit_break`: `label_name = popValue`.
+- `js_create_property`: `prop = popValue` before `pr.key` / `hashProp`.
+- `JS_ToPrimitive`: `method = popValue` before `JS_PushArg`.
+- `js_function_bound`: `params = popValue` before `valueArr`.
 
-C `JS_POP_VALUE(ctx, v)` **assigns** `v = v_ref.val` so the local is the
-GC-relocated pointer. Zig often did `_ = utils.popValue(...)` and then used
-the pre-GC tagged value.
+C `js_resize_value_array2` `memcpy`s `old_size`. Latent in C too; do not
+“fix” globally.
 
-`js_parse_local_functions`: after `js_parse_function` (allocates a lot),
-pushed the stale `func` onto the parse stack. Later finalize /
-`convert_ext_vars` / `valueToPtr` hits a dangling function object → SEGV
-after Gameboy.
+### 10. String replace callback capture stale after stack check
 
-Same pattern stored stale pointers into cpool / vars / ext_vars after
-`js_resize_value_array`: `cpool_add`, `add_var`, `add_func_ext_var`.
+`js_string_concat_subst`: reload `val` from its GC ref after
+`JS_StackCheck`, matching C `mquickjs.c:17929-17937`.
 
-Fix: `func = utils.popValue(...)` (and the same for `val`/`name`) at those
-sites. Other `_ = popValue` that do not use the local after a GC are fine.
+### 11. Error object stale after backtrace allocation
 
-### 9. Unique-string GC / intern identity — **unfinished, last change likely harmful**
+`jsThrowErrorVa`: reload `error_obj` after `build_backtrace`, matching C
+`mquickjs.c:942-947`, before passing it to `JS_Throw`.
 
-Intern table `ctx->unique_strings` is a **weak** `JSValueArray`. Mark
-starts at `current_exception`, **skipping** `unique_strings`. Compact
-keeps only `gc_mb_is_marked` entries, may shrink, may set table to
-`JS_NULL` and `unique_strings_len = 0`.
+### 12. Debug dump function-bytecode layout drift
 
-`JS_MakeUniqueString` (`src/mquickjs_value_lib.zig`): `find_atom` →
-`js_is_numeric_string` (may GC) → re-lookup `a` (fix 7) →
-`js_resize_value_array` (may GC) → `memmove` insert. C does **not**
-re-lookup after numeric or resize. Keep the numeric re-lookup only.
-Post-resize `find_atom` and `[len, cap)` `JS_UNDEFINED` fill were
-removed (match C).
+Debug object/value dumps now cast bytecode through the authoritative
+`runtime_types.JSFunctionBytecodeExt`. Removed the unused
+`utils_types.JSFunctionBytecodeExt`, whose extra `flags` word shifted every
+field relative to C.
 
-C compact (`mquickjs.c` ~12151): `for (i = 0; i < arr->size; i++)`.
-Zig matches that again (reverted compact-by-`unique_strings_len`).
-Do not re-scan only `len`.
-
-C `js_resize_value_array2` `memcpy`s `old_size` after GC. If compact
-already shrank the source, that read walks the FREE tail. Latent in C;
-Zig hits it more (slower → more GC under Octane’s 256M limit). Do not
-“fix” this by changing memcpy for every value array.
+Phase 1B parser/lexer pointer-lifetime and Phase 1C intern/property-key
+audits found no additional Zig-vs-C must-fix divergences. Phase 1D runtime
+GC layouts and regexp overlay match C after the debug-only type cleanup.
 
 ---
 
-## Leads (next agent)
+## Historical: Typescript `Parse errors.` (Octane — fixed)
 
-Priority: intern identity / stale unique-string table, not a new GC
-algorithm. Compare Zig to C line-by-line at the **call sites** that
-allocate.
+Was intermittent `parseErrors.length` not 192/193 when intern/property keys
+were wrong. Resolved with fixes 7–9 and `js_create_property` popValue.
 
-- Compact-by-len **reverted**. MakeUniqueString extras **removed**.
-  `label_name` / `js_create_property` `prop` / ToPrimitive `method` /
-  `js_function_bound` `params` now assign `popValue` like C. User
-  should run two back-to-back `zig build octane -Doptimize=ReleaseFast`.
-- Remaining `_ = utils.popValue` where the local is used after a GC.
-  Parser emit sites were fixed (`cpool_add`, `add_var`,
-  `add_func_ext_var`). Grep others that store the value after pop.
-- Locals holding `source_buf` / `p` / `JSFunctionBytecode *` across
-  `js_malloc`. C saves offsets; GC only refreshes `JSParseState.source_buf`
-  from `source_str`.
-- `find_atom` on a non-string slot (garbage in intern table).
-- `newShortInt`: Zig `@as(i64, val << 1)` may shift `i32` first.
-- `utils_types.JSFunctionBytecodeExt` has an extra `flags` word.
-  Parser/GC use `runtime_types` (correct). `JSObjectExt` union in
-  `utils_types` has no `regexp`; GC uses `objectRegexp` overlay on `&p.u`.
-- `DEBUG_GC` in `include/mquickjs_priv.h` (GC every malloc). Slow but
-  makes stale pointers fail early.
-- Do not log `parseErrors.length` by editing `tests/octane/typescript.js`
-  unless you revert it. Prefer a `/tmp` wrapper.
+For isolated repro without full Octane: heap pressure from earlier suites;
+do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV). Wrappers:
+avoid globals `files` / `i`; use `octane_file_list`. Pipe with `stdbuf -oL`.
+
+gdb on silent SEGV: `mov -0x1(%reg)` is `valueToPtr`. `rax=0x7` is `JS_NULL`.
+
+---
+
+## Do not use `mqjs tests/octane/run.js <suite>`
+
+Host bug: `script_argv.ptr` as C `char **` with Zig slices. Second arg
+SEGVs. Full Octane via `zig build octane` is fine.
+
+---
+
+## JS_POP_VALUE audit checklist (Phase 1A — fill in)
+
+| File:line | C ref | Verdict | Notes |
+|-----------|-------|---------|-------|
+| `mquickjs_builtins_string_lib.zig:377` | `mquickjs.c:17929-17937` | **must fix — fixed** | C reloads `val` with `JS_POP_VALUE` after `JS_StackCheck`; Zig discarded it, then passed stale `val` to `JS_PushArg`. |
+| `mquickjs_builtins_string_lib.zig:512,542` | `mquickjs.c:18075-18078,18108` | safe | `capture_buf` root cleanup; value is not used after pop. |
+| `mquickjs_builtins_string_lib.zig:605-606,613,619-620,626-627,630` | `mquickjs.c:18179-18191,18291-18306` | safe | Split early-return/error cleanup; discarded roots are not reused, and `A` is reloaded only where returned. |
+| `mquickjs_builtins_string_lib.zig:644-645,651-652,657-658,662` | `mquickjs.c:18203-18211,18291-18306` | safe | Empty-input regexp split cleanup; no popped local is subsequently used. |
+| `mquickjs_builtins_string_lib.zig:671-672,686-687,702-703,709-710,714,727-728` | `mquickjs.c:18214-18267,18299-18306` | safe | Regexp split loop error/return cleanup; live values are accessed through `A_ref`/`z_ref` before cleanup. |
+| `mquickjs_builtins_string_lib.zig:743-744,749-750,754,768-769,775-776,780,791-792,797-798,802` | `mquickjs.c:18268-18306` | safe | String split tail/error/return cleanup; popped locals are not reused. |
+| `mquickjs_builtins_string_lib.zig:849` | `mquickjs.c:18332-18359` | safe | `result` root cleanup; function returns the reloaded `A` root. |
+| `mquickjs_builtins_regexp_lib.zig:1956,1966,1974,1988,1999` | `mquickjs.c:17852-17897` | safe | `capture_buf` cleanup on failure/done; value is not used after pop. `obj` reloads already match C at property/sub-string allocation sites. |
+| `mquickjs_parser_lib.zig:257-258` | `mquickjs.c:11013-11014` | safe | Function ends immediately after both pops; C assigns locals but never reads them. |
+| `mquickjs_value_lib.zig:1595-1596` | `mquickjs.c:2883-2889` | safe | Allocation-failure cleanup returns immediately; successful-path reloads are already fixed below this branch. |
+| `mquickjs_builtins_array_lib.zig:256,260` | `mquickjs.c:14327,14332` | safe | `sep` cleanup immediately before return; concatenation uses `sep_ref.val` while rooted. |
+| `mquickjs_builtins_std_lib.zig:639` | `mquickjs.c:15544` | safe | JSON quote helper does not use `str` after pop. |
 
 ---
 
 ## Handoff prompt (paste to a new agent)
 
-```
-Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
-
-You are taking over zig-mquickjs Octane GC/intern flakes. Compare only
-against ../mquickjs (mquickjs.c). Zig 0.15.2 at
-/home/vexcess/zig-x86_64-linux-0.15.2/zig. Build -Doptimize=ReleaseFast
-only. Do not iterate with full `zig build octane`. Fix one correctness
-bug, then stop. Do not rewrite the GC. Do not commit.
-
-Typescript still Parse errors after label_name popValue.
-
-This turn: C-verified JS_POP_VALUE assign-backs —
-js_create_property prop (intern key after prop-table GC),
-JS_ToPrimitive method, js_function_bound params.
-
-Fixes 1–8 are real — do not revert. Do not re-apply compact-by-len.
-Do not change js_resize_value_array2 memcpy size. Do not re-add
-MakeUniqueString post-resize find_atom or [len, cap) UNDEFINED fill.
-Keep the numeric re-lookup (fix 7). Do not “fix” newShortInt.
-
-Do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV).
-```
+See bottom of file after edits — **Post-Octane audit** prompt.
 
 ---
 
@@ -324,6 +301,36 @@ Do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV).
 - Catch bindings cannot be reused (`catch variable already exists`).
 - `load()` exists. `scriptArgs[0]` is the script path.
 - `OP.COUNT=126`. Labels: `LABEL_RESOLVED_FLAG = 1<<29`,
-  `LABEL_OFFSET_MASK = (1<<29)-1`. Unresolved goto as PC ≈ 536870911+n.
+  `LABEL_OFFSET_MASK = (1<<29)-1`.
 - `run.js` `files` loop uses `idx` (safe). Wrappers using `i` stop after
   box2d because minified code clobbers `i`.
+
+---
+
+## Handoff prompt — Post-Octane audit (paste to new agent)
+
+```
+Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
+
+Octane is RESOLVED (user: 9/9 full runs, no errors). Your job is the
+post-Octane audit in debug-notes.md — find silent bugs (stale JSValue after
+GC, intern identity, raw pointers across alloc), not Octane suite ports.
+
+Compare only against ../mquickjs (mquickjs.c). Zig 0.15.2 at
+/home/vexcess/zig-x86_64-linux-0.15.2/zig. Build -Doptimize=ReleaseFast only.
+Fix one correctness bug per turn, then stop. Do not rewrite the GC. Do not
+commit unless asked.
+
+Start Phase 1A: grep `_ = utils.popValue` in src/, compare each suspicious
+site to C JS_POP_VALUE. Prioritize builtins_string, regexp, parser. Fill the
+checklist table in debug-notes.md. Fix the first C-verified must-fix site;
+build ReleaseFast; add or run a small /tmp gc_stress repro; ask user to
+batch Octane (9 runs) before the next fix.
+
+Do NOT revert fixes 1–9. Do NOT re-apply compact-by-len, MakeUniqueString
+post-resize extras, or global js_resize_value_array2 memcpy change. Do NOT
+"fix" newShortInt without C proof.
+
+Do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV). Use
+/tmp/gc_stress_*.js with --memory-limit 8M for discovery.
+```

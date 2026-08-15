@@ -31,6 +31,7 @@ const dtoa = @import("dtoa_lib.zig");
 const gc = @import("mquickjs_gc_lib.zig");
 const value = @import("mquickjs_value_lib.zig");
 const runtime = @import("mquickjs_runtime_lib.zig");
+const rt = @import("mquickjs_runtime_types.zig");
 const builtins = @import("mquickjs_builtins_lib.zig");
 const mc = @import("mquickjs_utils_types.zig");
 
@@ -504,7 +505,7 @@ pub fn jsThrowErrorVa(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*
 
     const x = mc.ctxExt(ctx);
     const class_proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
-    const error_obj = value.JS_NewObjectProtoClass(ctx, class_proto[@intCast(error_num)], c.JS_CLASS_ERROR, @sizeOf(mc.JSErrorDataExt));
+    var error_obj = value.JS_NewObjectProtoClass(ctx, class_proto[@intCast(error_num)], c.JS_CLASS_ERROR, @sizeOf(mc.JSErrorDataExt));
     const msg_val = jsPopValue(ctx, &msg_ref);
     if (mc.isException(error_obj))
         return error_obj;
@@ -517,7 +518,7 @@ pub fn jsThrowErrorVa(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*
         var error_obj_ref: c.JSGCRef = undefined;
         jsPushValue(ctx, &error_obj_ref, error_obj);
         runtime.build_backtrace(ctx, error_obj, null, 0, 0, 0);
-        _ = jsPopValue(ctx, &error_obj_ref);
+        error_obj = jsPopValue(ctx, &error_obj_ref);
     }
 
     return JS_Throw(ctx, error_obj);
@@ -605,7 +606,7 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
     if (flags & c.JS_DUMP_LONG != 0) {
         switch (class_id) {
             c.JS_CLASS_CLOSURE => {
-                const b: *mc.JSFunctionBytecodeExt = @ptrCast(@alignCast(mc.valueToPtr(p.u.closure.func_bytecode)));
+                const b: *rt.JSFunctionBytecodeExt = @ptrCast(@alignCast(mc.valueToPtr(p.u.closure.func_bytecode)));
                 js_printf(ctx, "function ");
                 JS_PrintValueF(ctx, b.func_name, c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
@@ -847,7 +848,7 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
                 js_printf(ctx, "byte_array(%llu)", @as(c_ulonglong, @intCast(mc.byteArraySize(arr))));
             },
             mc.JS_MTAG_FUNCTION_BYTECODE => {
-                const b: *mc.JSFunctionBytecodeExt = @ptrCast(@alignCast(ptr));
+                const b: *rt.JSFunctionBytecodeExt = @ptrCast(@alignCast(ptr));
                 js_printf(ctx, "bytecode_function ");
                 JS_PrintValueF(ctx, b.func_name, c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
