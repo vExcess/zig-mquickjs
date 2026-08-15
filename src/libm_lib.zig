@@ -117,7 +117,11 @@ inline fn rintSf64(a: f64, rm: c_int) f64 {
     var one_u: u64 = undefined;
     var m: u64 = undefined;
     var addend: u64 = undefined;
-    const e = @as(c_int, @intCast(((u >> 52) & 0x7ff) -% 0x3ff));
+    // Biased exp is 0..2047; subtract 1023 in signed arithmetic.
+    // `(exp -% 0x3ff)` as u64 then `@intCast` to i32 is UB when exp < 1023
+    // (wraps to ~2^64), so ReleaseFast can assume e >= 0 and drop the |x| < 1 path.
+    const exp_field: c_int = @intCast((u >> 52) & 0x7ff);
+    const e: c_int = exp_field - 0x3ff;
     const s: u32 = @truncate(u >> 63);
     if (e < 0) {
         m = u & ((@as(u64, 1) << 52) - 1);
