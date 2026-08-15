@@ -8,17 +8,12 @@ IMPORTANT: This port was performed almost entirely by AI. The AI introduced a to
 
 You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
 
-Build mqjs: `zig build -Doptimize=ReleaseFast`
-
-Build example: `zig build example -Doptimize=ReleaseFast`
-
-Run microbenchmark: `zig build microbench -Doptimize=ReleaseFast`
-
-Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`
-
-Run tests: `zig build test -Doptimize=ReleaseFast`
-
-Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
+Build mqjs: `zig build -Doptimize=ReleaseFast`  
+Build example: `zig build example -Doptimize=ReleaseFast`  
+Run microbenchmark: `zig build microbench -Doptimize=ReleaseFast`  
+Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`  
+Run tests: `zig build test -Doptimize=ReleaseFast`  
+Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.  
 
 ### Why use Zig over C?
 - Memory safety - Zig can detect double-frees, use-after-frees, memory leaks, and out of bounds accesses
@@ -38,13 +33,15 @@ The code is relatively C-style. Future work will convert the Zig code to be more
 
 
 ### Benchmarks
+Dissapointingly, the Zig port is roughly 5% slower than the C version.
+
 #### mquickjs
-octane: 2421
+octane: 2445  
+microbench: 4147.40  
 
 #### zig-mquickjs
-octane: 2377
-
-According to the microbenchmarks, there is a 1.7% performance decrease after having been ported to Zig. While dissapointing, this slight performance decrease will probably dissapear when the code is refactored to be more idiomatic.
+octane: 2329  
+microbench: 4174.75  
 
 ### Run test262
 ```sh
