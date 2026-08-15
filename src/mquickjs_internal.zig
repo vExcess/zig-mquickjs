@@ -196,3 +196,23 @@ pub fn propType(pr: *const JSPropertyExt) u32 {
 pub fn propSetType(pr: *JSPropertyExt, t: u32) void {
     pr.hash_and_type = (pr.hash_and_type & 0x3fffffff) | (t << 30);
 }
+
+pub fn get_u8(p: [*]const u8) u8 {
+    return p[0];
+}
+
+pub fn get_u16(p: [*]const u8) u32 {
+    return @as(*align(1) const u16, @ptrCast(p)).*;
+}
+
+pub fn get_u32(p: [*]const u8) u32 {
+    return @as(*align(1) const u32, @ptrCast(p)).*;
+}
+
+pub fn put_u16(p: [*]u8, val: u16) void {
+    @as(*align(1) u16, @ptrCast(p)).* = val;
+}
+
+pub fn put_u32(p: [*]u8, val: u32) void {
+    @as(*align(1) u32, @ptrCast(p)).* = val;
+}

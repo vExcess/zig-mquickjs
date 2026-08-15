@@ -35,10 +35,6 @@ const vt = @import("mquickjs_value_types.zig");
 const mc = vt.mc;
 pub const c = vt.c;
 
-inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
-    return mc.ctxExt(ctx);
-}
-
 fn max_int(a: c_int, b: c_int) c_int {
     return if (a > b) a else b;
 }
@@ -49,15 +45,6 @@ fn float64AsUint64(d: f64) u64 {
 
 fn uint64AsFloat64(u: u64) f64 {
     return @bitCast(u);
-}
-
-fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
-    _ = utils.JS_PushGCRef(ctx, ref);
-    ref.val = val;
-}
-
-fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
-    return utils.JS_PopGCRef(ctx, ref);
 }
 
 fn boolVal(v: bool) c.JS_BOOL {
@@ -82,7 +69,7 @@ pub fn js_alloc_float64(ctx: *c.JSContext, d: f64) c.JSValue {
 
 pub fn __JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue {
     if (float64AsUint64(d) == 0x8000000000000000) {
-        return cx(ctx).minus_zero;
+        return mc.ctxExt(ctx).minus_zero;
     } else if (@abs(d) >= 0x1p-127 and @abs(d) <= 0x1p+128) {
         return js_to_short_float(d);
     } else {
@@ -299,10 +286,10 @@ pub fn js_sub_string_utf8(ctx: *c.JSContext, val: c.JSValue, start0: u32, end0: 
     }
 
     var val_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &val_ref, val_mut);
+    utils.pushValue(ctx, &val_ref, val_mut);
     const extra: i32 = if (end_surrogate) 3 else 0;
     const p = js_alloc_string(ctx, @intCast(len - @as(i32, @intFromBool(start_surrogate)) + extra));
-    val_mut = popValue(ctx, &val_ref);
+    val_mut = utils.popValue(ctx, &val_ref);
     if (p == null)
         return c.JS_EXCEPTION;
     p1 = get_string_ptr(ctx, &buf, val_mut);
@@ -396,7 +383,7 @@ pub fn is_valid_len4_utf8(buf: [*c]const u8) c.JS_BOOL {
 }
 
 pub fn dump_string_pos_cache(ctx: *c.JSContext) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var i: usize = 0;
     while (i < vt.JS_STRING_POS_CACHE_SIZE) : (i += 1) {
         const ce = &x.string_pos_cache[i];
@@ -442,7 +429,7 @@ pub fn js_string_convert_pos(ctx: *c.JSContext, val: c.JSValue, pos_in: u32, pos
         var d_min: u32 = pos;
         var ce_idx: usize = 0;
         while (ce_idx < vt.JS_STRING_POS_CACHE_SIZE) : (ce_idx += 1) {
-            const ce1 = &cx(ctx).string_pos_cache[ce_idx];
+            const ce1 = &mc.ctxExt(ctx).string_pos_cache[ce_idx];
             if (ce1.str == val) {
                 var d = ce1.str_pos[@intCast(pos_type)];
                 d = if (d >= pos) d - pos else pos - d;
@@ -453,7 +440,7 @@ pub fn js_string_convert_pos(ctx: *c.JSContext, val: c.JSValue, pos_in: u32, pos
             }
         }
         if (ce == null) {
-            const x = cx(ctx);
+            const x = mc.ctxExt(ctx);
             ce = &x.string_pos_cache[x.string_pos_cache_counter];
             x.string_pos_cache_counter += 1;
             if (x.string_pos_cache_counter == vt.JS_STRING_POS_CACHE_SIZE)
@@ -562,8 +549,8 @@ pub fn string_buffer_push(ctx: *c.JSContext, s: *vt.StringBuffer, len: c_int) c_
     } else {
         s.buffer_ref.val = utils.js_get_atom(ctx, c.JS_ATOM_empty);
     }
-    s.buffer_ref.prev = @ptrCast(cx(ctx).top_gc_ref);
-    cx(ctx).top_gc_ref = @ptrCast(@alignCast(&s.buffer_ref));
+    s.buffer_ref.prev = @ptrCast(mc.ctxExt(ctx).top_gc_ref);
+    mc.ctxExt(ctx).top_gc_ref = @ptrCast(@alignCast(&s.buffer_ref));
     return 0;
 }
 
@@ -605,11 +592,11 @@ pub fn string_buffer_concat_str(ctx: *c.JSContext, s: *vt.StringBuffer, val2_in:
     if (arr == null or (len + 1) > vt.byteArraySize(arr.?)) {
         var val1_ref: c.JSGCRef = undefined;
         var val2_ref: c.JSGCRef = undefined;
-        pushValue(ctx, &val1_ref, val1);
-        pushValue(ctx, &val2_ref, val2);
+        utils.pushValue(ctx, &val1_ref, val1);
+        utils.pushValue(ctx, &val2_ref, val2);
         s.buffer_ref.val = js_resize_byte_array(ctx, s.buffer_ref.val, len + 1);
-        val2 = popValue(ctx, &val2_ref);
-        val1 = popValue(ctx, &val1_ref);
+        val2 = utils.popValue(ctx, &val2_ref);
+        val1 = utils.popValue(ctx, &val1_ref);
         if (vt.isExactException(s.buffer_ref.val))
             return -1;
         arr = @ptrCast(@alignCast(mc.valueToPtr(s.buffer_ref.val)));
@@ -691,7 +678,7 @@ pub fn string_buffer_pop(ctx: *c.JSContext, s: *vt.StringBuffer) c.JSValue {
         }
         res = js_byte_array_to_string(ctx, s.buffer_ref.val, s.len, s.is_ascii);
     }
-    cx(ctx).top_gc_ref = @ptrCast(s.buffer_ref.prev);
+    mc.ctxExt(ctx).top_gc_ref = @ptrCast(s.buffer_ref.prev);
     return res;
 }
 
@@ -826,10 +813,10 @@ pub fn js_is_numeric_string(ctx: *c.JSContext, val_in: c.JSValue) c_int {
         return c.FALSE;
 
     var val_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &val_ref, val);
+    utils.pushValue(ctx, &val_ref, val);
     const tmp_size = max_int(@intCast(@sizeOf(c.JSATODTempMem)), @intCast(@sizeOf(c.JSDTOATempMem)));
     const tmp_arr = js_alloc_byte_array(ctx, tmp_size);
-    val = popValue(ctx, &val_ref);
+    val = utils.popValue(ctx, &val_ref);
     if (tmp_arr == null)
         return -1;
     p = @ptrCast(@alignCast(mc.valueToPtr(val)));
@@ -875,7 +862,7 @@ pub fn JS_MakeUniqueString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     if (mc.mbGetMtag(p) != mc.JS_MTAG_STRING or vt.stringIsUnique(p))
         return val;
 
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var i: u8 = 0;
     var a: c_int = 0;
     while (i < x.n_rom_atom_tables) : (i += 1) {
@@ -893,15 +880,15 @@ pub fn JS_MakeUniqueString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
         return val1;
 
     var val_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &val_ref, val);
+    utils.pushValue(ctx, &val_ref, val);
     const is_numeric = js_is_numeric_string(ctx, val);
-    val = popValue(ctx, &val_ref);
+    val = utils.popValue(ctx, &val_ref);
     if (is_numeric < 0)
         return c.JS_EXCEPTION;
 
-    pushValue(ctx, &val_ref, val);
+    utils.pushValue(ctx, &val_ref, val);
     const new_tab = js_resize_value_array(ctx, x.unique_strings, x.unique_strings_len + 1);
-    val = popValue(ctx, &val_ref);
+    val = utils.popValue(ctx, &val_ref);
     if (vt.isExactException(new_tab))
         return c.JS_EXCEPTION;
     x.unique_strings = new_tab;
@@ -972,11 +959,11 @@ pub fn JS_ToCString(ctx: *c.JSContext, val: c.JSValue, buf: *c.JSCStringBuf) ?[*
 }
 
 pub fn JS_HasException(ctx: *c.JSContext) c.JS_BOOL {
-    return boolVal(!vt.isUninitialized(cx(ctx).current_exception));
+    return boolVal(!vt.isUninitialized(mc.ctxExt(ctx).current_exception));
 }
 
 pub fn JS_GetException(ctx: *c.JSContext) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const obj = x.current_exception;
     x.current_exception = c.JS_UNINITIALIZED;
     return obj;
@@ -1079,9 +1066,9 @@ pub fn js_resize_value_array2(ctx: *c.JSContext, val: c.JSValue, new_size_in: c_
         new_size = max_int(new_size, old_size + @divTrunc(old_size, 2));
         var val_ref: c.JSGCRef = undefined;
         var val_mut = val;
-        pushValue(ctx, &val_ref, val_mut);
+        utils.pushValue(ctx, &val_ref, val_mut);
         const new_slots = js_alloc_value_array(ctx, old_size, new_size);
-        val_mut = popValue(ctx, &val_ref);
+        val_mut = utils.popValue(ctx, &val_ref);
         if (new_slots == null)
             return c.JS_EXCEPTION;
         if (old_size > 0) {
@@ -1138,9 +1125,9 @@ pub fn js_resize_byte_array(ctx: *c.JSContext, val: c.JSValue, new_size_in: c_in
         new_size = max_int(new_size, old_size + @divTrunc(old_size, 2));
         var val_ref: c.JSGCRef = undefined;
         var val_mut = val;
-        pushValue(ctx, &val_ref, val_mut);
+        utils.pushValue(ctx, &val_ref, val_mut);
         const new_arr = js_alloc_byte_array(ctx, new_size);
-        val_mut = popValue(ctx, &val_ref);
+        val_mut = utils.popValue(ctx, &val_ref);
         if (new_arr == null)
             return c.JS_EXCEPTION;
         if (old_size > 0) {
@@ -1171,16 +1158,16 @@ pub fn JS_NewObjectProtoClass1(ctx: *c.JSContext, proto: c.JSValue, class_id: c_
     const extra_size: c.JSWord = @intCast((@as(c_uint, @bitCast(extra_size_in)) + jsw - 1) / jsw);
     var proto_ref: c.JSGCRef = undefined;
     var proto_mut = proto;
-    pushValue(ctx, &proto_ref, proto_mut);
+    utils.pushValue(ctx, &proto_ref, proto_mut);
     const p: ?*mc.JSObjectExt = @ptrCast(@alignCast(
         utils.js_malloc(ctx, vt.objectOffsetOfU() + @as(c_uint, @intCast(extra_size)) * jsw, mc.JS_MTAG_OBJECT),
     ));
-    proto_mut = popValue(ctx, &proto_ref);
+    proto_mut = utils.popValue(ctx, &proto_ref);
     if (p == null)
         return null;
     vt.objectSetClassAndExtra(p.?, class_id, extra_size);
     p.?.proto = proto_mut;
-    p.?.props = cx(ctx).empty_props;
+    p.?.props = mc.ctxExt(ctx).empty_props;
     return p;
 }
 
@@ -1190,12 +1177,12 @@ pub fn JS_NewObjectProtoClass(ctx: *c.JSContext, proto: c.JSValue, class_id: c_i
 }
 
 pub fn JS_NewObjectClass(ctx: *c.JSContext, class_id: c_int, extra_size: c_int) c.JSValue {
-    return JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), class_id).*, class_id, extra_size);
+    return JS_NewObjectProtoClass(ctx, vt.classProto(mc.ctxExt(ctx), class_id).*, class_id, extra_size);
 }
 
 pub fn JS_NewObjectClassUser(ctx: *c.JSContext, class_id: c_int) c.JSValue {
     std.debug.assert(class_id >= c.JS_CLASS_USER);
-    const p = JS_NewObjectProtoClass1(ctx, vt.classProto(cx(ctx), class_id).*, class_id, @sizeOf(vt.JSObjectUserDataExt)) orelse
+    const p = JS_NewObjectProtoClass1(ctx, vt.classProto(mc.ctxExt(ctx), class_id).*, class_id, @sizeOf(vt.JSObjectUserDataExt)) orelse
         return c.JS_EXCEPTION;
     vt.objectUserOpaque(p).* = null;
     return mc.valueFromPtr(p);
@@ -1211,9 +1198,9 @@ pub fn JS_NewObjectPrealloc(ctx: *c.JSContext, n: c_int) c.JSValue {
         return obj;
     var obj_ref: c.JSGCRef = undefined;
     var obj_mut = obj;
-    pushValue(ctx, &obj_ref, obj_mut);
+    utils.pushValue(ctx, &obj_ref, obj_mut);
     const arr = js_alloc_props(ctx, n);
-    obj_mut = popValue(ctx, &obj_ref);
+    obj_mut = utils.popValue(ctx, &obj_ref);
     if (arr == null)
         return c.JS_EXCEPTION;
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj_mut)));
@@ -1230,9 +1217,9 @@ pub fn JS_NewArray(ctx: *c.JSContext, initial_len: c_int) c.JSValue {
     p.u.array.len = 0;
     if (initial_len > 0) {
         var val_ref: c.JSGCRef = undefined;
-        pushValue(ctx, &val_ref, val);
+        utils.pushValue(ctx, &val_ref, val);
         const arr = js_alloc_value_array(ctx, 0, initial_len);
-        val = popValue(ctx, &val_ref);
+        val = utils.popValue(ctx, &val_ref);
         if (arr == null)
             return c.JS_EXCEPTION;
         p = @ptrCast(@alignCast(mc.valueToPtr(val)));
@@ -1250,9 +1237,9 @@ pub fn find_own_property(ctx: *c.JSContext, p: *mc.JSObjectExt, prop: c.JSValue)
 pub fn get_special_prop(ctx: *c.JSContext, val: c.JSValue) c.JSValue {
     const idx = vt.valueGetInt(val);
     if (idx >= 0)
-        return vt.classProto(cx(ctx), idx).*
+        return vt.classProto(mc.ctxExt(ctx), idx).*
     else
-        return vt.classObj(cx(ctx), -idx - 1).*;
+        return vt.classObj(mc.ctxExt(ctx), -idx - 1).*;
 }
 
 fn protoObject(x: *mc.JSContextExt, class_id: c_int) *mc.JSObjectExt {
@@ -1260,7 +1247,7 @@ fn protoObject(x: *mc.JSContextExt, class_id: c_int) *mc.JSObjectExt {
 }
 
 pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue, allow_tail_call: c.JS_BOOL) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var p: *mc.JSObjectExt = undefined;
     var handle_string = false;
 
@@ -1382,11 +1369,11 @@ pub fn JS_GetPropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue
                     var obj_ref: c.JSGCRef = undefined;
                     var obj_mut = obj;
                     var getter_mut = getter;
-                    pushValue(ctx, &getter_ref, getter_mut);
-                    pushValue(ctx, &obj_ref, obj_mut);
+                    utils.pushValue(ctx, &getter_ref, getter_mut);
+                    utils.pushValue(ctx, &obj_ref, obj_mut);
                     const err = utils.JS_StackCheck(ctx, 2);
-                    obj_mut = popValue(ctx, &obj_ref);
-                    getter_mut = popValue(ctx, &getter_ref);
+                    obj_mut = utils.popValue(ctx, &obj_ref);
+                    getter_mut = utils.popValue(ctx, &getter_ref);
                     if (err != 0)
                         return c.JS_EXCEPTION;
                     runtime.JS_PushArg(ctx, getter_mut);
@@ -1410,11 +1397,11 @@ pub fn JS_GetProperty(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) c.JSVa
 pub fn JS_GetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const u8) c.JSValue {
     var this_obj_ref: c.JSGCRef = undefined;
     var this_mut = this_obj;
-    pushValue(ctx, &this_obj_ref, this_mut);
+    utils.pushValue(ctx, &this_obj_ref, this_mut);
     var prop = JS_NewString(ctx, str);
     if (!vt.isExactException(prop))
         prop = runtime.JS_ToPropertyKey(ctx, prop);
-    this_mut = popValue(ctx, &this_obj_ref);
+    this_mut = utils.popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
         return prop;
     return JS_GetProperty(ctx, this_mut, prop);
@@ -1503,8 +1490,8 @@ pub fn js_compact_props(ctx: *c.JSContext, p: *mc.JSObjectExt) void {
     const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(p.props)));
     const prop_count = vt.valueGetInt(vt.valueArrayItems(arr)[0]);
     if (prop_count == 0) {
-        if (p.props != cx(ctx).empty_props)
-            p.props = cx(ctx).empty_props;
+        if (p.props != mc.ctxExt(ctx).empty_props)
+            p.props = mc.ctxExt(ctx).empty_props;
         return;
     }
     const hash_mask = vt.valueGetInt(vt.valueArrayItems(arr)[1]);
@@ -1536,9 +1523,9 @@ pub fn js_update_props(ctx: *c.JSContext, obj: c.JSValue) c_int {
         return 0;
     var obj_ref: c.JSGCRef = undefined;
     var obj_mut = obj;
-    pushValue(ctx, &obj_ref, obj_mut);
+    utils.pushValue(ctx, &obj_ref, obj_mut);
     const arr1 = js_alloc_value_array(ctx, 0, vt.valueArraySize(arr));
-    obj_mut = popValue(ctx, &obj_ref);
+    obj_mut = utils.popValue(ctx, &obj_ref);
     if (arr1 == null)
         return -1;
     const nbytes: usize = @intCast(vt.valueArraySize(arr) * @as(c_int, @intCast(@sizeOf(c.JSValue))));
@@ -1581,20 +1568,20 @@ pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*
     var pr1: *vt.JSPropertyExt = @ptrCast(@alignCast(&items[@intCast(vt.valueArraySize(arr) - 3)]));
     var first_free: c_int = undefined;
     if (pr1.key != c.JS_UNINITIALIZED) {
-        if (p.props == cx(ctx).empty_props) {
+        if (p.props == mc.ctxExt(ctx).empty_props) {
             var obj_ref: c.JSGCRef = undefined;
             var prop_ref: c.JSGCRef = undefined;
             var obj_mut = obj;
             var prop_mut = prop;
-            pushValue(ctx, &obj_ref, obj_mut);
-            pushValue(ctx, &prop_ref, prop_mut);
+            utils.pushValue(ctx, &obj_ref, obj_mut);
+            utils.pushValue(ctx, &prop_ref, prop_mut);
             arr = js_alloc_props(ctx, 1) orelse {
-                _ = popValue(ctx, &prop_ref);
-                _ = popValue(ctx, &obj_ref);
+                _ = utils.popValue(ctx, &prop_ref);
+                _ = utils.popValue(ctx, &obj_ref);
                 return null;
             };
-            prop_mut = popValue(ctx, &prop_ref);
-            obj_mut = popValue(ctx, &obj_ref);
+            prop_mut = utils.popValue(ctx, &prop_ref);
+            obj_mut = utils.popValue(ctx, &obj_ref);
             p = @ptrCast(@alignCast(mc.valueToPtr(obj_mut)));
             p.props = mc.valueFromPtr(arr);
             items = vt.valueArrayItems(arr);
@@ -1613,11 +1600,11 @@ pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*
             var prop_ref: c.JSGCRef = undefined;
             var obj_mut = obj;
             var prop_mut = prop;
-            pushValue(ctx, &obj_ref, obj_mut);
-            pushValue(ctx, &prop_ref, prop_mut);
+            utils.pushValue(ctx, &obj_ref, obj_mut);
+            utils.pushValue(ctx, &prop_ref, prop_mut);
             const new_props = js_resize_value_array2(ctx, p.props, new_size, 2 + new_hash_mask + 1);
-            prop_mut = popValue(ctx, &prop_ref);
-            obj_mut = popValue(ctx, &obj_ref);
+            prop_mut = utils.popValue(ctx, &prop_ref);
+            obj_mut = utils.popValue(ctx, &obj_ref);
             if (vt.isExactException(new_props))
                 return null;
             p = @ptrCast(@alignCast(mc.valueToPtr(obj_mut)));
@@ -1668,15 +1655,15 @@ pub fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSVa
     var prop_ref: c.JSGCRef = undefined;
     var val_ref: c.JSGCRef = undefined;
     var setter_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &obj_ref, obj_mut);
-    pushValue(ctx, &prop_ref, prop_mut);
-    pushValue(ctx, &val_ref, val_mut);
-    pushValue(ctx, &setter_ref, setter_mut);
+    utils.pushValue(ctx, &obj_ref, obj_mut);
+    utils.pushValue(ctx, &prop_ref, prop_mut);
+    utils.pushValue(ctx, &val_ref, val_mut);
+    utils.pushValue(ctx, &setter_ref, setter_mut);
     const ret = js_update_props(ctx, obj_mut);
-    setter_mut = popValue(ctx, &setter_ref);
-    val_mut = popValue(ctx, &val_ref);
-    prop_mut = popValue(ctx, &prop_ref);
-    obj_mut = popValue(ctx, &obj_ref);
+    setter_mut = utils.popValue(ctx, &setter_ref);
+    val_mut = utils.popValue(ctx, &val_ref);
+    prop_mut = utils.popValue(ctx, &prop_ref);
+    obj_mut = utils.popValue(ctx, &obj_ref);
     if (ret != 0)
         return c.JS_EXCEPTION;
 
@@ -1698,15 +1685,15 @@ pub fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSVa
                     return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, "cannot modify getter/setter/value kind");
                 var arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pr.value)));
                 if (vt.jsIsRomPtr(ctx, arr)) {
-                    pushValue(ctx, &obj_ref, obj_mut);
-                    pushValue(ctx, &prop_ref, prop_mut);
-                    pushValue(ctx, &val_ref, val_mut);
-                    pushValue(ctx, &setter_ref, setter_mut);
+                    utils.pushValue(ctx, &obj_ref, obj_mut);
+                    utils.pushValue(ctx, &prop_ref, prop_mut);
+                    utils.pushValue(ctx, &val_ref, val_mut);
+                    utils.pushValue(ctx, &setter_ref, setter_mut);
                     const arr2 = js_alloc_value_array(ctx, 0, 2);
-                    setter_mut = popValue(ctx, &setter_ref);
-                    val_mut = popValue(ctx, &val_ref);
-                    prop_mut = popValue(ctx, &prop_ref);
-                    obj_mut = popValue(ctx, &obj_ref);
+                    setter_mut = utils.popValue(ctx, &setter_ref);
+                    val_mut = utils.popValue(ctx, &val_ref);
+                    prop_mut = utils.popValue(ctx, &prop_ref);
+                    obj_mut = utils.popValue(ctx, &obj_ref);
                     if (arr2 == null)
                         return c.JS_EXCEPTION;
                     pr = find_own_property(ctx, @ptrCast(@alignCast(mc.valueToPtr(obj_mut))), prop_mut).?;
@@ -1731,31 +1718,31 @@ pub fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSVa
     var prop_type: u32 = undefined;
     if (flags & (vt.JS_DEF_PROP_HAS_GET | vt.JS_DEF_PROP_HAS_SET) != 0) {
         prop_type = vt.JS_PROP_GETSET;
-        pushValue(ctx, &obj_ref, obj_mut);
-        pushValue(ctx, &prop_ref, prop_mut);
-        pushValue(ctx, &val_ref, val_mut);
-        pushValue(ctx, &setter_ref, setter_mut);
+        utils.pushValue(ctx, &obj_ref, obj_mut);
+        utils.pushValue(ctx, &prop_ref, prop_mut);
+        utils.pushValue(ctx, &val_ref, val_mut);
+        utils.pushValue(ctx, &setter_ref, setter_mut);
         const arr = js_alloc_value_array(ctx, 0, 2);
-        setter_mut = popValue(ctx, &setter_ref);
-        val_mut = popValue(ctx, &val_ref);
-        prop_mut = popValue(ctx, &prop_ref);
-        obj_mut = popValue(ctx, &obj_ref);
+        setter_mut = utils.popValue(ctx, &setter_ref);
+        val_mut = utils.popValue(ctx, &val_ref);
+        prop_mut = utils.popValue(ctx, &prop_ref);
+        obj_mut = utils.popValue(ctx, &obj_ref);
         if (arr == null)
             return c.JS_EXCEPTION;
         vt.valueArrayItems(arr.?)[0] = val_mut;
         vt.valueArrayItems(arr.?)[1] = setter_mut;
         val_mut = mc.valueFromPtr(arr.?);
-    } else if (obj_mut == cx(ctx).global_obj) {
+    } else if (obj_mut == mc.ctxExt(ctx).global_obj) {
         prop_type = vt.JS_PROP_VARREF;
-        pushValue(ctx, &obj_ref, obj_mut);
-        pushValue(ctx, &prop_ref, prop_mut);
-        pushValue(ctx, &val_ref, val_mut);
+        utils.pushValue(ctx, &obj_ref, obj_mut);
+        utils.pushValue(ctx, &prop_ref, prop_mut);
+        utils.pushValue(ctx, &val_ref, val_mut);
         const pv: ?*vt.JSVarRefExt = @ptrCast(@alignCast(
             utils.js_malloc(ctx, vt.varRefAllocSize(), mc.JS_MTAG_VARREF),
         ));
-        val_mut = popValue(ctx, &val_ref);
-        prop_mut = popValue(ctx, &prop_ref);
-        obj_mut = popValue(ctx, &obj_ref);
+        val_mut = utils.popValue(ctx, &val_ref);
+        prop_mut = utils.popValue(ctx, &prop_ref);
+        obj_mut = utils.popValue(ctx, &obj_ref);
         if (pv == null)
             return c.JS_EXCEPTION;
         vt.varRefSetDetached(pv.?, true);
@@ -1764,9 +1751,9 @@ pub fn JS_DefinePropertyInternal(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSVa
     } else {
         prop_type = vt.JS_PROP_NORMAL;
     }
-    pushValue(ctx, &val_ref, val_mut);
+    utils.pushValue(ctx, &val_ref, val_mut);
     const created = js_create_property(ctx, obj_mut, prop_mut);
-    val_mut = popValue(ctx, &val_ref);
+    val_mut = utils.popValue(ctx, &val_ref);
     if (created == null)
         return c.JS_EXCEPTION;
     pr = created.?;
@@ -1787,7 +1774,7 @@ pub fn JS_DefinePropertyGetSet(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValu
 }
 
 pub fn add_global_var(ctx: *c.JSContext, prop: c.JSValue, define_flag: c.JS_BOOL) c.JSValue {
-    const p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(cx(ctx).global_obj)));
+    const p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(mc.ctxExt(ctx).global_obj)));
     if (find_own_property(ctx, p, prop)) |pr| {
         if (vt.propType(pr) != vt.JS_PROP_VARREF)
             return utils.JS_ThrowError(ctx, c.JS_CLASS_REFERENCE_ERROR, "global variable '%lo' must be a reference", prop);
@@ -1800,7 +1787,7 @@ pub fn add_global_var(ctx: *c.JSContext, prop: c.JSValue, define_flag: c.JS_BOOL
     }
     return JS_DefinePropertyInternal(
         ctx,
-        cx(ctx).global_obj,
+        mc.ctxExt(ctx).global_obj,
         prop,
         if (define_flag != 0) c.JS_UNDEFINED else c.JS_UNINITIALIZED,
         c.JS_NULL,
@@ -1809,7 +1796,7 @@ pub fn add_global_var(ctx: *c.JSContext, prop: c.JSValue, define_flag: c.JS_BOOL
 }
 
 pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValue, val: c.JSValue, allow_tail_call: c.JS_BOOL) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var p: *mc.JSObjectExt = undefined;
     var is_obj: bool = undefined;
     var this_mut = this_obj;
@@ -1869,11 +1856,11 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
             } else if (idx == p.u.array.len) {
                 var this_obj_ref: c.JSGCRef = undefined;
                 var val_ref: c.JSGCRef = undefined;
-                pushValue(ctx, &this_obj_ref, this_mut);
-                pushValue(ctx, &val_ref, val_mut);
+                utils.pushValue(ctx, &this_obj_ref, this_mut);
+                utils.pushValue(ctx, &val_ref, val_mut);
                 const new_tab = js_resize_value_array(ctx, p.u.array.tab, @intCast(idx + 1));
-                val_mut = popValue(ctx, &val_ref);
-                this_mut = popValue(ctx, &this_obj_ref);
+                val_mut = utils.popValue(ctx, &val_ref);
+                this_mut = utils.popValue(ctx, &this_obj_ref);
                 if (vt.isExactException(new_tab))
                     return c.JS_EXCEPTION;
                 p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
@@ -1896,15 +1883,15 @@ pub fn JS_SetPropertyInternal(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JS
             var conv_ret: c_int = 0;
             var this_obj_ref: c.JSGCRef = undefined;
             var val_ref: c.JSGCRef = undefined;
-            pushValue(ctx, &this_obj_ref, this_mut);
-            pushValue(ctx, &val_ref, val_mut);
+            utils.pushValue(ctx, &this_obj_ref, this_mut);
+            utils.pushValue(ctx, &val_ref, val_mut);
             switch (class_id) {
                 c.JS_CLASS_UINT8C_ARRAY => conv_ret = runtime.JS_ToUint8Clamp(ctx, &v, val_mut),
                 c.JS_CLASS_FLOAT32_ARRAY, c.JS_CLASS_FLOAT64_ARRAY => conv_ret = runtime.JS_ToNumber(ctx, &d, val_mut),
                 else => conv_ret = runtime.JS_ToInt32(ctx, &v, val_mut),
             }
-            val_mut = popValue(ctx, &val_ref);
-            this_mut = popValue(ctx, &this_obj_ref);
+            val_mut = utils.popValue(ctx, &val_ref);
+            this_mut = utils.popValue(ctx, &this_obj_ref);
             if (conv_ret != 0)
                 return c.JS_EXCEPTION;
             p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
@@ -1947,11 +1934,11 @@ fn setPropertyGetSet(ctx: *c.JSContext, this_obj: c.JSValue, val: c.JSValue, all
     const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(pr.value)));
     const setter = vt.valueArrayItems(arr)[1];
     if (allow_tail_call != 0) {
-        var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+        var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
         (sp - 2)[0] = sp[0];
         (sp - 1)[0] = setter;
         sp[0] = val;
-        cx(ctx).sp = @ptrCast(sp - 2);
+        mc.ctxExt(ctx).sp = @ptrCast(sp - 2);
         return vt.newTailCall(1 | vt.FRAME_CF_POP_RET);
     } else {
         var val_ref: c.JSGCRef = undefined;
@@ -1960,13 +1947,13 @@ fn setPropertyGetSet(ctx: *c.JSContext, this_obj: c.JSValue, val: c.JSValue, all
         var val_mut = val;
         var setter_mut = setter;
         var this_mut = this_obj;
-        pushValue(ctx, &val_ref, val_mut);
-        pushValue(ctx, &setter_ref, setter_mut);
-        pushValue(ctx, &this_obj_ref, this_mut);
+        utils.pushValue(ctx, &val_ref, val_mut);
+        utils.pushValue(ctx, &setter_ref, setter_mut);
+        utils.pushValue(ctx, &this_obj_ref, this_mut);
         const err = utils.JS_StackCheck(ctx, 3);
-        this_mut = popValue(ctx, &this_obj_ref);
-        setter_mut = popValue(ctx, &setter_ref);
-        val_mut = popValue(ctx, &val_ref);
+        this_mut = utils.popValue(ctx, &this_obj_ref);
+        setter_mut = utils.popValue(ctx, &setter_ref);
+        val_mut = utils.popValue(ctx, &val_ref);
         if (err != 0)
             return c.JS_EXCEPTION;
         runtime.JS_PushArg(ctx, val_mut);
@@ -2008,13 +1995,13 @@ fn setPropertyOwnAndProto(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValu
                     var this_obj_ref: c.JSGCRef = undefined;
                     var prop_ref: c.JSGCRef = undefined;
                     var val_ref: c.JSGCRef = undefined;
-                    pushValue(ctx, &this_obj_ref, this_mut);
-                    pushValue(ctx, &prop_ref, prop_mut);
-                    pushValue(ctx, &val_ref, val_mut);
+                    utils.pushValue(ctx, &this_obj_ref, this_mut);
+                    utils.pushValue(ctx, &prop_ref, prop_mut);
+                    utils.pushValue(ctx, &val_ref, val_mut);
                     const err = js_update_props(ctx, this_mut);
-                    val_mut = popValue(ctx, &val_ref);
-                    prop_mut = popValue(ctx, &prop_ref);
-                    this_mut = popValue(ctx, &this_obj_ref);
+                    val_mut = utils.popValue(ctx, &val_ref);
+                    prop_mut = utils.popValue(ctx, &prop_ref);
+                    this_mut = utils.popValue(ctx, &this_obj_ref);
                     if (err != 0)
                         return c.JS_EXCEPTION;
                     p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
@@ -2030,13 +2017,13 @@ fn setPropertyOwnAndProto(ctx: *c.JSContext, this_obj: c.JSValue, prop: c.JSValu
                 var this_obj_ref: c.JSGCRef = undefined;
                 var prop_ref: c.JSGCRef = undefined;
                 var val_ref: c.JSGCRef = undefined;
-                pushValue(ctx, &this_obj_ref, this_mut);
-                pushValue(ctx, &prop_ref, prop_mut);
-                pushValue(ctx, &val_ref, val_mut);
+                utils.pushValue(ctx, &this_obj_ref, this_mut);
+                utils.pushValue(ctx, &prop_ref, prop_mut);
+                utils.pushValue(ctx, &val_ref, val_mut);
                 const err = js_update_props(ctx, this_mut);
-                val_mut = popValue(ctx, &val_ref);
-                prop_mut = popValue(ctx, &prop_ref);
-                this_mut = popValue(ctx, &this_obj_ref);
+                val_mut = utils.popValue(ctx, &val_ref);
+                prop_mut = utils.popValue(ctx, &prop_ref);
+                this_mut = utils.popValue(ctx, &this_obj_ref);
                 if (err != 0)
                     return c.JS_EXCEPTION;
                 p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
@@ -2055,13 +2042,13 @@ pub fn JS_SetPropertyStr(ctx: *c.JSContext, this_obj: c.JSValue, str: [*:0]const
     var val_ref: c.JSGCRef = undefined;
     var this_mut = this_obj;
     var val_mut = val;
-    pushValue(ctx, &this_obj_ref, this_mut);
-    pushValue(ctx, &val_ref, val_mut);
+    utils.pushValue(ctx, &this_obj_ref, this_mut);
+    utils.pushValue(ctx, &val_ref, val_mut);
     var prop = JS_NewString(ctx, str);
     if (!vt.isExactException(prop))
         prop = runtime.JS_ToPropertyKey(ctx, prop);
-    val_mut = popValue(ctx, &val_ref);
-    this_mut = popValue(ctx, &this_obj_ref);
+    val_mut = utils.popValue(ctx, &val_ref);
+    this_mut = utils.popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
         return prop;
     return JS_SetPropertyInternal(ctx, this_mut, prop, val_mut, c.FALSE);
@@ -2076,9 +2063,9 @@ pub fn JS_SetPropertyUint32(ctx: *c.JSContext, this_obj: c.JSValue, idx: u32, va
 pub fn JS_DeleteProperty(ctx: *c.JSContext, this_obj: c.JSValue, prop_in: c.JSValue) c.JSValue {
     var this_obj_ref: c.JSGCRef = undefined;
     var this_mut = this_obj;
-    pushValue(ctx, &this_obj_ref, this_mut);
+    utils.pushValue(ctx, &this_obj_ref, this_mut);
     const prop = runtime.JS_ToPropertyKey(ctx, prop_in);
-    this_mut = popValue(ctx, &this_obj_ref);
+    this_mut = utils.popValue(ctx, &this_obj_ref);
     if (vt.isExactException(prop))
         return prop;
     if (!mc.isPtr(this_mut))
@@ -2097,9 +2084,9 @@ pub fn JS_DeleteProperty(ctx: *c.JSContext, this_obj: c.JSValue, prop_in: c.JSVa
         var pr: *vt.JSPropertyExt = @ptrCast(@alignCast(&items[@intCast(idx)]));
         if (pr.key == prop) {
             if (vt.jsIsRomPtr(ctx, arr)) {
-                pushValue(ctx, &this_obj_ref, this_mut);
+                utils.pushValue(ctx, &this_obj_ref, this_mut);
                 const ret = js_update_props(ctx, this_mut);
-                this_mut = popValue(ctx, &this_obj_ref);
+                this_mut = utils.popValue(ctx, &this_obj_ref);
                 if (ret != 0)
                     return c.JS_EXCEPTION;
                 p = @ptrCast(@alignCast(mc.valueToPtr(this_mut)));
@@ -2141,7 +2128,7 @@ pub fn JS_DeleteProperty(ctx: *c.JSContext, this_obj: c.JSValue, prop_in: c.JSVa
 }
 
 pub fn stdlib_init_class(ctx: *c.JSContext, class_def: *const vt.JSROMClassExt) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const ctor_idx = class_def.ctor_idx;
     var obj: c.JSValue = undefined;
     var p: *mc.JSObjectExt = undefined;
@@ -2165,9 +2152,9 @@ pub fn stdlib_init_class(ctx: *c.JSContext, class_def: *const vt.JSROMClassExt) 
         var proto = vt.classProto(x, class_id).*;
         if (mc.isNull(proto)) {
             var parent_class_ref: c.JSGCRef = undefined;
-            pushValue(ctx, &parent_class_ref, parent_class);
+            utils.pushValue(ctx, &parent_class_ref, parent_class);
             proto = JS_NewObjectProtoClass(ctx, parent_proto, c.JS_CLASS_OBJECT, 0);
-            parent_class = popValue(ctx, &parent_class_ref);
+            parent_class = utils.popValue(ctx, &parent_class_ref);
             vt.classProto(x, class_id).* = proto;
         }
         p = @ptrCast(@alignCast(mc.valueToPtr(proto)));
@@ -2196,8 +2183,8 @@ pub fn stdlib_init(ctx: *c.JSContext, arr: *const vt.JSValueArrayExt) void {
         if (JS_IsObject(ctx, val) != 0) {
             val = stdlib_init_class(ctx, @ptrCast(@alignCast(mc.valueToPtr(val))));
         } else if (val == c.JS_NULL) {
-            val = cx(ctx).global_obj;
+            val = mc.ctxExt(ctx).global_obj;
         }
-        _ = JS_DefinePropertyInternal(ctx, cx(ctx).global_obj, name, val, c.JS_NULL, vt.JS_DEF_PROP_HAS_VALUE);
+        _ = JS_DefinePropertyInternal(ctx, mc.ctxExt(ctx).global_obj, name, val, c.JS_NULL, vt.JS_DEF_PROP_HAS_VALUE);
     }
 }

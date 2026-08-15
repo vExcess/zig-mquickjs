@@ -31,15 +31,6 @@ pub fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) callconv(.c)
     js_parse_error_va(s, fmt, @ptrCast(&ap));
 }
 
-fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
-    _ = utils.JS_PushGCRef(ctx, ref);
-    ref.val = val;
-}
-
-fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
-    return utils.JS_PopGCRef(ctx, ref);
-}
-
 fn unicodeFromUtf8(p: [*]const u8, max_len: usize, plen: *usize) c_int {
     if (p[0] < 0x80) {
         plen.* = 1;
@@ -351,9 +342,9 @@ pub fn js_parse_ident(s: *lt.JSParseState, token: *lt.JSToken, ppos: *u32, first
     token.val = lt.TOK_IDENT;
     var val2 = value.string_buffer_pop(ctx, &b);
     var val2_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &val2_ref, val2);
+    utils.pushValue(ctx, &val2_ref, val2);
     const val = value.JS_MakeUniqueString(ctx, val2);
-    val2 = popValue(ctx, &val2_ref);
+    val2 = utils.popValue(ctx, &val2_ref);
     if (lt.isExactException(val))
         js_parse_error_mem(s);
     if (val != val2)

@@ -113,6 +113,14 @@ Step 6f timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 
 Step 6g timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
 
+Step 7a timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 7b timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 7c timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
+Step 7d–7g timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**). No regression.
+
 ---
 
 ## 5. Step index (quick reference)
@@ -132,8 +140,14 @@ Step 6g timing (2026-08-14, ReleaseFast): **real 0.02 s** (softfloat: **0.02 s**
 | **6e** | `mquickjs_runtime_lib.zig` — replace 46 `extern fn` with `@import` (`utils`, `gc`, `value`, `builtins`); `js_lrint`/`js_fmod`/`js_pow` stay extern; `@call(.never_inline)` shims for `js_get_short_float`/`JS_NewInt32`/`JS_NewUint32`; C-equivalent `intFromFloat`/`JS_ToUint32` (**done**) |
 | **6f** | `mquickjs_parser_lib.zig` — replace 40 `extern fn` with `@import` (`lexer`, `value`, `utils`, `runtime`, `builtins`, `dtoa`); `opcode_info` → `rt.opcode_info_data`; only `setjmp` stays extern (**done**) |
 | **6g** | `mquickjs_builtins_lib.zig` — replace 86 `extern fn` with `@import` (`parser`, `lexer`, `value`, `runtime`); `js_pow`/`js_atan2` stay extern (libm); type casts for string_buffer/`js_function_get_length_name1`; rename shadowing params in regexp capture helpers (**done**) |
-| **7a–7g** | Deduplicate `pushValue` / `cx` / `get_u32` boilerplate (next) |
-| **8a–8i** | Internal idiomatic cleanup (split large `_lib` files) |
+| **7a** | Shared `get_u8`/`get_u16`/`get_u32`/`put_u16`/`put_u32` in `mquickjs_internal.zig`; shared `pushValue`/`popValue` in `mquickjs_utils_lib.zig`; migrate `mquickjs_gc_lib.zig` — remove local `cx`, use `mc.ctxExt` (**done**) |
+| **7b** | Migrate `mquickjs_lexer_lib.zig` — remove local `pushValue`/`popValue`, use `utils.pushValue`/`utils.popValue` (**done**) |
+| **7c** | Migrate `mquickjs_value_lib.zig` — remove local `cx`/`pushValue`/`popValue`, use `mc.ctxExt` and `utils.pushValue`/`utils.popValue` (**done**) |
+| **7d** | Migrate `mquickjs_runtime_lib.zig` — remove local `cx`/`pushValue`/`popValue`/`get_u16`/`get_u32`, use shared helpers (**done**) |
+| **7e** | Migrate `mquickjs_parser_lib.zig` — remove local `cx`/`pushValue`/`popValue`/byte readers, use shared helpers (**done**) |
+| **7f** | Migrate `mquickjs_builtins_lib.zig` — remove local `cx`/`pushValue`/`popValue`/byte readers, use shared helpers (**done**) |
+| **7g** | Migrate `mquickjs_utils_lib.zig` — remove local `cx`, use `mc.ctxExt` (**done**) |
+| **8a–8i** | Internal idiomatic cleanup (split large `_lib` files) (**next: 8a**) |
 | **9a–9b** | Optional: reduce internal `@cImport` |
 | **10** | Update `handoff.md` and `README.md` |
 

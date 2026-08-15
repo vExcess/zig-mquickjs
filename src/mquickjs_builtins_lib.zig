@@ -30,19 +30,6 @@ const runtime = @import("mquickjs_runtime_lib.zig");
 extern fn js_pow(x: f64, y: f64) f64;
 extern fn js_atan2(y: f64, x: f64) f64;
 
-fn cx(ctx: *c.JSContext) *mc.JSContextExt {
-    return mc.ctxExt(ctx);
-}
-
-fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
-    _ = utils.JS_PushGCRef(ctx, ref);
-    ref.val = val;
-}
-
-fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
-    return utils.JS_PopGCRef(ctx, ref);
-}
-
 fn throwTypeError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
     return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, msg);
 }
@@ -89,18 +76,6 @@ fn unicode_is_space_non_ascii(ch: u32) bool {
 fn unicode_is_space(ch: u32) bool {
     if (ch < 128) return unicode_is_space_ascii(ch);
     return unicode_is_space_non_ascii(ch);
-}
-
-fn get_u16(p: [*]const u8) u32 {
-    return @as(*align(1) const u16, @ptrCast(p)).*;
-}
-
-fn get_u32(p: [*]const u8) u32 {
-    return @as(*align(1) const u32, @ptrCast(p)).*;
-}
-
-fn put_u32(p: [*]u8, val: u32) void {
-    @as(*align(1) u32, @ptrCast(p)).* = val;
 }
 
 fn float64AsUint64(d: f64) u64 {
@@ -189,12 +164,12 @@ pub fn js_function_get_prototype(ctx: *c.JSContext, this_val: *c.JSValue, argc: 
         } else {
             return throwTypeError(ctx, "not a function");
         }
-        pushValue(ctx, &obj_ref, obj);
+        utils.pushValue(ctx, &obj_ref, obj);
         _ = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_constructor), this_val.*);
-        obj = popValue(ctx, &obj_ref);
-        pushValue(ctx, &obj_ref, obj);
+        obj = utils.popValue(ctx, &obj_ref);
+        utils.pushValue(ctx, &obj_ref, obj);
         _ = value.JS_DefinePropertyValue(ctx, this_val.*, utils.js_get_atom(ctx, c.JS_ATOM_prototype), obj);
-        obj = popValue(ctx, &obj_ref);
+        obj = utils.popValue(ctx, &obj_ref);
     }
     return obj;
 }
@@ -222,13 +197,13 @@ pub fn js_function_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     var str = js_function_get_length_name(ctx, this_val, 0, argv, 1);
     if (vt.isExactException(str))
         return str;
-    pushValue(ctx, &str_ref, str);
+    utils.pushValue(ctx, &str_ref, str);
     const val = value.JS_NewString(ctx, "function ");
-    str = popValue(ctx, &str_ref);
+    str = utils.popValue(ctx, &str_ref);
     str = value.JS_ConcatString(ctx, val, str);
-    pushValue(ctx, &str_ref, str);
+    utils.pushValue(ctx, &str_ref, str);
     const val2 = value.JS_NewString(ctx, "() {\n    [native code]\n}");
-    str = popValue(ctx, &str_ref);
+    str = utils.popValue(ctx, &str_ref);
     _ = argc;
     return value.JS_ConcatString(ctx, str, val2);
 }
@@ -286,9 +261,9 @@ pub fn js_function_bound(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     var params_ref: c.JSGCRef = undefined;
     var arr = valueArr(params);
     const size = vt.valueArraySize(arr);
-    pushValue(ctx, &params_ref, params);
+    utils.pushValue(ctx, &params_ref, params);
     const err = utils.JS_StackCheck(ctx, @intCast(size + argc));
-    _ = popValue(ctx, &params_ref);
+    _ = utils.popValue(ctx, &params_ref);
     if (err != 0)
         return c.JS_EXCEPTION;
     const argc2 = size - 2 + argc;
@@ -779,9 +754,9 @@ pub fn js_object_defineProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
     }
     if (value.JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get)) != 0) {
         flags |= vt.JS_DEF_PROP_HAS_GET;
-        pushValue(ctx, &val_ref, val);
+        utils.pushValue(ctx, &val_ref, val);
         getter = value.JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_get));
-        val = popValue(ctx, &val_ref);
+        val = utils.popValue(ctx, &val_ref);
         if (vt.isExactException(getter))
             return c.JS_EXCEPTION;
         if (!vt.isUndefined(getter) and value.JS_IsFunction(ctx, getter) == 0)
@@ -789,11 +764,11 @@ pub fn js_object_defineProperty(ctx: *c.JSContext, this_val: *c.JSValue, argc: c
     }
     if (value.JS_HasProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set)) != 0) {
         flags |= vt.JS_DEF_PROP_HAS_SET;
-        pushValue(ctx, &val_ref, val);
-        pushValue(ctx, &getter_ref, getter);
+        utils.pushValue(ctx, &val_ref, val);
+        utils.pushValue(ctx, &getter_ref, getter);
         setter = value.JS_GetProperty(ctx, pdesc.*, utils.js_get_atom(ctx, c.JS_ATOM_set));
-        getter = popValue(ctx, &getter_ref);
-        val = popValue(ctx, &val_ref);
+        getter = utils.popValue(ctx, &getter_ref);
+        val = utils.popValue(ctx, &val_ref);
         if (vt.isExactException(setter))
             return c.JS_EXCEPTION;
         if (!vt.isUndefined(setter) and value.JS_IsFunction(ctx, setter) == 0)
@@ -891,9 +866,9 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
     var pos: c_int = 0;
     var i: c_int = 0;
     while (i < array_len) : (i += 1) {
-        pushValue(ctx, &ret_ref, ret);
+        utils.pushValue(ctx, &ret_ref, ret);
         const str = runtime.JS_ToString(ctx, vt.newShortInt(i));
-        ret = popValue(ctx, &ret_ref);
+        ret = utils.popValue(ctx, &ret_ref);
         if (vt.isExactException(str))
             return str;
         const pret = objPtr(ret);
@@ -909,9 +884,9 @@ pub fn js_object_keys(ctx: *c.JSContext, this_val: ?*c.JSValue, argc: c_int, arg
         arr = valueArr(p.props);
         const pr: *vt.JSPropertyExt = @ptrCast(@alignCast(&vt.valueArrayItems(arr)[@intCast(2 + hash_mask + 1 + 3 * i)]));
         if (pr.key != c.JS_UNINITIALIZED) {
-            pushValue(ctx, &ret_ref, ret);
+            utils.pushValue(ctx, &ret_ref, ret);
             const str = runtime.JS_ToString(ctx, pr.key);
-            ret = popValue(ctx, &ret_ref);
+            ret = utils.popValue(ctx, &ret_ref);
             if (vt.isExactException(str))
                 return str;
             const pret = objPtr(ret);
@@ -994,7 +969,7 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     _ = argc & ~c.FRAME_CF_CTOR;
     var obj_ref: c.JSGCRef = undefined;
 
-    var obj = value.JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), magic).*, c.JS_CLASS_ERROR, @intCast(@sizeOf(mc.JSErrorDataExt)));
+    var obj = value.JS_NewObjectProtoClass(ctx, vt.classProto(mc.ctxExt(ctx), magic).*, c.JS_CLASS_ERROR, @intCast(@sizeOf(mc.JSErrorDataExt)));
     if (vt.isExactException(obj))
         return obj;
     var p = objPtr(obj);
@@ -1002,9 +977,9 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     rt.objectError(p).stack = c.JS_NULL;
 
     if (!vt.isUndefined(argv[0])) {
-        pushValue(ctx, &obj_ref, obj);
+        utils.pushValue(ctx, &obj_ref, obj);
         const msg = runtime.JS_ToString(ctx, argv[0]);
-        obj = popValue(ctx, &obj_ref);
+        obj = utils.popValue(ctx, &obj_ref);
         if (vt.isExactException(msg))
             return msg;
         p = objPtr(obj);
@@ -1013,9 +988,9 @@ pub fn js_error_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
         p = objPtr(obj);
         rt.objectError(p).message = utils.js_get_atom(ctx, c.JS_ATOM_empty);
     }
-    pushValue(ctx, &obj_ref, obj);
+    utils.pushValue(ctx, &obj_ref, obj);
     runtime.build_backtrace(ctx, obj, null, 0, 0, 1);
-    obj = popValue(ctx, &obj_ref);
+    obj = utils.popValue(ctx, &obj_ref);
     return obj;
 }
 
@@ -1224,7 +1199,7 @@ pub fn js_array_join(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     } else {
         sep = value.JS_NewStringChar(',');
     }
-    pushValue(ctx, &sep_ref, sep);
+    utils.pushValue(ctx, &sep_ref, sep);
 
     _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
     var failed = false;
@@ -1260,11 +1235,11 @@ pub fn js_array_join(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     }
     if (failed) {
         _ = value.string_buffer_pop(ctx, @ptrCast(&b));
-        _ = popValue(ctx, &sep_ref);
+        _ = utils.popValue(ctx, &sep_ref);
         return c.JS_EXCEPTION;
     }
     const val = value.string_buffer_pop(ctx, @ptrCast(&b));
-    _ = popValue(ctx, &sep_ref);
+    _ = utils.popValue(ctx, &sep_ref);
     return val;
 }
 
@@ -1447,9 +1422,9 @@ pub fn js_array_splice(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 @intCast(len - (start + del_count)),
             );
         }
-        pushValue(ctx, &obj_ref, obj);
+        utils.pushValue(ctx, &obj_ref, obj);
         const ret = js_array_resize(ctx, this_val, new_len);
-        obj = popValue(ctx, &obj_ref);
+        obj = utils.popValue(ctx, &obj_ref);
         if (ret != 0)
             return c.JS_EXCEPTION;
         p = objPtr(this_val.*);
@@ -1504,7 +1479,7 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     };
     var n: c_int = 0;
 
-    pushValue(ctx, &ret_ref, ret);
+    utils.pushValue(ctx, &ret_ref, ret);
     var k: c_int = 0;
     while (k < len) : (k += 1) {
         if (utils.JS_StackCheck(ctx, 5) != 0) {
@@ -1523,9 +1498,9 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
         runtime.JS_PushArg(ctx, val);
         runtime.JS_PushArg(ctx, pfunc.*);
         runtime.JS_PushArg(ctx, if (pthis_arg) |pa| pa.* else c.JS_UNDEFINED);
-        pushValue(ctx, &val_ref, val);
+        utils.pushValue(ctx, &val_ref, val);
         var res = runtime.JS_Call(ctx, 3);
-        val = popValue(ctx, &val_ref);
+        val = utils.popValue(ctx, &val_ref);
         if (vt.isExactException(res)) {
             ret_ref.val = c.JS_EXCEPTION;
             break;
@@ -1564,7 +1539,7 @@ pub fn js_array_every(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
             else => {},
         }
     }
-    ret = popValue(ctx, &ret_ref);
+    ret = utils.popValue(ctx, &ret_ref);
     return ret;
 }
 
@@ -1591,9 +1566,9 @@ pub fn js_array_reduce(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
         k += 1;
     }
     while (k < len) : (k += 1) {
-        pushValue(ctx, &acc_ref, acc);
+        utils.pushValue(ctx, &acc_ref, acc);
         const ret = utils.JS_StackCheck(ctx, 6);
-        acc = popValue(ctx, &acc_ref);
+        acc = utils.popValue(ctx, &acc_ref);
         if (ret != 0)
             return c.JS_EXCEPTION;
 
@@ -1710,9 +1685,9 @@ pub fn js_array_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: *anyopaque) c_int
             }
             var str2 = vt.valueArrayItems(arr)[2 * idx2];
             if (value.JS_IsString(ctx, str2) == 0) {
-                pushValue(ctx, &str1_ref, str1);
+                utils.pushValue(ctx, &str1_ref, str1);
                 str2 = runtime.JS_ToString(ctx, str2);
-                str1 = popValue(ctx, &str1_ref);
+                str1 = utils.popValue(ctx, &str1_ref);
                 if (vt.isExactException(str2)) {
                     s.exception = 1;
                     return 0;
@@ -1774,13 +1749,13 @@ pub fn js_array_sort(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv:
     }
     var tab_val = mc.valueFromPtr(tab);
 
-    pushValue(ctx, &tab_val_ref, tab_val);
+    utils.pushValue(ctx, &tab_val_ref, tab_val);
     s.ctx = ctx;
     s.exception = 0;
     s.parr = &tab_val_ref.val;
     s.pfunc = pfunc;
     rqsort_idx(@intCast(n), js_array_sort_cmp, js_array_sort_swap, @ptrCast(s));
-    tab_val = popValue(ctx, &tab_val_ref);
+    tab_val = utils.popValue(ctx, &tab_val_ref);
     tab = valueArr(tab_val);
     if (s.exception != 0) {
         utils.js_free(ctx, tab);
@@ -1954,7 +1929,7 @@ pub fn js_math_random(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
     _ = this_val;
     _ = argc;
     _ = argv;
-    const v = xorshift64star(&cx(ctx).random_state);
+    const v = xorshift64star(&mc.ctxExt(ctx).random_state);
     // 1.0 <= u.d < 2
     const d = uint64AsFloat64((@as(u64, 0x3ff) << 52) | (v >> 12));
     return value.__JS_NewFloat64(ctx, d - 1.0);
@@ -1983,9 +1958,9 @@ pub fn js_array_buffer_alloc(ctx: *c.JSContext, len: u64) c.JSValue {
     @memset(vt.byteArrayBuf(arr)[0..@intCast(len)], 0);
     var buffer = mc.valueFromPtr(arr);
     var buffer_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &buffer_ref, buffer);
+    utils.pushValue(ctx, &buffer_ref, buffer);
     const obj = value.JS_NewObjectClass(ctx, c.JS_CLASS_ARRAY_BUFFER, @intCast(@sizeOf(mc.JSArrayBufferExt)));
-    buffer = popValue(ctx, &buffer_ref);
+    buffer = utils.popValue(ctx, &buffer_ref);
     if (vt.isExactException(obj))
         return obj;
     const p = objPtr(obj);
@@ -2047,14 +2022,14 @@ pub fn js_typed_array_constructor_obj(ctx: *c.JSContext, this_val: *c.JSValue, a
 
     i = 0;
     while (i < len) : (i += 1) {
-        pushValue(ctx, &obj_ref, obj);
+        utils.pushValue(ctx, &obj_ref, obj);
         val = value.JS_GetProperty(ctx, argv[0], vt.newShortInt(i));
-        obj = popValue(ctx, &obj_ref);
+        obj = utils.popValue(ctx, &obj_ref);
         if (vt.isExactException(val))
             return val;
-        pushValue(ctx, &obj_ref, obj);
+        utils.pushValue(ctx, &obj_ref, obj);
         val = value.JS_SetPropertyInternal(ctx, obj, vt.newShortInt(i), val, 0);
-        obj = popValue(ctx, &obj_ref);
+        obj = utils.popValue(ctx, &obj_ref);
         if (vt.isExactException(val))
             return val;
     }
@@ -2110,9 +2085,9 @@ pub fn js_typed_array_constructor(ctx: *c.JSContext, this_val: ?*c.JSValue, argc
         }
     }
 
-    pushValue(ctx, &buffer_ref, buffer);
+    utils.pushValue(ctx, &buffer_ref, buffer);
     obj = value.JS_NewObjectClass(ctx, magic, @intCast(@sizeOf(mc.JSTypedArrayExt)));
-    buffer = popValue(ctx, &buffer_ref);
+    buffer = utils.popValue(ctx, &buffer_ref);
     if (vt.isExactException(obj))
         return obj;
     p = objPtr(obj);
@@ -2314,7 +2289,7 @@ pub fn js_to_quoted_string(ctx: *c.JSContext, b: *vt.StringBuffer, str: c.JSValu
     var str_ref: c.JSGCRef = undefined;
     var clen: usize = undefined;
 
-    pushValue(ctx, &str_ref, str);
+    utils.pushValue(ctx, &str_ref, str);
     _ = value.string_buffer_putc(ctx, @ptrCast(b), '"');
 
     while (true) {
@@ -2367,12 +2342,12 @@ pub fn js_to_quoted_string(ctx: *c.JSContext, b: *vt.StringBuffer, str: c.JSValu
         }
     }
     _ = value.string_buffer_putc(ctx, @ptrCast(b), '"');
-    _ = popValue(ctx, &str_ref);
+    _ = utils.popValue(ctx, &str_ref);
     return 0;
 }
 
 pub fn check_circular_ref(ctx: *c.JSContext, stack_top: [*]c.JSValue, val: c.JSValue) c_int {
-    var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     while (@intFromPtr(sp) < @intFromPtr(stack_top)) {
         if (sp[0] == val) {
             _ = throwTypeError(ctx, "circular reference");
@@ -2392,31 +2367,31 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
     var ret: c_int = undefined;
 
     _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
-    const stack_top: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const stack_top: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
 
     ret = utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
     if (ret != 0) {
-        cx(ctx).sp = @ptrCast(stack_top);
+        mc.ctxExt(ctx).sp = @ptrCast(stack_top);
         _ = value.string_buffer_pop(ctx, @ptrCast(&b));
         return c.JS_EXCEPTION;
     }
     {
-        var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+        var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
         sp -= 1;
         sp[0] = c.JS_NULL; // keys
         sp -= 1;
         sp[0] = vt.newShortInt(0); // prop index
         sp -= 1;
         sp[0] = argv[0]; // object
-        cx(ctx).sp = @ptrCast(sp);
+        mc.ctxExt(ctx).sp = @ptrCast(sp);
     }
 
-    stringify: while (@intFromPtr(cx(ctx).sp) < @intFromPtr(stack_top)) {
-        const sp0: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    stringify: while (@intFromPtr(mc.ctxExt(ctx).sp) < @intFromPtr(stack_top)) {
+        const sp0: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
         const obj = sp0[0];
         if (value.JS_IsFunction(ctx, obj) != 0) {
             _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
-            cx(ctx).sp = @ptrCast(sp0 + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+            mc.ctxExt(ctx).sp = @ptrCast(sp0 + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         } else if (value.JS_IsObject(ctx, obj) != 0) {
             var p = objPtr(obj);
             idx = vt.valueGetInt(sp0[1]);
@@ -2424,32 +2399,32 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 // array
                 if (idx == 0)
                     _ = value.string_buffer_putc(ctx, @ptrCast(&b), '[');
-                p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0]);
+                p = objPtr(@as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[0]);
                 if (idx >= @as(c_int, @intCast(p.u.array.len))) {
                     // end of array
                     _ = value.string_buffer_putc(ctx, @ptrCast(&b), ']');
-                    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-                    cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+                    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
                 } else {
                     if (idx != 0)
                         _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
-                    @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[1] = vt.newShortInt(idx + 1);
+                    @as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[1] = vt.newShortInt(idx + 1);
                     ret = utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
                     if (ret != 0)
                         break :stringify;
-                    p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0]);
+                    p = objPtr(@as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[0]);
                     const arr = valueArr(p.u.array.tab);
                     const val = vt.valueArrayItems(arr)[@intCast(idx)];
                     if (check_circular_ref(ctx, stack_top, val) != 0)
                         break :stringify;
-                    var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+                    var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
                     sp -= 1;
                     sp[0] = c.JS_NULL;
                     sp -= 1;
                     sp[0] = vt.newShortInt(0);
                     sp -= 1;
                     sp[0] = val;
-                    cx(ctx).sp = @ptrCast(sp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp);
                 }
             } else {
                 var val: c.JSValue = undefined;
@@ -2460,7 +2435,7 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 if (idx == 0) {
                     _ = value.string_buffer_putc(ctx, @ptrCast(&b), '{');
                     var dummy_this: c.JSValue = undefined;
-                    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+                    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
                     sp[2] = js_object_keys(ctx, &dummy_this, 1, sp);
                     if (vt.isExactException(sp[2]))
                         break :stringify;
@@ -2468,17 +2443,17 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 saved_idx = idx;
                 var found = false;
                 while (true) {
-                    p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[2]); // keys
+                    p = objPtr(@as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[2]); // keys
                     if (idx >= @as(c_int, @intCast(p.u.array.len))) {
                         // end of object
                         _ = value.string_buffer_putc(ctx, @ptrCast(&b), '}');
-                        const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-                        cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+                        const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
                         break;
                     } else {
                         const arr = valueArr(p.u.array.tab);
                         const prop = runtime.JS_ToPropertyKey(ctx, vt.valueArrayItems(arr)[@intCast(idx)]);
-                        val = value.JS_GetProperty(ctx, @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[0], prop);
+                        val = value.JS_GetProperty(ctx, @as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[0], prop);
                         if (vt.isExactException(val))
                             break :stringify;
                         // skip undefined properties
@@ -2490,28 +2465,28 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                     }
                 }
                 if (found) {
-                    pushValue(ctx, &val_ref, val);
+                    utils.pushValue(ctx, &val_ref, val);
                     if (saved_idx != 0)
                         _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
-                    @as([*]c.JSValue, @ptrCast(cx(ctx).sp))[1] = vt.newShortInt(idx + 1);
-                    p = objPtr(@as([*]c.JSValue, @ptrCast(cx(ctx).sp))[2]);
+                    @as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[1] = vt.newShortInt(idx + 1);
+                    p = objPtr(@as([*]c.JSValue, @ptrCast(mc.ctxExt(ctx).sp))[2]);
                     const arr = valueArr(p.u.array.tab);
                     ret = js_to_quoted_string(ctx, &b, vt.valueArrayItems(arr)[@intCast(idx)]);
                     _ = value.string_buffer_putc(ctx, @ptrCast(&b), ':');
                     ret |= utils.JS_StackCheck(ctx, @intCast(bt.JSON_REC_SIZE));
-                    val = popValue(ctx, &val_ref);
+                    val = utils.popValue(ctx, &val_ref);
                     if (ret != 0)
                         break :stringify;
                     if (check_circular_ref(ctx, stack_top, val) != 0)
                         break :stringify;
-                    var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+                    var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
                     sp -= 1;
                     sp[0] = c.JS_NULL;
                     sp -= 1;
                     sp[0] = vt.newShortInt(0);
                     sp -= 1;
                     sp[0] = val;
-                    cx(ctx).sp = @ptrCast(sp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp);
                 }
             }
         } else if (value.JS_IsNumber(ctx, obj) != 0) {
@@ -2521,43 +2496,39 @@ pub fn js_json_stringify(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 break :stringify;
             if (!std.math.isFinite(d)) {
                 _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
-                const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-                cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+                const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+                mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
             } else {
                 if (value.string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
                     break :stringify;
-                const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-                cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+                const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+                mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
             }
         } else if (rt.valueGetSpecialTag(obj) == c.JS_TAG_BOOL) {
             if (value.string_buffer_concat(ctx, @ptrCast(&b), obj) != 0)
                 break :stringify;
-            const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-            cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+            const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+            mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         } else if (value.JS_IsString(ctx, obj) != 0) {
             if (js_to_quoted_string(ctx, &b, obj) != 0)
                 break :stringify;
-            const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-            cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+            const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+            mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         } else {
             _ = value.string_buffer_concat(ctx, @ptrCast(&b), utils.js_get_atom(ctx, c.JS_ATOM_null));
-            const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
-            cx(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
+            const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+            mc.ctxExt(ctx).sp = @ptrCast(sp + @as(usize, @intCast(bt.JSON_REC_SIZE)));
         }
     } else {
         return value.string_buffer_pop(ctx, @ptrCast(&b));
     }
 
-    cx(ctx).sp = @ptrCast(stack_top);
+    mc.ctxExt(ctx).sp = @ptrCast(stack_top);
     _ = value.string_buffer_pop(ctx, @ptrCast(&b));
     return c.JS_EXCEPTION;
 }
 // ********************************************************************
 // regexp
-
-fn put_u16(p: [*]u8, val: u16) void {
-    @as(*align(1) u16, @ptrCast(p)).* = val;
-}
 
 fn get_u64(p: [*]const u8) u64 {
     return @as(*align(1) const u64, @ptrCast(p)).*;
@@ -2600,7 +2571,7 @@ fn lre_get_alloc_count(bc_buf: [*]const u8) c_int {
 }
 
 fn lre_get_flags(bc_buf: [*]const u8) c_int {
-    return @intCast(get_u16(bc_buf + bt.RE_HEADER_FLAGS));
+    return @intCast(mc.get_u16(bc_buf + bt.RE_HEADER_FLAGS));
 }
 
 fn re_emit_op(s: *JSParseState, op: c_int) void {
@@ -2694,7 +2665,7 @@ fn re_need_check_adv_and_capture_init(pneed_capture_init: *bool, bc_buf: [*]cons
                 need_check_adv = false;
             },
             REOP.range => {
-                const val = get_u16(bc_buf + @as(usize, @intCast(pos + 1)));
+                const val = mc.get_u16(bc_buf + @as(usize, @intCast(pos + 1)));
                 len += @intCast(val * 8);
                 need_check_adv = false;
             },
@@ -2844,7 +2815,7 @@ fn re_emit_range_base(s: *JSParseState, ch: c_int) void {
 
 fn range_sort_cmp(idx1: usize, idx2: usize, opaque_ptr: ?*anyopaque) c_int {
     const tab: [*]u8 = @ptrCast(opaque_ptr.?);
-    return @bitCast(get_u32(tab + 8 * idx1) -% get_u32(tab + 8 * idx2));
+    return @bitCast(mc.get_u32(tab + 8 * idx1) -% mc.get_u32(tab + 8 * idx2));
 }
 
 fn range_sort_swap(idx1: usize, idx2: usize, opaque_ptr: ?*anyopaque) void {
@@ -2858,24 +2829,24 @@ fn range_compress(tab: [*]u8, len: c_int) c_int {
     var i: c_int = 0;
     var j: c_int = 0;
     while (i < len) {
-        const start = get_u32(tab + @as(usize, @intCast(8 * i)));
-        const end = get_u32(tab + @as(usize, @intCast(8 * i + 4)));
+        const start = mc.get_u32(tab + @as(usize, @intCast(8 * i)));
+        const end = mc.get_u32(tab + @as(usize, @intCast(8 * i + 4)));
         if (start == end) {
             // empty interval : remove
         } else if ((i + 1) < len) {
-            const start2 = get_u32(tab + @as(usize, @intCast(8 * i + 8)));
-            const end2 = get_u32(tab + @as(usize, @intCast(8 * i + 12)));
+            const start2 = mc.get_u32(tab + @as(usize, @intCast(8 * i + 8)));
+            const end2 = mc.get_u32(tab + @as(usize, @intCast(8 * i + 12)));
             if (end < start2) {
-                put_u32(tab + @as(usize, @intCast(8 * j)), start);
-                put_u32(tab + @as(usize, @intCast(8 * j + 4)), end);
+                mc.put_u32(tab + @as(usize, @intCast(8 * j)), start);
+                mc.put_u32(tab + @as(usize, @intCast(8 * j + 4)), end);
                 j += 1;
             } else {
-                put_u32(tab + @as(usize, @intCast(8 * i + 8)), start);
-                put_u32(tab + @as(usize, @intCast(8 * i + 12)), maxUint32(end, end2));
+                mc.put_u32(tab + @as(usize, @intCast(8 * i + 8)), start);
+                mc.put_u32(tab + @as(usize, @intCast(8 * i + 12)), maxUint32(end, end2));
             }
         } else {
-            put_u32(tab + @as(usize, @intCast(8 * j)), start);
-            put_u32(tab + @as(usize, @intCast(8 * j + 4)), end);
+            mc.put_u32(tab + @as(usize, @intCast(8 * j)), start);
+            mc.put_u32(tab + @as(usize, @intCast(8 * j + 4)), end);
             j += 1;
         }
         i += 1;
@@ -2894,7 +2865,7 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
     if (invert) {
         parser.emit_insert(s, range_start, 4);
         arr = byteArr(s.byte_code);
-        put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start)), 0);
+        mc.put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start)), 0);
         parser.emit_u32(s, 0x110000);
         arr = byteArr(s.byte_code);
         n = n1 + 1;
@@ -2908,15 +2879,15 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
 
     if (n > 0 and n < 16) {
         const tab = vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start));
-        var ch: u32 = get_u32(tab + @as(usize, @intCast(8 * (n - 1) + 4)));
+        var ch: u32 = mc.get_u32(tab + @as(usize, @intCast(8 * (n - 1) + 4)));
         if (ch < 254 or (ch == 0x110000 and
-            get_u32(tab + @as(usize, @intCast(8 * (n - 1)))) < 254))
+            mc.get_u32(tab + @as(usize, @intCast(8 * (n - 1)))) < 254))
         {
             s.byte_code_len = @intCast(range_start - 3);
             re_emit_op_u8(s, REOP.range8, @intCast(n));
             var i: c_int = 0;
             while (i < 2 * n) : (i += 1) {
-                ch = get_u32(tab + @as(usize, @intCast(4 * i)));
+                ch = mc.get_u32(tab + @as(usize, @intCast(4 * i)));
                 if (ch == 0x110000)
                     ch = 0xff;
                 parser.emit_u8(s, @intCast(ch));
@@ -2925,7 +2896,7 @@ fn re_range_optimize(s: *JSParseState, range_start: c_int, invert: bool) void {
         }
     }
 
-    put_u16(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start - 2)), @intCast(n));
+    mc.put_u16(vt.byteArrayBuf(arr) + @as(usize, @intCast(range_start - 2)), @intCast(n));
 }
 
 fn add_interval_intersect(s: *JSParseState, start_in: u32, end_in: u32, start1: u32, end1: u32, offset: i32) void {
@@ -3098,7 +3069,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
             arr = byteArr(s.byte_code);
             const buf = vt.byteArrayBuf(arr);
             buf[@intCast(last_atom_start)] = @intCast(REOP.split_goto_first + @as(c_int, @intFromBool(greedy)));
-            put_u32(buf + @as(usize, @intCast(last_atom_start + 1)), @intCast(len + 5 * @as(c_int, @intFromBool(has_goto)) + @as(c_int, @intFromBool(add_zero_advance_check)) * 4));
+            mc.put_u32(buf + @as(usize, @intCast(last_atom_start + 1)), @intCast(len + 5 * @as(c_int, @intFromBool(has_goto)) + @as(c_int, @intFromBool(add_zero_advance_check)) * 4));
             if (add_zero_advance_check) {
                 buf[@intCast(last_atom_start + 1 + 4)] = @intCast(REOP.set_char_pos);
                 buf[@intCast(last_atom_start + 1 + 4 + 1)] = 0;
@@ -3113,13 +3084,13 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
             const buf = vt.byteArrayBuf(arr);
             buf[@intCast(pos)] = @intCast(REOP.split_goto_first + @as(c_int, @intFromBool(greedy)));
             pos += 1;
-            put_u32(buf + @as(usize, @intCast(pos)), @intCast(6 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2 + len + 10));
+            mc.put_u32(buf + @as(usize, @intCast(pos)), @intCast(6 + @as(c_int, @intFromBool(add_zero_advance_check)) * 2 + len + 10));
             pos += 4;
             buf[@intCast(pos)] = @intCast(REOP.set_i32);
             pos += 1;
             buf[@intCast(pos)] = 0;
             pos += 1;
-            put_u32(buf + @as(usize, @intCast(pos)), @bitCast(quant_max));
+            mc.put_u32(buf + @as(usize, @intCast(pos)), @bitCast(quant_max));
             pos += 4;
             last_atom_start = pos;
             if (add_zero_advance_check) {
@@ -3142,7 +3113,7 @@ fn re_parse_quantifier(s: *JSParseState, last_atom_start_in: c_int, last_capture
         pos += 1;
         buf[@intCast(pos)] = 0;
         pos += 1;
-        put_u32(buf + @as(usize, @intCast(pos)), @bitCast(quant_max));
+        mc.put_u32(buf + @as(usize, @intCast(pos)), @bitCast(quant_max));
         pos += 4;
         last_atom_start = pos;
         if (add_zero_advance_check) {
@@ -3315,7 +3286,7 @@ pub fn re_parse_alternative(s: *JSParseState, state: c_int, dummy_param: c_int) 
             re_parse_expect(s, ')');
             re_emit_op(s, REOP.lookahead_match + is_neg);
             const arr = byteArr(s.byte_code);
-            put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(pos)), @intCast(s.byte_code_len - @as(u32, @intCast(pos + 4))));
+            mc.put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(pos)), @intCast(s.byte_code_len - @as(u32, @intCast(pos + 4))));
             continue :sw 101;
         },
         2 => {
@@ -3410,7 +3381,7 @@ pub fn re_parse_disjunction(s: *JSParseState, state: c_int, dummy_param: c_int) 
             parser.emit_insert(s, start, 5);
             const arr = byteArr(s.byte_code);
             vt.byteArrayBuf(arr)[@intCast(start)] = @intCast(REOP.split_next_first);
-            put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(start + 1)), @intCast(len + 5));
+            mc.put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(start + 1)), @intCast(len + 5));
             const pos = re_emit_op_u32(s, REOP.goto, 0);
             parsePushInt(s, start);
             parsePushInt(s, pos);
@@ -3421,7 +3392,7 @@ pub fn re_parse_disjunction(s: *JSParseState, state: c_int, dummy_param: c_int) 
             start = parsePopInt(s);
             const len: c_int = @intCast(s.byte_code_len - @as(u32, @intCast(pos + 4)));
             const arr = byteArr(s.byte_code);
-            put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(pos)), @bitCast(len));
+            mc.put_u32(vt.byteArrayBuf(arr) + @as(usize, @intCast(pos)), @bitCast(len));
             continue :sw 100;
         },
         else => unreachable,
@@ -3462,7 +3433,7 @@ fn re_compute_register_count(s: *JSParseState, bc_buf: [*]u8, bc_buf_len: c_int)
                 len += @intCast(val * 2);
             },
             REOP.range => {
-                const val = get_u16(bc_buf + @as(usize, @intCast(pos + 1)));
+                const val = mc.get_u16(bc_buf + @as(usize, @intCast(pos + 1)));
                 len += @intCast(val * 8);
             },
             REOP.back_reference, REOP.back_reference_i => {
@@ -3606,7 +3577,7 @@ fn lreRelocate(st: *LreState, saved_pc: c_int, saved_cptr: c_int) void {
 
 fn lrePollInterrupt(st: *LreState) c_int {
     const ctx = st.ctx;
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     x.interrupt_counter -= 1;
     if (x.interrupt_counter <= 0) {
         @branchHint(.unlikely);
@@ -3616,14 +3587,14 @@ fn lrePollInterrupt(st: *LreState) c_int {
         var capture_buf_ref: c.JSGCRef = undefined;
         var byte_code_ref: c.JSGCRef = undefined;
         var str_ref: c.JSGCRef = undefined;
-        pushValue(ctx, &capture_buf_ref, st.capture_buf);
-        pushValue(ctx, &byte_code_ref, st.byte_code);
-        pushValue(ctx, &str_ref, st.str);
+        utils.pushValue(ctx, &capture_buf_ref, st.capture_buf);
+        utils.pushValue(ctx, &byte_code_ref, st.byte_code);
+        utils.pushValue(ctx, &str_ref, st.str);
         x.sp = @ptrCast(st.sp);
         const ret = runtime.__js_poll_interrupt(ctx);
-        st.str = popValue(ctx, &str_ref);
-        st.byte_code = popValue(ctx, &byte_code_ref);
-        st.capture_buf = popValue(ctx, &capture_buf_ref);
+        st.str = utils.popValue(ctx, &str_ref);
+        st.byte_code = utils.popValue(ctx, &byte_code_ref);
+        st.capture_buf = utils.popValue(ctx, &capture_buf_ref);
         if (vt.isExactException(ret)) {
             x.sp = @ptrCast(st.initial_sp);
             x.stack_bottom = st.saved_stack_bottom;
@@ -3636,7 +3607,7 @@ fn lrePollInterrupt(st: *LreState) c_int {
 
 fn lreCheckStackSpace(st: *LreState, n: c_int) c_int {
     const ctx = st.ctx;
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const remaining = @divFloor(@as(isize, @bitCast(@intFromPtr(st.sp))) - @as(isize, @bitCast(@intFromPtr(x.stack_bottom))), @sizeOf(c.JSValue));
     if (remaining < n) {
         @branchHint(.unlikely);
@@ -3646,14 +3617,14 @@ fn lreCheckStackSpace(st: *LreState, n: c_int) c_int {
         var capture_buf_ref: c.JSGCRef = undefined;
         var byte_code_ref: c.JSGCRef = undefined;
         var str_ref: c.JSGCRef = undefined;
-        pushValue(ctx, &capture_buf_ref, st.capture_buf);
-        pushValue(ctx, &byte_code_ref, st.byte_code);
-        pushValue(ctx, &str_ref, st.str);
+        utils.pushValue(ctx, &capture_buf_ref, st.capture_buf);
+        utils.pushValue(ctx, &byte_code_ref, st.byte_code);
+        utils.pushValue(ctx, &str_ref, st.str);
         x.sp = @ptrCast(st.sp);
         const ret = utils.JS_StackCheck(ctx, @intCast(n));
-        st.str = popValue(ctx, &str_ref);
-        st.byte_code = popValue(ctx, &byte_code_ref);
-        st.capture_buf = popValue(ctx, &capture_buf_ref);
+        st.str = utils.popValue(ctx, &str_ref);
+        st.byte_code = utils.popValue(ctx, &byte_code_ref);
+        st.capture_buf = utils.popValue(ctx, &capture_buf_ref);
         if (ret < 0) {
             x.sp = @ptrCast(st.initial_sp);
             x.stack_bottom = st.saved_stack_bottom;
@@ -3712,7 +3683,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
     st.cbuf_end = st.cbuf + vt.stringLen(ps);
     st.cptr = st.cbuf + @as(usize, @intCast(cindex));
 
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     st.saved_stack_bottom = x.stack_bottom;
     st.initial_sp = @ptrCast(x.sp);
     st.sp = st.initial_sp;
@@ -3816,7 +3787,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                     do_no_match = true;
                     continue :vm;
                 }
-                if (get_u16(st.pc) != get_u16(st.cptr)) {
+                if (mc.get_u16(st.pc) != mc.get_u16(st.cptr)) {
                     do_no_match = true;
                     continue :vm;
                 }
@@ -3828,7 +3799,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                     do_no_match = true;
                     continue :vm;
                 }
-                if (get_u16(st.pc) != get_u16(st.cptr) or st.pc[2] != st.cptr[2]) {
+                if (mc.get_u16(st.pc) != mc.get_u16(st.cptr) or st.pc[2] != st.cptr[2]) {
                     do_no_match = true;
                     continue :vm;
                 }
@@ -3840,7 +3811,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                     do_no_match = true;
                     continue :vm;
                 }
-                if (get_u32(st.pc) != get_u32(st.cptr)) {
+                if (mc.get_u32(st.pc) != mc.get_u32(st.cptr)) {
                     do_no_match = true;
                     continue :vm;
                 }
@@ -3848,7 +3819,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 st.cptr += 4;
             },
             REOP.split_goto_first, REOP.split_next_first => {
-                const val: i32 = @bitCast(get_u32(st.pc));
+                const val: i32 = @bitCast(mc.get_u32(st.pc));
                 st.pc += 4;
                 if (lreCheckStackSpace(&st, 3) < 0)
                     return -1;
@@ -3866,7 +3837,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 st.bp = st.sp;
             },
             REOP.lookahead, REOP.negative_lookahead => {
-                const val: i32 = @bitCast(get_u32(st.pc));
+                const val: i32 = @bitCast(mc.get_u32(st.pc));
                 st.pc += 4;
                 if (lreCheckStackSpace(&st, 3) < 0)
                     return -1;
@@ -3877,7 +3848,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 st.bp = st.sp;
             },
             REOP.goto => {
-                const val: i32 = @bitCast(get_u32(st.pc));
+                const val: i32 = @bitCast(mc.get_u32(st.pc));
                 st.pc = ptrAddI(st.pc, 4 + val);
                 if (lrePollInterrupt(&st) < 0)
                     return -1;
@@ -3977,14 +3948,14 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
             },
             REOP.set_i32 => {
                 const idx: u32 = st.pc[0];
-                const val = get_u32(st.pc + 1);
+                const val = mc.get_u32(st.pc + 1);
                 st.pc += 5;
                 if (lreSaveCaptureCheck(&st, @as(u32, @intCast(2 * st.capture_count)) + idx, val) < 0)
                     return -1;
             },
             REOP.loop => {
                 const idx: u32 = st.pc[0];
-                const val: i32 = @bitCast(get_u32(st.pc + 1));
+                const val: i32 = @bitCast(mc.get_u32(st.pc + 1));
                 st.pc += 5;
                 const val2: u32 = st.capture[@as(usize, @as(u32, @intCast(2 * st.capture_count)) + idx)] -% 1;
                 if (lreSaveCaptureCheck(&st, @as(u32, @intCast(2 * st.capture_count)) + idx, val2) < 0)
@@ -3997,8 +3968,8 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
             },
             REOP.loop_split_goto_first, REOP.loop_split_next_first, REOP.loop_check_adv_split_goto_first, REOP.loop_check_adv_split_next_first => {
                 const idx: u32 = st.pc[0];
-                const limit = get_u32(st.pc + 1);
-                const val: i32 = @bitCast(get_u32(st.pc + 5));
+                const limit = mc.get_u32(st.pc + 1);
+                const val: i32 = @bitCast(mc.get_u32(st.pc + 5));
                 st.pc += 9;
                 const val2: u32 = st.capture[@as(usize, @as(u32, @intCast(2 * st.capture_count)) + idx)] -% 1;
                 if (lreSaveCaptureCheck(&st, @as(u32, @intCast(2 * st.capture_count)) + idx, val2) < 0)
@@ -4095,7 +4066,7 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 st.pc += @as(usize, @intCast(2 * n));
             },
             REOP.range => {
-                const n: u32 = get_u16(st.pc);
+                const n: u32 = mc.get_u16(st.pc);
                 st.pc += 2;
                 if (@intFromPtr(st.cptr) >= @intFromPtr(st.cbuf_end) or n == 0) {
                     do_no_match = true;
@@ -4103,13 +4074,13 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 }
                 const nextc = reGetChar(&st.cptr);
                 var idx_min: u32 = 0;
-                var low = get_u32(st.pc + 0 * 8);
+                var low = mc.get_u32(st.pc + 0 * 8);
                 if (nextc < low) {
                     do_no_match = true;
                     continue :vm;
                 }
                 var idx_max: u32 = n - 1;
-                var high = get_u32(st.pc + idx_max * 8 + 4);
+                var high = mc.get_u32(st.pc + idx_max * 8 + 4);
                 if (nextc >= high) {
                     do_no_match = true;
                     continue :vm;
@@ -4117,8 +4088,8 @@ fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue, str
                 var matched = false;
                 while (idx_min <= idx_max) {
                     const idx = (idx_min + idx_max) / 2;
-                    low = get_u32(st.pc + idx * 8);
-                    high = get_u32(st.pc + idx * 8 + 4);
+                    low = mc.get_u32(st.pc + idx * 8);
+                    high = mc.get_u32(st.pc + idx * 8 + 4);
                     if (nextc < low) {
                         idx_max = idx -% 1;
                     } else if (nextc >= high) {
@@ -4290,9 +4261,9 @@ pub fn js_regexp_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c
     if (vt.isExactException(byte_code))
         return c.JS_EXCEPTION;
     var byte_code_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &byte_code_ref, byte_code);
+    utils.pushValue(ctx, &byte_code_ref, byte_code);
     const obj = value.JS_NewObjectClass(ctx, c.JS_CLASS_REGEXP, @sizeOf(rt.JSRegExpExt));
-    byte_code = popValue(ctx, &byte_code_ref);
+    byte_code = utils.popValue(ctx, &byte_code_ref);
     if (vt.isExactException(obj))
         return obj;
     const p = objPtr(obj);
@@ -4386,25 +4357,25 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
             } else {
                 obj = value.JS_NewArray(ctx, capture_count);
                 if (vt.isExactException(obj)) {
-                    _ = popValue(ctx, &capture_buf_ref);
+                    _ = utils.popValue(ctx, &capture_buf_ref);
                     return c.JS_EXCEPTION;
                 }
 
                 var obj_ref: c.JSGCRef = undefined;
-                pushValue(ctx, &obj_ref, obj);
+                utils.pushValue(ctx, &obj_ref, obj);
                 capture = @ptrCast(@alignCast(vt.byteArrayBuf(byteArr(capture_buf.*))));
                 var res = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_index), vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, argv[0], capture[0] * 2))));
-                obj = popValue(ctx, &obj_ref);
+                obj = utils.popValue(ctx, &obj_ref);
                 if (vt.isExactException(res)) {
-                    _ = popValue(ctx, &capture_buf_ref);
+                    _ = utils.popValue(ctx, &capture_buf_ref);
                     return c.JS_EXCEPTION;
                 }
 
-                pushValue(ctx, &obj_ref, obj);
+                utils.pushValue(ctx, &obj_ref, obj);
                 res = value.JS_DefinePropertyValue(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_input), argv[0]);
-                obj = popValue(ctx, &obj_ref);
+                obj = utils.popValue(ctx, &obj_ref);
                 if (vt.isExactException(res)) {
-                    _ = popValue(ctx, &capture_buf_ref);
+                    _ = utils.popValue(ctx, &capture_buf_ref);
                     return c.JS_EXCEPTION;
                 }
 
@@ -4414,11 +4385,11 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
                     const start: i32 = @bitCast(capture[@intCast(2 * i)]);
                     const end: i32 = @bitCast(capture[@intCast(2 * i + 1)]);
                     if (start != -1 and end != -1) {
-                        pushValue(ctx, &obj_ref, obj);
+                        utils.pushValue(ctx, &obj_ref, obj);
                         const val = value.js_sub_string_utf8(ctx, argv[0], @intCast(2 * start), @intCast(2 * end));
-                        obj = popValue(ctx, &obj_ref);
+                        obj = utils.popValue(ctx, &obj_ref);
                         if (vt.isExactException(val)) {
-                            _ = popValue(ctx, &capture_buf_ref);
+                            _ = utils.popValue(ctx, &capture_buf_ref);
                             return c.JS_EXCEPTION;
                         }
                         p = objPtr(obj);
@@ -4429,7 +4400,7 @@ pub fn js_regexp_exec(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv
             }
         }
     }
-    _ = popValue(ctx, &capture_buf_ref);
+    _ = utils.popValue(ctx, &capture_buf_ref);
     return obj;
 }
 
@@ -4452,9 +4423,9 @@ fn js_string_concat_subst(ctx: *c.JSContext, b: *anyopaque, str: *c.JSValue, rep
                     if (vt.isExactException(val))
                         return -1;
                     var val_ref: c.JSGCRef = undefined;
-                    pushValue(ctx, &val_ref, val);
+                    utils.pushValue(ctx, &val_ref, val);
                     const ret = utils.JS_StackCheck(ctx, @intCast(3 + k));
-                    _ = popValue(ctx, &val_ref);
+                    _ = utils.popValue(ctx, &val_ref);
                     if (ret != 0)
                         return -1;
                 } else {
@@ -4589,7 +4560,7 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
                 break :blk lre_exec(ctx, capture_buf.*, rt.objectRegexp(p).byte_code, mc.valueFromPtr(str), @intCast(value.js_string_utf16_to_utf8_pos(ctx, this_val.*, @intCast(last_index)) / 2));
             };
             if (ret < 0) {
-                _ = popValue(ctx, &capture_buf_ref);
+                _ = utils.popValue(ctx, &capture_buf_ref);
                 _ = value.string_buffer_pop(ctx, @ptrCast(&b));
                 return c.JS_EXCEPTION;
             }
@@ -4619,7 +4590,7 @@ pub fn js_string_replace(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, a
             }
             last_index = end;
         }
-        _ = popValue(ctx, &capture_buf_ref);
+        _ = utils.popValue(ctx, &capture_buf_ref);
     } else {
         const needle_len = value.js_string_len(ctx, argv[0]);
         var is_first = true;
@@ -4682,33 +4653,33 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     const z = utils.JS_PushGCRef(ctx, &z_ref);
     A.* = value.JS_NewArray(ctx, 0);
     if (vt.isExactException(A.*)) {
-        _ = popValue(ctx, &z_ref);
-        _ = popValue(ctx, &A_ref);
+        _ = utils.popValue(ctx, &z_ref);
+        _ = utils.popValue(ctx, &A_ref);
         return c.JS_EXCEPTION;
     }
     var lengthA: u32 = 0;
     const s_len = value.js_string_len(ctx, this_val.*);
     var p: c_int = 0;
     if (lim == 0) {
-        _ = popValue(ctx, &z_ref);
-        return popValue(ctx, &A_ref);
+        _ = utils.popValue(ctx, &z_ref);
+        return utils.popValue(ctx, &A_ref);
     }
     if (undef_sep) {
         const T = value.js_sub_string(ctx, this_val.*, p, s_len);
         if (vt.isExactException(T)) {
-            _ = popValue(ctx, &z_ref);
-            _ = popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            _ = utils.popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
         const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
         lengthA += 1;
         if (vt.isExactException(ret)) {
-            _ = popValue(ctx, &z_ref);
-            _ = popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            _ = utils.popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
-        _ = popValue(ctx, &z_ref);
-        return popValue(ctx, &A_ref);
+        _ = utils.popValue(ctx, &z_ref);
+        return utils.popValue(ctx, &A_ref);
     }
 
     if (is_regexp) {
@@ -4721,26 +4692,26 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             rt.objectRegexp(p1).last_index = 0;
             z.* = js_regexp_exec(ctx, &argv[0], 1, @ptrCast(this_val), MAGIC_REGEXP_FORCE_GLOBAL);
             if (vt.isExactException(z.*)) {
-                _ = popValue(ctx, &z_ref);
-                _ = popValue(ctx, &A_ref);
+                _ = utils.popValue(ctx, &z_ref);
+                _ = utils.popValue(ctx, &A_ref);
                 return c.JS_EXCEPTION;
             }
             if (z.* == c.JS_NULL) {
                 const T = value.js_sub_string(ctx, this_val.*, p, s_len);
                 if (vt.isExactException(T)) {
-                    _ = popValue(ctx, &z_ref);
-                    _ = popValue(ctx, &A_ref);
+                    _ = utils.popValue(ctx, &z_ref);
+                    _ = utils.popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
                 const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                 if (vt.isExactException(ret)) {
-                    _ = popValue(ctx, &z_ref);
-                    _ = popValue(ctx, &A_ref);
+                    _ = utils.popValue(ctx, &z_ref);
+                    _ = utils.popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
             }
-            _ = popValue(ctx, &z_ref);
-            return popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            return utils.popValue(ctx, &A_ref);
         }
         var q: c_int = 0;
         while (q < s_len) {
@@ -4748,8 +4719,8 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             rt.objectRegexp(p1).last_index = q;
             z.* = js_regexp_exec(ctx, &argv[0], 1, @ptrCast(this_val), MAGIC_REGEXP_FORCE_GLOBAL);
             if (vt.isExactException(z.*)) {
-                _ = popValue(ctx, &z_ref);
-                _ = popValue(ctx, &A_ref);
+                _ = utils.popValue(ctx, &z_ref);
+                _ = utils.popValue(ctx, &A_ref);
                 return c.JS_EXCEPTION;
             }
             if (z.* == c.JS_NULL) {
@@ -4763,8 +4734,8 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 if ((re_flags & bt.LRE_FLAG_STICKY) == 0) {
                     const res = value.JS_GetProperty(ctx, z.*, utils.js_get_atom(ctx, c.JS_ATOM_index));
                     if (vt.isExactException(res)) {
-                        _ = popValue(ctx, &z_ref);
-                        _ = popValue(ctx, &A_ref);
+                        _ = utils.popValue(ctx, &z_ref);
+                        _ = utils.popValue(ctx, &A_ref);
                         return c.JS_EXCEPTION;
                     }
                     q = vt.valueGetInt(res);
@@ -4779,20 +4750,20 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 } else {
                     const T = value.js_sub_string(ctx, this_val.*, p, q);
                     if (vt.isExactException(T)) {
-                        _ = popValue(ctx, &z_ref);
-                        _ = popValue(ctx, &A_ref);
+                        _ = utils.popValue(ctx, &z_ref);
+                        _ = utils.popValue(ctx, &A_ref);
                         return c.JS_EXCEPTION;
                     }
                     const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                     lengthA += 1;
                     if (vt.isExactException(ret)) {
-                        _ = popValue(ctx, &z_ref);
-                        _ = popValue(ctx, &A_ref);
+                        _ = utils.popValue(ctx, &z_ref);
+                        _ = utils.popValue(ctx, &A_ref);
                         return c.JS_EXCEPTION;
                     }
                     if (lengthA == lim) {
-                        _ = popValue(ctx, &z_ref);
-                        return popValue(ctx, &A_ref);
+                        _ = utils.popValue(ctx, &z_ref);
+                        return utils.popValue(ctx, &A_ref);
                     }
                     p1 = objPtr(z.*);
                     const numberOfCaptures: c_int = @intCast(p1.u.array.len);
@@ -4804,8 +4775,8 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                         const ret2 = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T2);
                         lengthA += 1;
                         if (vt.isExactException(ret2)) {
-                            _ = popValue(ctx, &z_ref);
-                            _ = popValue(ctx, &A_ref);
+                            _ = utils.popValue(ctx, &z_ref);
+                            _ = utils.popValue(ctx, &A_ref);
                             return c.JS_EXCEPTION;
                         }
                     }
@@ -4820,19 +4791,19 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             if (r != 0) {
                 const T = value.js_sub_string(ctx, this_val.*, p, s_len);
                 if (vt.isExactException(T)) {
-                    _ = popValue(ctx, &z_ref);
-                    _ = popValue(ctx, &A_ref);
+                    _ = utils.popValue(ctx, &z_ref);
+                    _ = utils.popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
                 const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
                 if (vt.isExactException(ret)) {
-                    _ = popValue(ctx, &z_ref);
-                    _ = popValue(ctx, &A_ref);
+                    _ = utils.popValue(ctx, &z_ref);
+                    _ = utils.popValue(ctx, &A_ref);
                     return c.JS_EXCEPTION;
                 }
             }
-            _ = popValue(ctx, &z_ref);
-            return popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            return utils.popValue(ctx, &A_ref);
         }
 
         var q: c_int = 0;
@@ -4845,20 +4816,20 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
                 break;
             const T = value.js_sub_string(ctx, this_val.*, p, e);
             if (vt.isExactException(T)) {
-                _ = popValue(ctx, &z_ref);
-                _ = popValue(ctx, &A_ref);
+                _ = utils.popValue(ctx, &z_ref);
+                _ = utils.popValue(ctx, &A_ref);
                 return c.JS_EXCEPTION;
             }
             const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
             lengthA += 1;
             if (vt.isExactException(ret)) {
-                _ = popValue(ctx, &z_ref);
-                _ = popValue(ctx, &A_ref);
+                _ = utils.popValue(ctx, &z_ref);
+                _ = utils.popValue(ctx, &A_ref);
                 return c.JS_EXCEPTION;
             }
             if (lengthA == lim) {
-                _ = popValue(ctx, &z_ref);
-                return popValue(ctx, &A_ref);
+                _ = utils.popValue(ctx, &z_ref);
+                return utils.popValue(ctx, &A_ref);
             }
             p = e + r;
             q = p;
@@ -4868,19 +4839,19 @@ pub fn js_string_split(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
     {
         const T = value.js_sub_string(ctx, this_val.*, p, s_len);
         if (vt.isExactException(T)) {
-            _ = popValue(ctx, &z_ref);
-            _ = popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            _ = utils.popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
         const ret = value.JS_SetPropertyUint32(ctx, A.*, lengthA, T);
         if (vt.isExactException(ret)) {
-            _ = popValue(ctx, &z_ref);
-            _ = popValue(ctx, &A_ref);
+            _ = utils.popValue(ctx, &z_ref);
+            _ = utils.popValue(ctx, &A_ref);
             return c.JS_EXCEPTION;
         }
     }
-    _ = popValue(ctx, &z_ref);
-    return popValue(ctx, &A_ref);
+    _ = utils.popValue(ctx, &z_ref);
+    return utils.popValue(ctx, &A_ref);
 }
 
 pub fn js_string_match(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
@@ -4926,8 +4897,8 @@ pub fn js_string_match(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, arg
             break;
         }
     }
-    _ = popValue(ctx, &result_ref);
-    return popValue(ctx, &A_ref);
+    _ = utils.popValue(ctx, &result_ref);
+    return utils.popValue(ctx, &A_ref);
 }
 
 pub fn js_string_search(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {

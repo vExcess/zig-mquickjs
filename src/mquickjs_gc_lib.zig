@@ -18,10 +18,6 @@ pub const c = gt.c;
 
 const JSParseState = gt.JSParseState;
 
-inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
-    return mc.ctxExt(ctx);
-}
-
 fn classProtoBase(x: *mc.JSContextExt) [*]c.JSValue {
     return @ptrCast(@alignCast(&x.class_proto));
 }
@@ -229,7 +225,7 @@ pub fn gc_mb_is_marked(val: c.JSValue) c.JS_BOOL {
 pub fn gc_mark_all(ctx: *c.JSContext, keep_atoms: c.JS_BOOL) void {
     var s_s: gt.GCMarkState = undefined;
     const s = &s_s;
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
 
     s.ctx = ctx;
     s.overflow = c.FALSE;
@@ -472,7 +468,7 @@ pub fn gc_thread_block(ctx: *c.JSContext, ptr: *anyopaque) void {
 }
 
 pub fn gc_compact_heap(ctx: *c.JSContext) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
 
     const proto = classProtoBase(x);
     const sp_end = proto + @as(usize, @intCast(2 * x.class_count));
@@ -577,7 +573,7 @@ pub fn JS_PrepareBytecode(
     pdata_len: *u32,
     eval_code_in: c.JSValue,
 ) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var eval_code = eval_code_in;
     var eval_code_ref: c.JSGCRef = undefined;
 
@@ -716,7 +712,7 @@ fn get_mblock_size_32(ptr: *const anyopaque) c_int {
 }
 
 fn gc_compact_heap_64to32(ctx: *c.JSContext) c_int {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
 
     gc_thread_pointer(ctx, &x.unique_strings);
 
@@ -770,7 +766,7 @@ fn expand_short_float(ctx: *c.JSContext, pval: *c.JSValue) c_int {
 }
 
 fn expand_short_floats(ctx: *c.JSContext) c_int {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var ptr: [*]u8 = x.heap_base;
     const p_end = x.heap_free;
     while (@intFromPtr(ptr) < @intFromPtr(p_end)) {
@@ -804,7 +800,7 @@ pub fn JS_PrepareBytecode64to32(
     pdata_len: *u32,
     eval_code_in: c.JSValue,
 ) c_int {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var eval_code = eval_code_in;
     var eval_code_ref: c.JSGCRef = undefined;
 
@@ -854,7 +850,7 @@ pub fn bc_reloc_value(s: *gt.BCRelocState, pval: *c.JSValue) void {
         if (s.update_atoms != 0) {
             const p: *const vt.JSStringExt = @ptrCast(@alignCast(mc.valueToPtr(val)));
             if (mc.mbGetMtag(@ptrCast(@constCast(p))) == mc.JS_MTAG_STRING and vt.stringIsUnique(p)) {
-                const x = cx(ctx);
+                const x = mc.ctxExt(ctx);
                 var i: u8 = 0;
                 while (i < x.n_rom_atom_tables) : (i += 1) {
                     const arr1: *const vt.JSValueArrayExt = @ptrCast(@alignCast(x.rom_atom_tables[i]));
@@ -945,7 +941,7 @@ pub fn JS_RelocateBytecode(ctx: *c.JSContext, buf: [*]u8, buf_len: u32) c_int {
 
 pub fn JS_LoadBytecode(ctx: *c.JSContext, buf: [*]const u8) c.JSValue {
     const hdr: *const gt.JSBytecodeHeader = @ptrCast(@alignCast(buf));
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
 
     if (x.unique_strings_len != 0)
         return utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "no atom must be defined in RAM");

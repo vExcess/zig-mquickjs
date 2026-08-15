@@ -20,10 +20,6 @@ pub const c = rt.c;
 
 const OP = rt.OP;
 
-inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
-    return mc.ctxExt(ctx);
-}
-
 extern fn js_lrint(x: f64) c_long;
 extern fn js_fmod(x: f64, y: f64) f64;
 extern fn js_pow(x: f64, y: f64) f64;
@@ -44,29 +40,12 @@ fn max_int(a: c_int, b: c_int) c_int {
     return if (a > b) a else b;
 }
 
-fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
-    _ = utils.JS_PushGCRef(ctx, ref);
-    ref.val = val;
-}
-
-fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
-    return utils.JS_PopGCRef(ctx, ref);
-}
-
 fn throwTypeError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
     return utils.JS_ThrowError(ctx, c.JS_CLASS_TYPE_ERROR, msg);
 }
 
 fn throwInternalError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
     return utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, msg);
-}
-
-fn get_u32(pc: [*]const u8) u32 {
-    return @as(*align(1) const u32, @ptrCast(pc)).*;
-}
-
-fn get_u16(pc: [*]const u8) u32 {
-    return @as(*align(1) const u16, @ptrCast(pc)).*;
 }
 
 fn get_i16(pc: [*]const u8) i32 {
@@ -78,7 +57,7 @@ fn get_i8(pc: [*]const u8) i32 {
 }
 
 fn get_be32(d: [*]const u8) u32 {
-    return @byteSwap(get_u32(d));
+    return @byteSwap(mc.get_u32(d));
 }
 
 fn c_abort() noreturn {
@@ -100,7 +79,7 @@ pub fn JS_NewContext2(mem_start: *anyopaque, mem_size_in: usize, stdlib_def: *co
     const ctx: *c.JSContext = @ptrCast(@alignCast(mem_start));
     const ctx_bytes: [*]u8 = @ptrCast(ctx);
     @memset(ctx_bytes[0..@sizeOf(mc.JSContextExt)], 0);
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     x.class_count = @intCast(stdlib_def.class_count);
     const proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
     x.class_obj = @ptrCast(proto + @as(usize, @intCast(x.class_count)));
@@ -188,7 +167,7 @@ pub fn JS_NewContext(mem_start: *anyopaque, mem_size: usize, stdlib_def: *const 
 }
 
 pub fn JS_FreeContext(ctx: *c.JSContext) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var ptr: [*]u8 = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
         const size = gc.get_mblock_size(ptr);
@@ -206,27 +185,27 @@ pub fn JS_FreeContext(ctx: *c.JSContext) void {
 }
 
 pub fn JS_SetContextOpaque(ctx: *c.JSContext, opaque_val: ?*anyopaque) void {
-    cx(ctx).opaque_val = opaque_val;
+    mc.ctxExt(ctx).opaque_val = opaque_val;
 }
 
 pub fn JS_GetContextOpaque(ctx: *c.JSContext) ?*anyopaque {
-    return cx(ctx).opaque_val;
+    return mc.ctxExt(ctx).opaque_val;
 }
 
 pub fn JS_SetInterruptHandler(ctx: *c.JSContext, interrupt_handler: ?*anyopaque) void {
-    cx(ctx).interrupt_handler = interrupt_handler;
+    mc.ctxExt(ctx).interrupt_handler = interrupt_handler;
 }
 
 pub fn JS_SetLogFunc(ctx: *c.JSContext, write_func: ?mc.JSWriteFn) void {
-    cx(ctx).write_func = write_func;
+    mc.ctxExt(ctx).write_func = write_func;
 }
 
 pub fn JS_SetRandomSeed(ctx: *c.JSContext, seed: u64) void {
-    cx(ctx).random_state = seed;
+    mc.ctxExt(ctx).random_state = seed;
 }
 
 pub fn JS_GetGlobalObject(ctx: *c.JSContext) c.JSValue {
-    return cx(ctx).global_obj;
+    return mc.ctxExt(ctx).global_obj;
 }
 
 pub fn get_var_ref(ctx: *c.JSContext, pfirst_var_ref: *c.JSValue, pval: *c.JSValue) c.JSValue {
@@ -293,7 +272,7 @@ fn fail(pb: *?*rt.JSFunctionBytecodeExt) c.JSValue {
 }
 
 fn short_func(ctx: *c.JSContext, short_func_idx: c_int, is_name: c_int, pb: *?*rt.JSFunctionBytecodeExt) c.JSValue {
-    const fd = &vt.cFunctionTable(cx(ctx))[@intCast(short_func_idx)];
+    const fd = &vt.cFunctionTable(mc.ctxExt(ctx))[@intCast(short_func_idx)];
     const ret: c.JSValue = if (is_name != 0)
         reloc_c_func_name(ctx, fd.name)
     else
@@ -445,10 +424,10 @@ pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]
     if (filename) |fn_name| {
         cprintf(&p, buf_end, "    at %s:%d:%d\n", .{ fn_name, line_num, col_num });
     }
-    var fp: [*]c.JSValue = @ptrCast(cx(ctx).fp);
+    var fp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).fp);
     var level: c_int = 0;
     var skip_level = skip_level_in;
-    while (@intFromPtr(fp) != @intFromPtr(cx(ctx).stack_top) and level < 10) {
+    while (@intFromPtr(fp) != @intFromPtr(mc.ctxExt(ctx).stack_top) and level < 10) {
         if (skip_level != 0) {
             skip_level -= 1;
         } else {
@@ -486,9 +465,9 @@ pub fn build_backtrace(ctx: *c.JSContext, error_obj: c.JSValue, filename: ?[*:0]
 
     var error_obj_ref: c.JSGCRef = undefined;
     var error_obj_mut = error_obj;
-    pushValue(ctx, &error_obj_ref, error_obj_mut);
+    utils.pushValue(ctx, &error_obj_ref, error_obj_mut);
     const stack_str = value.JS_NewString(ctx, @ptrCast(&buf));
-    error_obj_mut = popValue(ctx, &error_obj_ref);
+    error_obj_mut = utils.popValue(ctx, &error_obj_ref);
     const p1: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(error_obj_mut)));
     p1.u.err.stack = stack_str;
 }
@@ -501,26 +480,26 @@ pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSVal
     while (i < 2) : (i += 1) {
         const atom: c_int = if ((i ^ hint) == 0) c.JS_ATOM_toString else c.JS_ATOM_valueOf;
         var val_ref: c.JSGCRef = undefined;
-        pushValue(ctx, &val_ref, val);
+        utils.pushValue(ctx, &val_ref, val);
         const method = value.JS_GetProperty(ctx, val, utils.js_get_atom(ctx, atom));
-        val = popValue(ctx, &val_ref);
+        val = utils.popValue(ctx, &val_ref);
         if (vt.isExactException(method))
             return method;
         if (value.JS_IsFunction(ctx, method) != 0) {
             var method_ref: c.JSGCRef = undefined;
-            pushValue(ctx, &method_ref, method);
-            pushValue(ctx, &val_ref, val);
+            utils.pushValue(ctx, &method_ref, method);
+            utils.pushValue(ctx, &val_ref, val);
             const err = utils.JS_StackCheck(ctx, 2);
-            val = popValue(ctx, &val_ref);
-            _ = popValue(ctx, &method_ref);
+            val = utils.popValue(ctx, &val_ref);
+            _ = utils.popValue(ctx, &method_ref);
             if (err != 0)
                 return c.JS_EXCEPTION;
 
             JS_PushArg(ctx, method);
             JS_PushArg(ctx, val);
-            pushValue(ctx, &val_ref, val);
+            utils.pushValue(ctx, &val_ref, val);
             const ret = JS_Call(ctx, 0);
-            val = popValue(ctx, &val_ref);
+            val = utils.popValue(ctx, &val_ref);
             if (vt.isExactException(ret))
                 return ret;
             if (value.JS_IsObject(ctx, ret) == 0)
@@ -535,9 +514,9 @@ pub fn js_dtoa2(ctx: *c.JSContext, d: f64, radix: c_int, n_digits: c_int, flags:
     const p0 = value.js_alloc_byte_array(ctx, len_max + 1) orelse return c.JS_EXCEPTION;
     var str = mc.valueFromPtr(p0);
     var str_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &str_ref, str);
+    utils.pushValue(ctx, &str_ref, str);
     const tmp_arr = value.js_alloc_byte_array(ctx, @sizeOf(c.JSDTOATempMem));
-    str = popValue(ctx, &str_ref);
+    str = utils.popValue(ctx, &str_ref);
     if (tmp_arr == null)
         return c.JS_EXCEPTION;
     const p: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(str)));
@@ -641,9 +620,9 @@ pub fn js_atod1(ctx: *c.JSContext, pres: *f64, val: c.JSValue, radix: c_int, fla
 
     var val_ref: c.JSGCRef = undefined;
     var val_mut = val;
-    pushValue(ctx, &val_ref, val_mut);
+    utils.pushValue(ctx, &val_ref, val_mut);
     const tmp_arr = value.js_alloc_byte_array(ctx, @sizeOf(c.JSATODTempMem));
-    val_mut = popValue(ctx, &val_ref);
+    val_mut = utils.popValue(ctx, &val_ref);
     if (tmp_arr == null) {
         pres.* = std.math.nan(f64);
         return -1;
@@ -864,7 +843,7 @@ pub fn js_get_length32(ctx: *c.JSContext, pres: *u32, obj: c.JSValue) c_int {
 }
 
 pub fn js_add_slow(ctx: *c.JSContext) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     sp[1] = JS_ToPrimitive(ctx, sp[1], rt.HINT_NONE);
     if (vt.isExactException(sp[1]))
         return c.JS_EXCEPTION;
@@ -893,7 +872,7 @@ pub fn js_add_slow(ctx: *c.JSContext) c.JSValue {
 pub fn js_binary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     var d1: f64 = undefined;
     var d2: f64 = undefined;
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (JS_ToNumber(ctx, &d1, sp[1]) != 0)
         return c.JS_EXCEPTION;
     if (JS_ToNumber(ctx, &d2, sp[0]) != 0)
@@ -913,7 +892,7 @@ pub fn js_binary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
 
 pub fn js_unary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     var d: f64 = undefined;
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (JS_ToNumber(ctx, &d, sp[0]) != 0)
         return c.JS_EXCEPTION;
     switch (op) {
@@ -928,7 +907,7 @@ pub fn js_unary_arith_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
 
 pub fn js_post_inc_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     var d: f64 = undefined;
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (JS_ToNumber(ctx, &d, sp[0]) != 0)
         return c.JS_EXCEPTION;
     const r = d + 2 * @as(f64, @floatFromInt(op - OP.post_dec)) - 1;
@@ -942,7 +921,7 @@ pub fn js_post_inc_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
 pub fn js_binary_logic_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
     var v1: u32 = undefined;
     var v2: u32 = undefined;
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (JS_ToUint32(ctx, &v1, sp[1]) != 0)
         return c.JS_EXCEPTION;
     if (JS_ToUint32(ctx, &v2, sp[0]) != 0)
@@ -963,14 +942,14 @@ pub fn js_binary_logic_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
 
 pub fn js_not_slow(ctx: *c.JSContext) c.JSValue {
     var r: u32 = undefined;
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (JS_ToUint32(ctx, &r, sp[0]) != 0)
         return c.JS_EXCEPTION;
     return jsNewInt32(ctx, @bitCast(~r));
 }
 
 pub fn js_relational_slow(ctx: *c.JSContext, op: c_int) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     sp[1] = JS_ToPrimitive(ctx, sp[1], rt.HINT_NUMBER);
     if (vt.isExactException(sp[1]))
         return c.JS_EXCEPTION;
@@ -1022,7 +1001,7 @@ pub fn js_strict_eq(ctx: *c.JSContext, op1: c.JSValue, op2: c.JSValue) c.JS_BOOL
 }
 
 pub fn js_strict_eq_slow(ctx: *c.JSContext, is_neq: c.JS_BOOL) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     const res = js_strict_eq(ctx, sp[1], sp[0]);
     return rt.newBool((res ^ is_neq) != 0);
 }
@@ -1049,7 +1028,7 @@ pub fn js_eq_get_type(ctx: *c.JSContext, val: c.JSValue) c_int {
 }
 
 pub fn js_eq_slow(ctx: *c.JSContext, is_neq: c.JS_BOOL) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     redo: while (true) {
         const op1 = sp[1];
         const op2 = sp[0];
@@ -1100,7 +1079,7 @@ pub fn js_eq_slow(ctx: *c.JSContext, is_neq: c.JS_BOOL) c.JSValue {
 }
 
 pub fn js_operator_in(ctx: *c.JSContext) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (js_eq_get_type(ctx, sp[0]) != rt.JS_ETAG_OBJECT)
         return throwTypeError(ctx, "invalid 'in' operand");
     const prop = JS_ToPropertyKey(ctx, sp[1]);
@@ -1111,7 +1090,7 @@ pub fn js_operator_in(ctx: *c.JSContext) c.JSValue {
 }
 
 pub fn js_operator_instanceof(ctx: *c.JSContext) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     const op1 = sp[1];
     const op2 = sp[0];
     if (value.JS_IsFunctionObject(ctx, op2) == 0)
@@ -1162,10 +1141,10 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
         ext_vars_len = @divTrunc(vt.valueArraySize(ext_vars), 2);
     }
     var bfunc_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &bfunc_ref, bfunc);
+    utils.pushValue(ctx, &bfunc_ref, bfunc);
     const extra: c_int = @intCast(@sizeOf(c.JSValue) + @as(usize, @intCast(ext_vars_len)) * @sizeOf(c.JSValue));
-    var closure = value.JS_NewObjectProtoClass(ctx, vt.classProto(cx(ctx), c.JS_CLASS_CLOSURE).*, c.JS_CLASS_CLOSURE, extra);
-    bfunc = popValue(ctx, &bfunc_ref);
+    var closure = value.JS_NewObjectProtoClass(ctx, vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_CLOSURE).*, c.JS_CLASS_CLOSURE, extra);
+    bfunc = utils.popValue(ctx, &bfunc_ref);
     if (vt.isExactException(closure))
         return c.JS_EXCEPTION;
     var p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(closure)));
@@ -1184,8 +1163,8 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
             const var_kind = decl >> 16;
             const var_idx = decl & 0xffff;
             var closure_ref: c.JSGCRef = undefined;
-            pushValue(ctx, &bfunc_ref, bfunc);
-            pushValue(ctx, &closure_ref, closure);
+            utils.pushValue(ctx, &bfunc_ref, bfunc);
+            utils.pushValue(ctx, &closure_ref, closure);
             const val: c.JSValue = switch (var_kind) {
                 rt.JS_VARREF_KIND_ARG => get_var_ref(ctx, pfirst_var_ref.?, rt.slot(fp.?, rt.FRAME_OFFSET_ARG0 + var_idx)),
                 rt.JS_VARREF_KIND_VAR => get_var_ref(ctx, pfirst_var_ref.?, rt.slot(fp.?, rt.FRAME_OFFSET_VAR0 - var_idx)),
@@ -1198,8 +1177,8 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
                     c_abort();
                 },
             };
-            closure = popValue(ctx, &closure_ref);
-            bfunc = popValue(ctx, &bfunc_ref);
+            closure = utils.popValue(ctx, &closure_ref);
+            bfunc = utils.popValue(ctx, &bfunc_ref);
             if (vt.isExactException(val))
                 return val;
             p = @ptrCast(@alignCast(mc.valueToPtr(closure)));
@@ -1210,7 +1189,7 @@ pub fn js_closure(ctx: *c.JSContext, bfunc_in: c.JSValue, fp: ?[*]c.JSValue) c.J
 }
 
 pub fn js_for_of_start(ctx: *c.JSContext, is_for_in: c.JS_BOOL) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     if (is_for_in != 0) {
         sp[0] = builtins.js_object_keys(ctx, null, 1, @ptrCast(sp));
         if (vt.isExactException(sp[0]))
@@ -1226,7 +1205,7 @@ pub fn js_for_of_start(ctx: *c.JSContext, is_for_in: c.JS_BOOL) c.JSValue {
 }
 
 pub fn js_for_of_next(ctx: *c.JSContext) c.JSValue {
-    const sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(sp[0])));
     const items = vt.valueArrayItems(arr);
     const pos = vt.valueGetInt(items[1]);
@@ -1246,13 +1225,13 @@ pub fn js_for_of_next(ctx: *c.JSContext) c.JSValue {
 pub fn js_new_c_function_proto(ctx: *c.JSContext, func_idx: c_int, proto: c.JSValue, has_params: c.JS_BOOL, params_in: c.JSValue) c.JSValue {
     var params = params_in;
     var params_ref: c.JSGCRef = undefined;
-    pushValue(ctx, &params_ref, params);
+    utils.pushValue(ctx, &params_ref, params);
     const extra: c_int = if (has_params == 0)
         @intCast(@sizeOf(mc.JSCFunctionDataExt) - @sizeOf(c.JSValue))
     else
         @intCast(@sizeOf(mc.JSCFunctionDataExt));
     const p0 = value.JS_NewObjectProtoClass1(ctx, proto, c.JS_CLASS_C_FUNCTION, extra);
-    params = popValue(ctx, &params_ref);
+    params = utils.popValue(ctx, &params_ref);
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(p0 orelse return c.JS_EXCEPTION));
     p.u.cfunc.idx = @intCast(func_idx);
     if (has_params != 0)
@@ -1261,7 +1240,7 @@ pub fn js_new_c_function_proto(ctx: *c.JSContext, func_idx: c_int, proto: c.JSVa
 }
 
 pub fn JS_NewCFunctionParams(ctx: *c.JSContext, func_idx: c_int, params: c.JSValue) c.JSValue {
-    return js_new_c_function_proto(ctx, func_idx, vt.classProto(cx(ctx), c.JS_CLASS_CLOSURE).*, 1, params);
+    return js_new_c_function_proto(ctx, func_idx, vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_CLOSURE).*, 1, params);
 }
 
 pub fn js_call_constructor_start(ctx: *c.JSContext, func: c.JSValue) c.JSValue {
@@ -1269,17 +1248,17 @@ pub fn js_call_constructor_start(ctx: *c.JSContext, func: c.JSValue) c.JSValue {
     if (vt.isExactException(proto))
         return proto;
     if (value.JS_IsObject(ctx, proto) == 0)
-        proto = vt.classProto(cx(ctx), c.JS_CLASS_OBJECT).*;
+        proto = vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_OBJECT).*;
     return value.JS_NewObjectProtoClass(ctx, proto, c.JS_CLASS_OBJECT, 0);
 }
 
 pub fn __js_poll_interrupt(ctx: *c.JSContext) c.JSValue {
-    cx(ctx).interrupt_counter = rt.JS_INTERRUPT_COUNTER_INIT;
-    if (cx(ctx).interrupt_handler) |h| {
+    mc.ctxExt(ctx).interrupt_counter = rt.JS_INTERRUPT_COUNTER_INIT;
+    if (mc.ctxExt(ctx).interrupt_handler) |h| {
         const handler: rt.JSInterruptHandler = @ptrCast(h);
-        if (handler(ctx, cx(ctx).opaque_val) != 0) {
+        if (handler(ctx, mc.ctxExt(ctx).opaque_val) != 0) {
             _ = throwInternalError(ctx, "interrupted");
-            cx(ctx).current_exception_is_uncatchable = 1;
+            mc.ctxExt(ctx).current_exception_is_uncatchable = 1;
             return c.JS_EXCEPTION;
         }
     }
@@ -1287,7 +1266,7 @@ pub fn __js_poll_interrupt(ctx: *c.JSContext) c.JSValue {
 }
 
 pub fn JS_PushArg(ctx: *c.JSContext, val: c.JSValue) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const sp: [*]c.JSValue = @ptrCast(x.sp);
     x.sp = @ptrCast(sp - 1);
     x.sp.* = val;
@@ -1334,8 +1313,8 @@ fn saveFrame(ctx: *c.JSContext, fp: [*]c.JSValue, sp: [*]c.JSValue, pc: [*]u8, b
     const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.byte_code)));
     const off: i32 = @intCast(@intFromPtr(pc) - @intFromPtr(vt.byteArrayBuf(byte_code)));
     rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).* = vt.newShortInt(off);
-    cx(ctx).sp = @ptrCast(sp);
-    cx(ctx).fp = @ptrCast(fp);
+    mc.ctxExt(ctx).sp = @ptrCast(sp);
+    mc.ctxExt(ctx).fp = @ptrCast(fp);
 }
 
 fn restorePc(fp: [*]c.JSValue) struct { b: *rt.JSFunctionBytecodeExt, pc: [*]u8 } {
@@ -1347,8 +1326,8 @@ fn restorePc(fp: [*]c.JSValue) struct { b: *rt.JSFunctionBytecodeExt, pc: [*]u8 
 }
 pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
     var call_flags = call_flags_in;
-    var fp: [*]c.JSValue = @ptrCast(cx(ctx).fp);
-    var sp: [*]c.JSValue = @ptrCast(cx(ctx).sp);
+    var fp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).fp);
+    var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
     var val: c.JSValue = c.JS_UNDEFINED;
     const initial_fp: [*]c.JSValue = fp;
     var pc: [*]u8 = undefined;
@@ -1365,9 +1344,9 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
     var func_obj: c.JSValue = c.JS_UNDEFINED;
     var state: Resume = .function_call;
 
-    if (cx(ctx).js_call_rec_count >= rt.JS_MAX_CALL_RECURSE)
+    if (mc.ctxExt(ctx).js_call_rec_count >= rt.JS_MAX_CALL_RECURSE)
         return throwInternalError(ctx, "C stack overflow");
-    cx(ctx).js_call_rec_count += 1;
+    mc.ctxExt(ctx).js_call_rec_count += 1;
 
     outer: while (true) {
         switch (state) {
@@ -1379,7 +1358,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 } else if (dr == 0.0) {
                     const bits: u64 = @bitCast(dr);
                     if (bits != 0) {
-                        val = cx(ctx).minus_zero;
+                        val = mc.ctxExt(ctx).minus_zero;
                     } else {
                         val = vt.newShortInt(0);
                     }
@@ -1458,8 +1437,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 continue :outer;
             },
             .generic_function_call => {
-                cx(ctx).interrupt_counter -= 1;
-                if (cx(ctx).interrupt_counter <= 0) {
+                mc.ctxExt(ctx).interrupt_counter -= 1;
+                if (mc.ctxExt(ctx).interrupt_counter <= 0) {
                     saveFrame(ctx, fp, sp, pc, b.?);
                     val = __js_poll_interrupt(ctx);
                     const restored = restorePc(fp);
@@ -1486,8 +1465,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 if (!mc.isPtr(func_obj)) {
                     if (rt.valueGetSpecialTag(func_obj) != c.JS_TAG_SHORT_FUNC) {
                         sp += 2;
-                        cx(ctx).sp = @ptrCast(sp);
-                        cx(ctx).fp = @ptrCast(fp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp);
+                        mc.ctxExt(ctx).fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
@@ -1498,16 +1477,16 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     p = @ptrCast(@alignCast(mc.valueToPtr(func_obj)));
                     if (mc.mbGetMtag(p.?) != mc.JS_MTAG_OBJECT) {
                         sp += 2;
-                        cx(ctx).sp = @ptrCast(sp);
-                        cx(ctx).fp = @ptrCast(fp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp);
+                        mc.ctxExt(ctx).fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
                     }
                     if (mc.objectClassId(p.?) != c.JS_CLASS_C_FUNCTION and mc.objectClassId(p.?) != c.JS_CLASS_CLOSURE) {
                         sp += 2;
-                        cx(ctx).sp = @ptrCast(sp);
-                        cx(ctx).fp = @ptrCast(fp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp);
+                        mc.ctxExt(ctx).fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
@@ -1517,22 +1496,22 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 }
 
                 if (p == null or mc.objectClassId(p.?) == c.JS_CLASS_C_FUNCTION) {
-                    const fd = &vt.cFunctionTable(cx(ctx))[@intCast(short_func_idx)];
+                    const fd = &vt.cFunctionTable(mc.ctxExt(ctx))[@intCast(short_func_idx)];
                     call_flags = vt.valueGetInt(rt.slot(sp, rt.FRAME_OFFSET_CALL_FLAGS).*);
                     if ((call_flags & rt.FRAME_CF_CTOR) != 0 and
                         fd.def_type != c.JS_CFUNC_constructor and
                         fd.def_type != c.JS_CFUNC_constructor_magic)
                     {
                         sp += 2;
-                        cx(ctx).sp = @ptrCast(sp);
-                        cx(ctx).fp = @ptrCast(fp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp);
+                        mc.ctxExt(ctx).fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a constructor");
                         state = .call_exception;
                         continue :outer;
                     }
                     argc = call_flags & rt.FRAME_CF_ARGC_MASK;
-                    cx(ctx).sp = @ptrCast(sp);
-                    cx(ctx).fp = @ptrCast(fp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp);
+                    mc.ctxExt(ctx).fp = @ptrCast(fp);
                     n = utils.JS_StackCheck(ctx, @intCast(max_int(fd.arg_count - argc, 0)));
                     if (n != 0) {
                         sp += 2;
@@ -1555,8 +1534,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         pushed_argc = fd.arg_count;
                     }
                     fp = sp;
-                    cx(ctx).sp = @ptrCast(sp);
-                    cx(ctx).fp = @ptrCast(fp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp);
+                    mc.ctxExt(ctx).fp = @ptrCast(fp);
                     const argv: [*]c.JSValue = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0));
                     const this_ptr = rt.slot(fp, rt.FRAME_OFFSET_THIS_OBJ);
                     const argc_flags = call_flags & (rt.FRAME_CF_CTOR | rt.FRAME_CF_ARGC_MASK);
@@ -1588,7 +1567,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     }
                     if (rt.isExceptionOrTailCall(val) and rt.valueGetSpecialValue(val) >= c.JS_EX_CALL) {
                         call_flags = rt.valueGetSpecialValue(val) - c.JS_EX_CALL;
-                        sp = @ptrCast(cx(ctx).sp);
+                        sp = @ptrCast(mc.ctxExt(ctx).sp);
                         const fp1 = rt.valueToSp(ctx, rt.slot(fp, rt.FRAME_OFFSET_SAVED_FP).*);
                         argc = (call_flags & rt.FRAME_CF_ARGC_MASK) + 2;
                         const sp1: [*]c.JSValue = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0 + pushed_argc - argc));
@@ -1605,8 +1584,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 } else {
                     call_flags = vt.valueGetInt(rt.slot(sp, rt.FRAME_OFFSET_CALL_FLAGS).*);
                     if ((call_flags & rt.FRAME_CF_CTOR) != 0) {
-                        cx(ctx).sp = @ptrCast(sp);
-                        cx(ctx).fp = @ptrCast(fp);
+                        mc.ctxExt(ctx).sp = @ptrCast(sp);
+                        mc.ctxExt(ctx).fp = @ptrCast(fp);
                         val = js_call_constructor_start(ctx, func_obj);
                         if (vt.isExactException(val)) {
                             state = .call_exception;
@@ -1623,8 +1602,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         n_vars = vt.valueArraySize(vars) - rt.bytecodeArgCount(b.?);
                     }
                     argc = call_flags & rt.FRAME_CF_ARGC_MASK;
-                    cx(ctx).sp = @ptrCast(sp);
-                    cx(ctx).fp = @ptrCast(fp);
+                    mc.ctxExt(ctx).sp = @ptrCast(sp);
+                    mc.ctxExt(ctx).fp = @ptrCast(fp);
                     n = utils.JS_StackCheck(ctx, @intCast(max_int(rt.bytecodeArgCount(b.?) - argc, 0) + 2 + n_vars + @as(c_int, b.?.stack_size)));
                     if (n != 0) {
                         val = c.JS_EXCEPTION;
@@ -1697,7 +1676,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     const vars: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.vars)));
                     stack_top = @ptrFromInt(@intFromPtr(stack_top) - @as(usize, @intCast(vt.valueArraySize(vars) - rt.bytecodeArgCount(b.?))) * @sizeOf(c.JSValue));
                 }
-                if (cx(ctx).current_exception_is_uncatchable != 0) {
+                if (mc.ctxExt(ctx).current_exception_is_uncatchable != 0) {
                     sp = stack_top;
                 } else {
                     while (@intFromPtr(sp) < @intFromPtr(stack_top)) {
@@ -1705,8 +1684,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp += 1;
                         if (rt.valueGetSpecialTag(val2) == c.JS_TAG_CATCH_OFFSET) {
                             sp -= 1;
-                            sp[0] = cx(ctx).current_exception;
-                            cx(ctx).current_exception = c.JS_UNINITIALIZED;
+                            sp[0] = mc.ctxExt(ctx).current_exception;
+                            mc.ctxExt(ctx).current_exception = c.JS_UNINITIALIZED;
                             const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
                             pc = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(rt.valueGetSpecialValue(val2)));
                             state = .dispatch;
@@ -1788,13 +1767,13 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.push_value => {
                         sp -= 1;
-                        sp[0] = get_u32(pc);
+                        sp[0] = mc.get_u32(pc);
                         pc += 4;
                     },
                     OP.push_const => {
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
                         sp -= 1;
-                        sp[0] = vt.valueArrayItems(cpool)[get_u16(pc)];
+                        sp[0] = vt.valueArrayItems(cpool)[mc.get_u16(pc)];
                         pc += 2;
                     },
                     OP.undefined => {
@@ -1818,7 +1797,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp[0] = c.JS_TRUE;
                     },
                     OP.object => {
-                        const nn: c_int = @intCast(get_u16(pc));
+                        const nn: c_int = @intCast(mc.get_u16(pc));
                         saveFrame(ctx, fp, sp, pc, b.?);
                         val = value.JS_NewObjectPrealloc(ctx, nn);
                         const restored = restorePc(fp);
@@ -1851,7 +1830,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp += 1;
                     },
                     OP.array_from => {
-                        argc = @intCast(get_u16(pc));
+                        argc = @intCast(mc.get_u16(pc));
                         saveFrame(ctx, fp, sp, pc, b.?);
                         val = value.JS_NewArray(ctx, argc);
                         const restored = restorePc(fp);
@@ -1959,7 +1938,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.fclosure => {
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                        const idx = get_u16(pc);
+                        const idx = mc.get_u16(pc);
                         saveFrame(ctx, fp, sp, pc, b.?);
                         val = js_closure(ctx, vt.valueArrayItems(cpool)[idx], fp);
                         const restored = restorePc(fp);
@@ -1974,7 +1953,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp[0] = val;
                     },
                     OP.call_constructor => {
-                        call_flags = @intCast(get_u16(pc) | @as(u32, @intCast(rt.FRAME_CF_CTOR)));
+                        call_flags = @intCast(mc.get_u16(pc) | @as(u32, @intCast(rt.FRAME_CF_CTOR)));
                         js_reverse_val(sp, (call_flags & rt.FRAME_CF_ARGC_MASK) + 1);
                         sp -= 1;
                         sp[0] = c.JS_UNDEFINED;
@@ -1982,7 +1961,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         continue :outer;
                     },
                     OP.call => {
-                        call_flags = @intCast(get_u16(pc));
+                        call_flags = @intCast(mc.get_u16(pc));
                         js_reverse_val(sp, (call_flags & rt.FRAME_CF_ARGC_MASK) + 1);
                         sp -= 1;
                         sp[0] = c.JS_UNDEFINED;
@@ -1990,7 +1969,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         continue :outer;
                     },
                     OP.call_method => {
-                        call_flags = @intCast(get_u16(pc));
+                        call_flags = @intCast(mc.get_u16(pc));
                         n = (call_flags & rt.FRAME_CF_ARGC_MASK) + 2;
                         js_reverse_val(sp, n);
                         state = .generic_function_call;
@@ -1998,7 +1977,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.@"catch" => {
                         const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
-                        const diff: i32 = @bitCast(get_u32(pc));
+                        const diff: i32 = @bitCast(mc.get_u32(pc));
                         const dest: i32 = @intCast(@as(isize, @bitCast(@intFromPtr(pc))) + @as(isize, diff) - @as(isize, @bitCast(@intFromPtr(vt.byteArrayBuf(byte_code)))));
                         sp -= 1;
                         sp[0] = rt.makeSpecial(c.JS_TAG_CATCH_OFFSET, dest);
@@ -2017,7 +1996,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.gosub => {
                         const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
-                        const diff: i32 = @bitCast(get_u32(pc));
+                        const diff: i32 = @bitCast(mc.get_u32(pc));
                         const pos: i32 = @intCast(@as(isize, @bitCast(@intFromPtr(pc))) + 4 - @as(isize, @bitCast(@intFromPtr(vt.byteArrayBuf(byte_code)))));
                         sp -= 1;
                         sp[0] = vt.newShortInt(pos);
@@ -2048,25 +2027,25 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         pc = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(pos));
                     },
                     OP.get_loc => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         pc += 2;
                         sp -= 1;
                         sp[0] = rt.slot(fp, rt.FRAME_OFFSET_VAR0 - idx).*;
                     },
                     OP.put_loc => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         pc += 2;
                         rt.slot(fp, rt.FRAME_OFFSET_VAR0 - idx).* = sp[0];
                         sp += 1;
                     },
                     OP.get_arg => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         pc += 2;
                         sp -= 1;
                         sp[0] = rt.slot(fp, rt.FRAME_OFFSET_ARG0 + idx).*;
                     },
                     OP.put_arg => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         pc += 2;
                         rt.slot(fp, rt.FRAME_OFFSET_ARG0 + idx).* = sp[0];
                         sp += 1;
@@ -2146,7 +2125,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp += 1;
                     },
                     OP.get_var_ref, OP.get_var_ref_nocheck => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp, rt.FRAME_OFFSET_FUNC_OBJ).*)));
                         const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(rt.closureVarRefs(po)[@intCast(idx)])));
                         if (rt.varRefIsDetached(pv))
@@ -2168,7 +2147,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp[0] = val;
                     },
                     OP.put_var_ref, OP.put_var_ref_nocheck => {
-                        const idx: c_int = @intCast(get_u16(pc));
+                        const idx: c_int = @intCast(mc.get_u16(pc));
                         const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp, rt.FRAME_OFFSET_FUNC_OBJ).*)));
                         const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(rt.closureVarRefs(po)[@intCast(idx)])));
                         const pval: *c.JSValue = if (rt.varRefIsDetached(pv)) &pv.u.value else pv.u.live.pvalue;
@@ -2187,10 +2166,10 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         pc += 2;
                     },
                     OP.goto => {
-                        const diff: i32 = @bitCast(get_u32(pc));
+                        const diff: i32 = @bitCast(mc.get_u32(pc));
                         pc = ptrAddI32(pc, diff);
-                        cx(ctx).interrupt_counter -= 1;
-                        if (cx(ctx).interrupt_counter <= 0) {
+                        mc.ctxExt(ctx).interrupt_counter -= 1;
+                        if (mc.ctxExt(ctx).interrupt_counter <= 0) {
                             saveFrame(ctx, fp, sp, pc, b.?);
                             val = __js_poll_interrupt(ctx);
                             const restored = restorePc(fp);
@@ -2207,11 +2186,11 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const res = value.JS_ToBool(ctx, sp[0]);
                         sp += 1;
                         if ((res ^ (OP.if_true - opcode)) != 0) {
-                            const diff: i32 = @bitCast(get_u32(pc - 4));
+                            const diff: i32 = @bitCast(mc.get_u32(pc - 4));
                             pc = ptrAddI32(pc, diff - 4);
                         }
-                        cx(ctx).interrupt_counter -= 1;
-                        if (cx(ctx).interrupt_counter <= 0) {
+                        mc.ctxExt(ctx).interrupt_counter -= 1;
+                        if (mc.ctxExt(ctx).interrupt_counter <= 0) {
                             saveFrame(ctx, fp, sp, pc, b.?);
                             val = __js_poll_interrupt(ctx);
                             const restored = restorePc(fp);
@@ -2235,7 +2214,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.get_field => {
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                        const idx = get_u16(pc);
+                        const idx = mc.get_u16(pc);
                         const prop = vt.valueArrayItems(cpool)[idx];
                         var obj = sp[0];
                         var slow = true;
@@ -2269,7 +2248,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(cx(ctx).sp);
+                                sp = @ptrCast(mc.ctxExt(ctx).sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -2289,8 +2268,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
                                 if (mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
-                                    if (po.proto == vt.classProto(cx(ctx), c.JS_CLASS_ARRAY).* and
-                                        po.props == cx(ctx).empty_props)
+                                    if (po.proto == vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_ARRAY).* and
+                                        po.props == mc.ctxExt(ctx).empty_props)
                                     {
                                         val = vt.newShortInt(@intCast(po.u.array.len));
                                         slow = false;
@@ -2315,7 +2294,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(cx(ctx).sp);
+                                sp = @ptrCast(mc.ctxExt(ctx).sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -2324,7 +2303,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.put_field => {
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                        const idx = get_u16(pc);
+                        const idx = mc.get_u16(pc);
                         const prop = vt.valueArrayItems(cpool)[idx];
                         const obj = sp[1];
                         var slow = true;
@@ -2349,7 +2328,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(cx(ctx).sp);
+                                sp = @ptrCast(mc.ctxExt(ctx).sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -2398,7 +2377,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(cx(ctx).sp);
+                                sp = @ptrCast(mc.ctxExt(ctx).sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -2451,7 +2430,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(cx(ctx).sp);
+                                sp = @ptrCast(mc.ctxExt(ctx).sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -2460,7 +2439,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.define_field, OP.define_getter, OP.define_setter => {
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                        const idx = get_u16(pc);
+                        const idx = mc.get_u16(pc);
                         const prop = vt.valueArrayItems(cpool)[idx];
                         saveFrame(ctx, fp, sp, pc, b.?);
                         if (opcode == OP.define_field) {
@@ -2550,7 +2529,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 continue :outer;
                             }
                             if (r == 0 and (v1 | v2) < 0) {
-                                sp[1] = cx(ctx).minus_zero;
+                                sp[1] = mc.ctxExt(ctx).minus_zero;
                             } else {
                                 sp[1] = rt.storeU32(@bitCast(@as(i32, @truncate(r))));
                             }
@@ -2620,7 +2599,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         if (mc.isInt(op1)) {
                             const v1 = rt.asI32(op1);
                             if (v1 == 0) {
-                                sp[0] = cx(ctx).minus_zero;
+                                sp[0] = mc.ctxExt(ctx).minus_zero;
                             } else if (v1 == std.math.minInt(i32)) {
                                 dr = -@as(f64, @floatFromInt(vt.JS_SHORTINT_MIN));
                                 state = .float_result;
@@ -2935,7 +2914,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 if (state == .get_field) {
                     state = .dispatch;
                     const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                    const idx = get_u16(pc);
+                    const idx = mc.get_u16(pc);
                     const prop = vt.valueArrayItems(cpool)[idx];
                     var obj = sp[0];
                     var slow = true;
@@ -2969,7 +2948,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         b = restored.b;
                         pc = restored.pc;
                         if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(cx(ctx).sp);
+                            sp = @ptrCast(mc.ctxExt(ctx).sp);
                             state = .exception;
                             continue :outer;
                         }
@@ -2984,8 +2963,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                         if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
                             if (mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
-                                if (po.proto == vt.classProto(cx(ctx), c.JS_CLASS_ARRAY).* and
-                                    po.props == cx(ctx).empty_props)
+                                if (po.proto == vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_ARRAY).* and
+                                    po.props == mc.ctxExt(ctx).empty_props)
                                 {
                                     val = vt.newShortInt(@intCast(po.u.array.len));
                                     slow = false;
@@ -3010,7 +2989,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         b = restored.b;
                         pc = restored.pc;
                         if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(cx(ctx).sp);
+                            sp = @ptrCast(mc.ctxExt(ctx).sp);
                             state = .exception;
                             continue :outer;
                         }
@@ -3049,7 +3028,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         b = restored.b;
                         pc = restored.pc;
                         if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(cx(ctx).sp);
+                            sp = @ptrCast(mc.ctxExt(ctx).sp);
                             state = .exception;
                             continue :outer;
                         }
@@ -3060,8 +3039,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
         }
     }
 
-    cx(ctx).sp = @ptrCast(sp);
-    cx(ctx).fp = @ptrCast(fp);
-    cx(ctx).js_call_rec_count -= 1;
+    mc.ctxExt(ctx).sp = @ptrCast(sp);
+    mc.ctxExt(ctx).fp = @ptrCast(fp);
+    mc.ctxExt(ctx).js_call_rec_count -= 1;
     return val;
 }

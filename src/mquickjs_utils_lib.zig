@@ -42,10 +42,6 @@ const utf8_get = cutils.utf8_get;
 
 extern fn js_lrint(x: f64) c_long;
 
-inline fn cx(ctx: *c.JSContext) *mc.JSContextExt {
-    return mc.ctxExt(ctx);
-}
-
 const PF_ZERO_PAD: c_int = 1 << 0;
 const PF_ALT_FORM: c_int = 1 << 1;
 const PF_MARK_POS: c_int = 1 << 2;
@@ -71,7 +67,7 @@ pub const js_mtag_name = [_][*:0]const u8{
 };
 
 pub fn JS_PushGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) *c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     ref.prev = @ptrCast(x.top_gc_ref);
     x.top_gc_ref = @ptrCast(@alignCast(ref));
     ref.val = c.JS_UNDEFINED;
@@ -79,12 +75,21 @@ pub fn JS_PushGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) *c.JSValue {
 }
 
 pub fn JS_PopGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
-    cx(ctx).top_gc_ref = @ptrCast(ref.prev);
+    mc.ctxExt(ctx).top_gc_ref = @ptrCast(ref.prev);
     return ref.val;
 }
 
+pub fn pushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
+    _ = JS_PushGCRef(ctx, ref);
+    ref.val = val;
+}
+
+pub fn popValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
+    return JS_PopGCRef(ctx, ref);
+}
+
 pub fn JS_AddGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) *c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     ref.prev = @ptrCast(x.last_gc_ref);
     x.last_gc_ref = @ptrCast(@alignCast(ref));
     ref.val = c.JS_UNDEFINED;
@@ -92,7 +97,7 @@ pub fn JS_AddGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) *c.JSValue {
 }
 
 pub fn JS_DeleteGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var pref: *?*c.JSGCRef = @ptrCast(&x.last_gc_ref);
     while (true) {
         const ref1 = pref.* orelse {
@@ -107,7 +112,7 @@ pub fn JS_DeleteGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) void {
 }
 
 fn jsPushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     ref.prev = @ptrCast(x.top_gc_ref);
     x.top_gc_ref = @ptrCast(@alignCast(ref));
     ref.val = val;
@@ -115,12 +120,12 @@ fn jsPushValue(ctx: *c.JSContext, ref: *c.JSGCRef, val: c.JSValue) void {
 
 fn jsPopValue(ctx: *c.JSContext, ref: *c.JSGCRef) c.JSValue {
     const val = ref.val;
-    cx(ctx).top_gc_ref = @ptrCast(ref.prev);
+    mc.ctxExt(ctx).top_gc_ref = @ptrCast(ref.prev);
     return val;
 }
 
 pub fn js_get_atom(ctx: *c.JSContext, a: c_int) c.JSValue {
-    const table = cx(ctx).atom_table;
+    const table = mc.ctxExt(ctx).atom_table;
     return mc.valueFromPtr(@ptrCast(@constCast(&table[@intCast(a)])));
 }
 
@@ -133,7 +138,7 @@ pub fn js_get_mtag(ptr: *anyopaque) c_int {
 }
 
 fn check_free_mem(ctx: *c.JSContext, stack_bottom: *c.JSValue, size: c_uint) c_int {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const stack_ptr: [*c]u8 = @ptrCast(stack_bottom);
     if (@intFromPtr(stack_ptr) - @intFromPtr(x.heap_free) < size + x.min_free_size) {
         gc.JS_GC(ctx);
@@ -146,7 +151,7 @@ fn check_free_mem(ctx: *c.JSContext, stack_bottom: *c.JSValue, size: c_uint) c_i
 }
 
 pub fn JS_StackCheck(ctx: *c.JSContext, len: c_uint) c_int {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const new_len: usize = @intCast(len + mc.JS_STACK_SLACK);
     const sp: [*]c.JSValue = @ptrCast(x.sp);
     const new_stack_bottom: *c.JSValue = @ptrCast(sp - new_len);
@@ -161,7 +166,7 @@ pub fn js_malloc(ctx: *c.JSContext, size: c_uint, mtag: c_int) ?*anyopaque {
         return null;
 
     const aligned_size = mc.alignUp(size, c.JSW);
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     if (check_free_mem(ctx, x.stack_bottom, aligned_size) != 0)
         return null;
 
@@ -182,7 +187,7 @@ pub fn js_mallocz(ctx: *c.JSContext, size: c_uint, mtag: c_int) ?*anyopaque {
 
 pub fn js_free(ctx: *c.JSContext, ptr: ?*anyopaque) void {
     if (ptr == null) return;
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var ptr1: [*c]u8 = @ptrCast(ptr);
     ptr1 += @intCast(gc.get_mblock_size(ptr1));
     if (ptr1 == x.heap_free)
@@ -211,7 +216,7 @@ pub fn js_shrink(ctx: *c.JSContext, ptr: ?*anyopaque, new_size: c_uint) ?*anyopa
 }
 
 pub fn JS_Throw(ctx: *c.JSContext, obj: c.JSValue) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     x.current_exception = obj;
     x.current_exception_is_uncatchable = c.FALSE;
     return c.JS_EXCEPTION;
@@ -442,12 +447,12 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
 pub fn js_printf(ctx: *c.JSContext, fmt: [*:0]const u8, ...) callconv(.c) void {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     js_vprintf(x.write_func.?, x.opaque_val, fmt, @ptrCast(&ap));
 }
 
 pub fn js_putchar(ctx: *c.JSContext, ch: u8) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     x.write_func.?(x.opaque_val, &ch, 1);
 }
 
@@ -494,7 +499,7 @@ pub fn jsThrowErrorVa(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*
     var msg_ref: c.JSGCRef = undefined;
     jsPushValue(ctx, &msg_ref, msg);
 
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const class_proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
     const error_obj = value.JS_NewObjectProtoClass(ctx, class_proto[@intCast(error_num)], c.JS_CLASS_ERROR, @sizeOf(mc.JSErrorDataExt));
     const msg_val = jsPopValue(ctx, &msg_ref);
@@ -522,7 +527,7 @@ pub fn JS_ThrowError(ctx: *c.JSContext, error_num: c.JSObjectClassEnum, fmt: [*:
 }
 
 pub fn JS_ThrowOutOfMemory(ctx: *c.JSContext) c.JSValue {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     if (x.in_out_of_memory != 0)
         return JS_Throw(ctx, c.JS_NULL);
     x.in_out_of_memory = c.TRUE;
@@ -558,7 +563,7 @@ fn js_dump_array(ctx: *c.JSContext, arr: *mc.JSValueArrayExt, len: c_int) void {
 }
 
 fn js_find_class_name(ctx: *c.JSContext, class_id: c_int) c.JSValue {
-    var fd = cx(ctx).c_function_table;
+    var fd = mc.ctxExt(ctx).c_function_table;
     while ((fd.*.def_type != c.JS_CFUNC_constructor_magic and fd.*.def_type != c.JS_CFUNC_constructor) or
         fd.*.magic != class_id)
     {
@@ -604,7 +609,7 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
             },
             c.JS_CLASS_C_FUNCTION => {
                 js_printf(ctx, "function ");
-                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(p.u.cfunc.idx)].name), c.JS_DUMP_NOQUOTE);
+                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, mc.ctxExt(ctx).c_function_table[@intCast(p.u.cfunc.idx)].name), c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
             },
             c.JS_CLASS_ERROR => js_dump_error(ctx, p),
@@ -780,7 +785,7 @@ fn dump_string(ctx: *c.JSContext, sep: c_int, buf: [*c]const u8, len: usize, fla
                 if (ch < 32 or (ch >= 0xd800 and ch < 0xe000)) {
                     js_printf(ctx, "\\u%04x", @as(c_uint, @intCast(ch)));
                 } else {
-                    const x = cx(ctx);
+                    const x = mc.ctxExt(ctx);
                     x.write_func.?(x.opaque_val, p, clen);
                 }
             },
@@ -804,7 +809,7 @@ pub fn JS_PrintValueF(ctx: *c.JSContext, val: c.JSValue, flags: c_int) void {
             c.JS_TAG_SHORT_FUNC => {
                 const idx = mc.valueGetSpecialValue(val);
                 js_printf(ctx, "function ");
-                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, cx(ctx).c_function_table[@intCast(idx)].name), c.JS_DUMP_NOQUOTE);
+                JS_PrintValueF(ctx, runtime.reloc_c_func_name(ctx, mc.ctxExt(ctx).c_function_table[@intCast(idx)].name), c.JS_DUMP_NOQUOTE);
                 js_printf(ctx, "()");
             },
             c.JS_TAG_STRING_CHAR => {
@@ -871,11 +876,11 @@ fn get_mtag_name(mtag: c_uint) [*:0]const u8 {
 fn val_to_offset(ctx: *c.JSContext, val: c.JSValue) c_uint {
     if (!mc.isPtr(val))
         return 0;
-    return @intCast(@intFromPtr(mc.valueToPtr(val)) - @intFromPtr(cx(ctx).heap_base));
+    return @intCast(@intFromPtr(mc.valueToPtr(val)) - @intFromPtr(mc.ctxExt(ctx).heap_base));
 }
 
 pub fn JS_DumpMemory(ctx: *c.JSContext, is_long: c.JS_BOOL) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     var mtag_mem_size: [mc.JS_MTAG_COUNT]c_uint = undefined;
     var mtag_count: [mc.JS_MTAG_COUNT]c_uint = undefined;
     var tot_size: c_uint = 0;
@@ -932,7 +937,7 @@ pub fn JS_DumpMemory(ctx: *c.JSContext, is_long: c.JS_BOOL) void {
 }
 
 pub fn JS_DumpUniqueStrings(ctx: *c.JSContext) void {
-    const x = cx(ctx);
+    const x = mc.ctxExt(ctx);
     const arr: *mc.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(x.unique_strings)));
     const arr_items = mc.valueArrayItems(arr);
     js_printf(ctx, "%5s %s\n", "N", "UNIQUE_STRING");
