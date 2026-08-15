@@ -639,8 +639,11 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
         const pf = &@as([*]c.JSValue, @ptrCast(x.sp))[1];
         var cpool_pos = vt.valueGetInt(@as([*]c.JSValue, @ptrCast(x.sp))[0]);
         if (cpool_pos == 0) {
-            const b = funcBc(pf.*);
+            s.cur_func = pf.*;
+            var b = funcBc(pf.*);
+            b.byte_code = s.byte_code;
             convert_ext_vars_to_local_vars(s);
+            b = funcBc(pf.*);
             value.js_shrink_byte_array(ctx, &b.byte_code, @intCast(s.byte_code_len));
             value.js_shrink_value_array(ctx, &b.cpool, s.cpool_len);
             value.js_shrink_value_array(ctx, &b.vars, s.local_vars_len);
@@ -654,7 +657,7 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
             while (cpool_pos < cpool_size) : (cpool_pos += 1) {
                 const b2 = funcBc(pf.*);
                 const cpool2 = valueArr(b2.cpool);
-                const func = vt.valueArrayItems(cpool2)[@intCast(cpool_pos)];
+                var func = vt.valueArrayItems(cpool2)[@intCast(cpool_pos)];
                 if (!mc.isPtr(func))
                     continue;
                 const b1 = funcBc(func);
@@ -668,7 +671,7 @@ fn js_parse_local_functions(s: *JSParseState, pfunc: *c.JSValue) void {
                 utils.pushValue(ctx, &func_ref, func);
                 js_parse_function(s);
                 const err = utils.JS_StackCheck(ctx, 3);
-                _ = utils.popValue(ctx, &func_ref);
+                func = utils.popValue(ctx, &func_ref);
                 if (err != 0)
                     lexer.js_parse_error_stack_overflow(s);
                 @as([*]c.JSValue, @ptrCast(x.sp))[0] = vt.newShortInt(cpool_pos + 1);

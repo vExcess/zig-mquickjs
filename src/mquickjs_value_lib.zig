@@ -874,10 +874,12 @@ pub fn JS_MakeUniqueString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
         }
     }
 
-    const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(x.unique_strings)));
-    const val1 = find_atom(ctx, &a, arr, x.unique_strings_len, val);
-    if (!mc.isNull(val1))
-        return val1;
+    if (!mc.isNull(x.unique_strings)) {
+        const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(x.unique_strings)));
+        const val1 = find_atom(ctx, &a, arr, x.unique_strings_len, val);
+        if (!mc.isNull(val1))
+            return val1;
+    }
 
     var val_ref: c.JSGCRef = undefined;
     utils.pushValue(ctx, &val_ref, val);
@@ -886,12 +888,26 @@ pub fn JS_MakeUniqueString(ctx: *c.JSContext, val_in: c.JSValue) c.JSValue {
     if (is_numeric < 0)
         return c.JS_EXCEPTION;
 
+    // js_is_numeric_string may GC. unique_strings is a weak table, so compact
+    // can shrink it (or set it to JS_NULL). The insertion index `a` is then
+    // stale; unique_strings_len - a underflows and memmove corrupts the heap.
+    a = 0;
+    if (!mc.isNull(x.unique_strings) and x.unique_strings_len > 0) {
+        const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(x.unique_strings)));
+        const val1 = find_atom(ctx, &a, arr, x.unique_strings_len, val);
+        if (!mc.isNull(val1))
+            return val1;
+    }
+
     utils.pushValue(ctx, &val_ref, val);
     const new_tab = js_resize_value_array(ctx, x.unique_strings, x.unique_strings_len + 1);
     val = utils.popValue(ctx, &val_ref);
     if (vt.isExactException(new_tab))
         return c.JS_EXCEPTION;
     x.unique_strings = new_tab;
+    // C does not re-lookup `a` after resize and does not UNDEFINED-fill
+    // [len, cap). That fill wipes interned keys still in capacity when
+    // unique_strings_len is short (same identity miss as compact-by-len).
     const arr2: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(x.unique_strings)));
     const items = vt.valueArrayItems(arr2);
     const nmove: usize = @intCast(x.unique_strings_len - a);
@@ -1559,7 +1575,9 @@ pub fn get_first_free(arr: *vt.JSValueArrayExt) c_int {
         return vt.valueArraySize(arr);
 }
 
-pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*vt.JSPropertyExt {
+pub fn js_create_property(ctx: *c.JSContext, obj_in: c.JSValue, prop_in: c.JSValue) ?*vt.JSPropertyExt {
+    var obj = obj_in;
+    var prop = prop_in;
     var p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
     var arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(p.props)));
     var items = vt.valueArrayItems(arr);
@@ -1571,18 +1589,19 @@ pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*
         if (p.props == mc.ctxExt(ctx).empty_props) {
             var obj_ref: c.JSGCRef = undefined;
             var prop_ref: c.JSGCRef = undefined;
-            var obj_mut = obj;
-            var prop_mut = prop;
-            utils.pushValue(ctx, &obj_ref, obj_mut);
-            utils.pushValue(ctx, &prop_ref, prop_mut);
+            utils.pushValue(ctx, &obj_ref, obj);
+            utils.pushValue(ctx, &prop_ref, prop);
             arr = js_alloc_props(ctx, 1) orelse {
                 _ = utils.popValue(ctx, &prop_ref);
                 _ = utils.popValue(ctx, &obj_ref);
                 return null;
             };
-            prop_mut = utils.popValue(ctx, &prop_ref);
-            obj_mut = utils.popValue(ctx, &obj_ref);
-            p = @ptrCast(@alignCast(mc.valueToPtr(obj_mut)));
+            // C JS_POP_VALUE assigns back. hash_prop / find_own_property
+            // compare interned keys by pointer; a stale prop after GC is
+            // a missing method / TS parse-count miss.
+            prop = utils.popValue(ctx, &prop_ref);
+            obj = utils.popValue(ctx, &obj_ref);
+            p = @ptrCast(@alignCast(mc.valueToPtr(obj)));
             p.props = mc.valueFromPtr(arr);
             items = vt.valueArrayItems(arr);
             prop_count = vt.valueGetInt(items[0]);
@@ -1598,16 +1617,14 @@ pub fn js_create_property(ctx: *c.JSContext, obj: c.JSValue, prop: c.JSValue) ?*
             }
             var obj_ref: c.JSGCRef = undefined;
             var prop_ref: c.JSGCRef = undefined;
-            var obj_mut = obj;
-            var prop_mut = prop;
-            utils.pushValue(ctx, &obj_ref, obj_mut);
-            utils.pushValue(ctx, &prop_ref, prop_mut);
+            utils.pushValue(ctx, &obj_ref, obj);
+            utils.pushValue(ctx, &prop_ref, prop);
             const new_props = js_resize_value_array2(ctx, p.props, new_size, 2 + new_hash_mask + 1);
-            prop_mut = utils.popValue(ctx, &prop_ref);
-            obj_mut = utils.popValue(ctx, &obj_ref);
+            prop = utils.popValue(ctx, &prop_ref);
+            obj = utils.popValue(ctx, &obj_ref);
             if (vt.isExactException(new_props))
                 return null;
-            p = @ptrCast(@alignCast(mc.valueToPtr(obj_mut)));
+            p = @ptrCast(@alignCast(mc.valueToPtr(obj)));
             p.props = new_props;
             arr = @ptrCast(@alignCast(mc.valueToPtr(p.props)));
             items = vt.valueArrayItems(arr);

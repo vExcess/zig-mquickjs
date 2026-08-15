@@ -65,7 +65,7 @@ pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSVal
         const atom: c_int = if ((i ^ hint) == 0) c.JS_ATOM_toString else c.JS_ATOM_valueOf;
         var val_ref: c.JSGCRef = undefined;
         utils.pushValue(ctx, &val_ref, val);
-        const method = value.JS_GetProperty(ctx, val, utils.js_get_atom(ctx, atom));
+        var method = value.JS_GetProperty(ctx, val, utils.js_get_atom(ctx, atom));
         val = utils.popValue(ctx, &val_ref);
         if (vt.isExactException(method))
             return method;
@@ -75,7 +75,7 @@ pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSVal
             utils.pushValue(ctx, &val_ref, val);
             const err = utils.JS_StackCheck(ctx, 2);
             val = utils.popValue(ctx, &val_ref);
-            _ = utils.popValue(ctx, &method_ref);
+            method = utils.popValue(ctx, &method_ref);
             if (err != 0)
                 return c.JS_EXCEPTION;
 

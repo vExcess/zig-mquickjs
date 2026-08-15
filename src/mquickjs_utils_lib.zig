@@ -140,9 +140,12 @@ pub fn js_get_mtag(ptr: *anyopaque) c_int {
 fn check_free_mem(ctx: *c.JSContext, stack_bottom: *c.JSValue, size: c_uint) c_int {
     const x = mc.ctxExt(ctx);
     const stack_ptr: [*c]u8 = @ptrCast(stack_bottom);
-    if (@intFromPtr(stack_ptr) - @intFromPtr(x.heap_free) < size + x.min_free_size) {
+    const remaining = @as(isize, @bitCast(@intFromPtr(stack_ptr))) - @as(isize, @bitCast(@intFromPtr(x.heap_free)));
+    const need: isize = @as(isize, @intCast(size)) + @as(isize, @intCast(x.min_free_size));
+    if (remaining < need) {
         gc.JS_GC(ctx);
-        if (@intFromPtr(stack_ptr) - @intFromPtr(x.heap_free) < size + x.min_free_size) {
+        const remaining2 = @as(isize, @bitCast(@intFromPtr(stack_ptr))) - @as(isize, @bitCast(@intFromPtr(x.heap_free)));
+        if (remaining2 < need) {
             _ = JS_ThrowOutOfMemory(ctx);
             return -1;
         }

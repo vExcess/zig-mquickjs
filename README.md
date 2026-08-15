@@ -2,7 +2,11 @@ MicroQuickJS
 ============
 
 ## Zigged
-MicroQuickJS ported entirely to Zig. You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
+MicroQuickJS ported entirely to Zig. 
+
+IMPORTANT: This port was performed almost entirely by AI. The AI introduced a ton of bugs that do not exist in the original mquickjs. Do NOT use this if you need anything stable or secure.
+
+You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
 
 Build mqjs: `zig build -Doptimize=ReleaseFast`
 
@@ -17,7 +21,7 @@ Run tests: `zig build test -Doptimize=ReleaseFast`
 Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
 
 ### Why use Zig over C?
-- Memory safety - Zig can detect double-frees, use-after-frees, and memory leaks
+- Memory safety - Zig can detect double-frees, use-after-frees, memory leaks, and out of bounds accesses
 - Speed - Because Zig does not have to maintain strict binary layouts in memory, the compiler can reorder structs to achieve better cache locality resulting in even better performance than equivelant C code
 - Readability - Zig code is much easier to understand than C
 - Guard Rails - Zig has a lot of guard rails to prevent you from introducing silly mistake bugs such as forgetting to cast an item before operating on it
@@ -30,11 +34,17 @@ The first ~3,000 lines were ported very manually with some assistance from Gemin
 ### Result
 The result is a functioning copy of mquickjs written entirely in Zig with no C code (only a few small header files are still needed).
 
-The port is a very literal line by line translation of the C code. It is nowhere close to being idiomatic Zig. Future work will convert the Zig code to be more idiomatic Zig.
+The code is relatively C-style. Future work will convert the Zig code to be more idiomatic Zig.
+
+
+### Benchmarks
+#### mquickjs
+octane: 2421
+
+#### zig-mquickjs
+octane: 2377
 
 According to the microbenchmarks, there is a 1.7% performance decrease after having been ported to Zig. While dissapointing, this slight performance decrease will probably dissapear when the code is refactored to be more idiomatic.
-
-I pretty much guarentee you that the AI introduced more bugs into the Zig port than are in the original mquickjs. I would not use the vibe coded Zig port if you want anything that is stable to use.
 
 ### Run test262
 ```sh

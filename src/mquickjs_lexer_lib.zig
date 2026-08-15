@@ -685,8 +685,10 @@ pub fn next_token(s: *lt.JSParseState) void {
 
 fn parseNumber(s: *lt.JSParseState, pp: *[*]const u8) void {
     var p = pp.*;
+    const pos = srcOff(s, p);
     const tmp_arr = value.js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse
         js_parse_error_mem(s);
+    p = s.source_buf + pos;
     var p_char: [*c]const u8 = p;
     const d = dtoa.js_atod(
         p_char,

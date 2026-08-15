@@ -329,14 +329,15 @@ pub fn js_function_bind(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, ar
     return runtime.JS_NewCFunctionParams(ctx, c.JS_CFUNCTION_bound, mc.valueFromPtr(arr));
 }
 
-pub fn js_function_bound(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, params: c.JSValue) c.JSValue {
+pub fn js_function_bound(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue, params_in: c.JSValue) c.JSValue {
     _ = this_val;
+    var params = params_in;
     var params_ref: c.JSGCRef = undefined;
     var arr = valueArr(params);
     const size = vt.valueArraySize(arr);
     utils.pushValue(ctx, &params_ref, params);
     const err = utils.JS_StackCheck(ctx, @intCast(size + argc));
-    _ = utils.popValue(ctx, &params_ref);
+    params = utils.popValue(ctx, &params_ref);
     if (err != 0)
         return c.JS_EXCEPTION;
     const argc2 = size - 2 + argc;

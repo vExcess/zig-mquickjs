@@ -1116,7 +1116,7 @@ pub fn js_pow(x: f64, y: f64) f64 {
     extractWordsAsSigned(&hy, &ly, y);
     ix = hx & 0x7fffffff;
     iy = hy & 0x7fffffff;
-    if (@as(u32, @intCast(iy)) | ly == 0) return one;
+    if ((@as(u32, @intCast(iy)) | ly) == 0) return one;
     if (ix > 0x7ff00000 or (ix == 0x7ff00000 and lx != 0) or
         iy > 0x7ff00000 or (iy == 0x7ff00000 and ly != 0))
         return x + y;
@@ -1195,7 +1195,10 @@ pub fn js_pow(x: f64, y: f64) f64 {
     p_h = y1 * t1;
     z = p_l + p_h;
     extractWords(&jz, &i, z);
-    if (jz >= 0x40900000) {
+    // C uses signed `int j` for the high word. A u32 compare treats every
+    // negative z (result < 1) as >= 0x40900000 and returns Infinity.
+    const j: i32 = @bitCast(jz);
+    if (j >= 0x40900000) {
         if (((jz -% 0x40900000) | i) != 0)
             return s * huge_val * huge_val;
         if (p_l + ovt > z - p_h)
@@ -1206,16 +1209,16 @@ pub fn js_pow(x: f64, y: f64) f64 {
         if (p_l <= z - p_h)
             return s * tiny_val * tiny_val;
     }
-    jz = jz & 0x7fffffff;
-    k = (@as(c_int, @intCast(jz >> 20))) - 0x3ff;
+    const abs_jz: u32 = jz & 0x7fffffff;
+    k = (@as(c_int, @intCast(abs_jz >> 20))) - 0x3ff;
     n = 0;
-    if (jz > 0x3fe00000) {
-        n = @as(c_int, @bitCast(jz)) + @as(c_int, @intCast(@as(u32, 0x00100000) >> @intCast(k + 1)));
+    if (abs_jz > 0x3fe00000) {
+        n = j + @as(c_int, @intCast(@as(u32, 0x00100000) >> @intCast(k + 1)));
         k = ((n & 0x7fffffff) >> 20) - 0x3ff;
         t = zero;
         t = setHighWord(t, @as(u32, @intCast(@as(c_int, @bitCast(n)) & ~(@as(c_int, 0x000fffff) >> @intCast(k)))));
         n = ((n & 0x000fffff) | 0x00100000) >> @intCast(20 - k);
-        if (@as(c_int, @bitCast(jz)) < 0) n = -n;
+        if (j < 0) n = -n;
         p_h -= t;
     }
     t = zeroLow(p_l + p_h);

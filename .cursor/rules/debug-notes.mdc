@@ -1,0 +1,18 @@
+---
+description: Octane/GC debugging notes for zig-mquickjs
+alwaysApply: true
+---
+
+# Debugging this engine
+
+Read `debug-notes.md` before diagnosing Octane, math, parse, or GC crashes.
+
+- Compare only against `../mquickjs` (C). Do not search other workspace dirs.
+- Build `-Doptimize=ReleaseFast`. Do not iterate with full `zig build octane`.
+- Fix one correctness bug, then stop. Performance last.
+- Several Octane failures were `libm_lib.zig` UB / precedence / signedness.
+- Isolated suite repros are not enough; need heap pressure from earlier Octane files/suites.
+- `mqjs tests/octane/run.js <suite>` segfaults in host argv (Zig slices as `char**`). Not the engine bug.
+- Typescript flake: unique-string insert used a stale index after `js_is_numeric_string` GC. Do not revert.
+- C `JS_POP_VALUE` assigns the GC-updated pointer back. Do not discard `popValue` when the local is used after (CodeLoad, `label_name`, `js_create_property` `prop`, ToPrimitive `method`, bound `params`).
+- Unique-string table is weak. C compact scans `arr->size` (restored). Do not re-scan only `unique_strings_len`. Do not re-add MakeUniqueString post-resize `find_atom` or `[len, cap)` UNDEFINED fill. Do not change `js_resize_value_array` copy size for all arrays.

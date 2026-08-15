@@ -86,13 +86,16 @@ const put_lvalue = emit.put_lvalue;
 const js_parse_push_val = emit.js_parse_push_val;
 const js_parse_pop_val = emit.js_parse_pop_val;
 
-fn push_break_entry(s: *JSParseState, label_name: c.JSValue, label_break: c.JSValue, label_cont: c.JSValue, drop_count: c_int) *BlockEnv {
+fn push_break_entry(s: *JSParseState, label_name_in: c.JSValue, label_break: c.JSValue, label_cont: c.JSValue, drop_count: c_int) *BlockEnv {
     const ctx = s.ctx;
+    var label_name = label_name_in;
     const block_env_len = @as(c_int, @intCast(@sizeOf(BlockEnv) / @sizeOf(c.JSValue)));
     var label_name_ref: c.JSGCRef = undefined;
     utils.pushValue(ctx, &label_name_ref, label_name);
     const ret = utils.JS_StackCheck(ctx, @intCast(block_env_len));
-    _ = utils.popValue(ctx, &label_name_ref);
+    // C JS_POP_VALUE assigns back. StackCheck may GC; the interned label
+    // is then stored on the JS stack (pointer equality for break/continue).
+    label_name = utils.popValue(ctx, &label_name_ref);
     if (ret != 0)
         lexer.js_parse_error_stack_overflow(s);
     const x = mc.ctxExt(ctx);
@@ -142,7 +145,8 @@ fn emit_return(s: *JSParseState, hasval_in: bool, source_pos: u32) void {
     emit_op_pos(s, @intCast(if (hasval) OP.@"return" else OP.return_undef), source_pos);
 }
 
-fn emit_break(s: *JSParseState, label_name: c.JSValue, is_cont: c_int) void {
+fn emit_break(s: *JSParseState, label_name_in: c.JSValue, is_cont: c_int) void {
+    var label_name = label_name_in;
     var top_val = s.top_break;
     var label_name_ref: c.JSGCRef = undefined;
     while (!mc.isNull(top_val)) {
@@ -167,7 +171,7 @@ fn emit_break(s: *JSParseState, label_name: c.JSValue, is_cont: c_int) void {
             emit_goto(s, OP.gosub, &top.label_finally);
             emit_op(s, @intCast(OP.drop));
         }
-        _ = utils.popValue(s.ctx, &label_name_ref);
+        label_name = utils.popValue(s.ctx, &label_name_ref);
         top_val = top.prev;
     }
     if (label_name == c.JS_NULL) {

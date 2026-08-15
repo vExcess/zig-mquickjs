@@ -301,6 +301,10 @@ pub fn gc_mark_all(ctx: *c.JSContext, keep_atoms: c.JS_BOOL) void {
         const items = vt.valueArrayItems(arr);
         var j: c_int = 0;
         var i: c_int = 0;
+        // Match C: for (i = 0; i < arr->size; i++). Scanning only
+        // unique_strings_len drops interned keys still used as property
+        // names when len is short, then MakeUniqueString inserts a second
+        // unique copy (DeltaBlue addConstraint + Typescript parseErrors).
         while (i < vt.valueArraySize(arr)) : (i += 1) {
             if (gc_mb_is_marked(items[@intCast(i)]) != 0) {
                 items[@intCast(j)] = items[@intCast(i)];

@@ -329,25 +329,26 @@ pub fn emit_goto(s: *JSParseState, opcode: c_int, plabel: *c.JSValue) void {
 }
 
 pub fn cpool_add(s: *JSParseState, val: c.JSValue) c_int {
+    var val_kept = val;
     var b = funcBc(s.cur_func);
     var arr = valueArr(b.cpool);
     var i: c_int = 0;
     while (i < s.cpool_len) : (i += 1) {
-        if (vt.valueArrayItems(arr)[@intCast(i)] == val)
+        if (vt.valueArrayItems(arr)[@intCast(i)] == val_kept)
             return i;
     }
     if (s.cpool_len > 65535)
         lexer.js_parse_error(s, "too many constants");
     var val_ref: c.JSGCRef = undefined;
-    utils.pushValue(s.ctx, &val_ref, val);
+    utils.pushValue(s.ctx, &val_ref, val_kept);
     const new_cpool = value.js_resize_value_array(s.ctx, b.cpool, max_int(s.cpool_len + 1, 4));
-    _ = utils.popValue(s.ctx, &val_ref);
+    val_kept = utils.popValue(s.ctx, &val_ref);
     if (vt.isExactException(new_cpool))
         lexer.js_parse_error_mem(s);
     b = funcBc(s.cur_func);
     b.cpool = new_cpool;
     arr = valueArr(b.cpool);
-    vt.valueArrayItems(arr)[s.cpool_len] = val;
+    vt.valueArrayItems(arr)[s.cpool_len] = val_kept;
     s.cpool_len += 1;
     return s.cpool_len - 1;
 }
@@ -415,23 +416,25 @@ pub fn find_ext_var(s: *JSParseState, name: c.JSValue) c_int {
 }
 
 pub fn add_func_ext_var(s: *JSParseState, func: c.JSValue, name: c.JSValue, decl: c_int) c_int {
-    var b = funcBc(func);
+    var func_kept = func;
+    var name_kept = name;
+    var b = funcBc(func_kept);
     if (b.ext_vars_len >= pt.JS_MAX_LOCAL_VARS)
         lexer.js_parse_error(s, "too many variable references");
     var func_ref: c.JSGCRef = undefined;
     var name_ref: c.JSGCRef = undefined;
-    utils.pushValue(s.ctx, &func_ref, func);
-    utils.pushValue(s.ctx, &name_ref, name);
+    utils.pushValue(s.ctx, &func_ref, func_kept);
+    utils.pushValue(s.ctx, &name_ref, name_kept);
     const new_ext_vars = value.js_resize_value_array(s.ctx, b.ext_vars, max_int(b.ext_vars_len + 1, 2) * 2);
-    _ = utils.popValue(s.ctx, &name_ref);
-    _ = utils.popValue(s.ctx, &func_ref);
+    name_kept = utils.popValue(s.ctx, &name_ref);
+    func_kept = utils.popValue(s.ctx, &func_ref);
     if (vt.isExactException(new_ext_vars))
         lexer.js_parse_error_mem(s);
-    b = funcBc(func);
+    b = funcBc(func_kept);
     b.ext_vars = new_ext_vars;
     const arr = valueArr(b.ext_vars);
     const items = vt.valueArrayItems(arr);
-    items[@intCast(2 * b.ext_vars_len)] = name;
+    items[@intCast(2 * b.ext_vars_len)] = name_kept;
     items[@intCast(2 * b.ext_vars_len + 1)] = vt.newShortInt(decl);
     b.ext_vars_len += 1;
     return b.ext_vars_len - 1;
@@ -442,19 +445,20 @@ pub fn add_ext_var(s: *JSParseState, name: c.JSValue, decl: c_int) c_int {
 }
 
 pub fn add_var(s: *JSParseState, name: c.JSValue) c_int {
+    var name_kept = name;
     var b = funcBc(s.cur_func);
     if (s.local_vars_len >= pt.JS_MAX_LOCAL_VARS)
         lexer.js_parse_error(s, "too many local variables");
     var name_ref: c.JSGCRef = undefined;
-    utils.pushValue(s.ctx, &name_ref, name);
+    utils.pushValue(s.ctx, &name_ref, name_kept);
     const new_vars = value.js_resize_value_array(s.ctx, b.vars, max_int(s.local_vars_len + 1, 4));
-    _ = utils.popValue(s.ctx, &name_ref);
+    name_kept = utils.popValue(s.ctx, &name_ref);
     if (vt.isExactException(new_vars))
         lexer.js_parse_error_mem(s);
     b = funcBc(s.cur_func);
     b.vars = new_vars;
     const arr = valueArr(b.vars);
-    vt.valueArrayItems(arr)[s.local_vars_len] = name;
+    vt.valueArrayItems(arr)[s.local_vars_len] = name_kept;
     s.local_vars_len += 1;
     return s.local_vars_len - 1;
 }
