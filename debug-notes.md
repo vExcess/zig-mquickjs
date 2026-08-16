@@ -43,6 +43,12 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
+**Post fix 14 (2026-08-15): gate not yet confirmed.** Fix 14 (JSON `js_atod`
+scratch buffer) has not been through a 9-run Octane batch. No engine code was
+changed after it — the following turn was discovery only (difftest 19/20 and
+the `js_alloc_byte_array` sweep, both clean) — so the batch still applies to
+the current tree. Confirm it before landing the next fix.
+
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
 These were **not** suite-logic ports. Same classes likely exist in code
@@ -158,9 +164,10 @@ Current coverage (all matching): labels, property/intern tables, bind,
 parser/eval, regexp, math, strings, arrays+JSON, objects/coercion, deep
 recursion + stack growth, closures/varrefs, typed arrays, documented ES6
 extras, hostile-argument fuzzing, exhaustive numeric sweep, UTF-8/UTF-16
-index conversion, explicit-`gc()` stale-pointer probing.
-`slow/17_regexp_deep.js` (11850 regexp cases, ~2 min/run) is kept out of the
-default run.
+index conversion, explicit-`gc()` stale-pointer probing, `gc()` called from
+inside builtin callbacks, and re-entrant mutation of the structure a builtin
+is walking. `slow/17_regexp_deep.js` (11850 regexp cases, ~2 min/run) is kept
+out of the default run.
 
 **Call `gc()` explicitly in new scripts.** A tight `--memory-limit` only
 collects when the allocator happens to run out; `gc()` puts a compaction
@@ -197,10 +204,8 @@ a port bug.
 3. Re-run `./tests/difftest/run.sh` + project tests (`tests/test_*.js`)
 4. User batch Octane (9+ runs) after substantive fixes
 5. Remaining static sweeps: `libm_lib.zig` signedness is **done** (clean);
-   Phase 1C watchlist if a difftest diverges
-6. Audit the other `js_alloc_byte_array` scratch-buffer call sites the way fix
-   14 was found: the pointer handed to a callee must be
-   `vt.byteArrayBuf(arr)`, never `arr`
+   Phase 1C watchlist is **done** (covered by difftest 19, clean)
+6. `js_alloc_byte_array` scratch-buffer sweep — **done, clean** (see below)
 
 ### Success criteria
 
@@ -398,6 +403,66 @@ SEGVs. Full Octane via `zig build octane` is fine.
 | Opus | `./tests/difftest/` vs C; fix 13 (trig negative inputs) | 156 hostile diffs → 0 |
 | User | Tests still pass after fix 13 + harness | Octane gate OK for now |
 | Opus | libm signedness sweep (clean); fix 14 (JSON atod scratch buffer) | difftest 18 added, ALL MATCH |
+| Opus | `js_alloc_byte_array` sweep (clean); difftest 19 + 20 added | no bug found; ALL MATCH, Octane gate still pending |
+
+### `js_alloc_byte_array` scratch-buffer sweep — done, no divergence
+
+The follow-up to fix 14. Every `js_alloc_byte_array` call site in `src/` was
+compared with its C counterpart on **both** axes:
+
+- *What the callee receives.* Fix 14's mistake (passing the block header
+  instead of the data area) exists nowhere else. All consumers take
+  `vt.byteArrayBuf(arr)`: `js_dtoa2` and `js_atod1`
+  (`runtime_coerce_lib.zig:98-113,208-221` vs `mquickjs.c:4113-4125,4252-4268`),
+  `js_is_numeric_string` (`value_lib.zig:818-830` vs `mquickjs.c:1952-1963`),
+  lexer `parseNumber` (fix 4), the parser explore tab, regexp capture buffers
+  and the regexp compiler's `arr->buf` refreshes.
+- *How big the block is.* Sizes match C everywhere, including the easily
+  missed `max_int(sizeof(JSATODTempMem), sizeof(JSDTOATempMem))` in
+  `js_is_numeric_string` — that one buffer is used for an `js_atod` *and* a
+  `js_dtoa`, so an ATOD-only allocation would be a fix-14 repeat.
+  `byteArrayAllocSize` is `sizeof(header) + n` (8 + n, same as C) and
+  `JS_BYTE_ARRAY_SIZE_MAX` is `(1 << 28) - 1` in both.
+
+`js_resize_byte_array` also matches `mquickjs.c:2308-2335` exactly, including
+the `old_size + old_size / 2` growth and the `JS_POP_VALUE` reload before the
+`memcpy`.
+
+`re_parse_quantifier` (`builtins_regexp_lib.zig:628-725` vs
+`mquickjs.c:16410-16578`) was read line by line because it is the densest
+raw-pointer code in the port: every `emit_insert` is followed by a fresh
+`byteArr(s.byte_code)` / `byteArrayBuf(arr)` exactly where C re-reads
+`arr = JS_VALUE_TO_PTR(s->byte_code)`, and no stale `buf` survives a
+`re_emit_*` call.
+
+### Difftest 19 and 20 — new coverage, no divergence found
+
+- `19_gc_hooks.js`: 12k-key property tables (grow / delete every third key /
+  re-add / `for-in` with a `gc()` mid-enumeration), 4k numeric-string keys,
+  accessor properties whose getter and setter call `gc()`, inherited
+  accessors, `JSON.stringify` over gc-ing getters, regexp replace/split
+  callbacks that collect, `exec` + `lastIndex` across collections, array
+  callbacks (`map`/`filter`/`reduce`/`every`/`some`) that collect, a sort
+  comparator that collects every 64th compare, `valueOf`/`toString` hooks
+  that collect, and `eval`-compiled functions called after a collection.
+  This closes the Phase 1C watchlist (`js_object_defineProperty`,
+  `hasOwnProperty`, `JS_GetPropertyStr`, JSON stringify keys).
+- `20_mutate_reentrant.js`: the re-entrancy angle — comparators that push to
+  or truncate the array being sorted, `map`/`filter`/`reduce` callbacks that
+  resize the backing array, getters that add or delete properties during
+  `JSON.stringify` / `Object.keys` / `for-in`, `valueOf` on an argument that
+  truncates the receiver mid-call, `Object.setPrototypeOf` chains and swaps
+  under `gc()`, array index/length/`delete` edges, `arguments` aliasing,
+  stack-overflow recovery, and surrogate/NUL string edges.
+
+Both match C at 256M/16M/4M/2M. Also verified: at 1M/1200K/800K the two
+engines run out of memory at byte-identical points (only `run.sh`'s
+truncation warning fires, never a diff), and `tests/test_*.js` +
+`mandelbrot.js` match at 256M and 4M.
+
+The engine's builtin surface was enumerated on both engines and is identical;
+the only globals with no difftest coverage are `console`, `load`, and
+`Math.random`, all of which are host-side and non-deterministic.
 
 ### libm signed/unsigned drift — swept, no behavioural divergence
 
@@ -414,9 +479,11 @@ a negative high word / negative `n`, where C relies on well-defined unsigned
 wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
-**Uncommitted on disk:** `src/libm_lib.zig`, `src/mquickjs_parser_lib.zig`,
-`debug-notes.md`, `tests/difftest/*` (plus prior session changes to
-string/utils). Do not commit unless asked.
+**Git state:** fixes 1–14 are committed (`8cfc492 json patches` carries fix
+14 and `18_gc_explicit.js`; `391c2e1 math patches` carries fix 13). Only
+`debug-notes.md`, `tests/difftest/README.md`, `tests/difftest/19_gc_hooks.js`
+and `tests/difftest/20_mutate_reentrant.js` are uncommitted. Do not commit
+unless asked.
 
 ---
 
@@ -445,61 +512,100 @@ See bottom of file — **Post-Octane audit (continued)** prompt.
 Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
 
 You are continuing the post-Octane correctness audit for zig-mquickjs.
-Octane is RESOLVED (9/9). User confirmed tests still pass after fix 13
-(trig negative inputs) and the difftest harness landing. Compare only
-against ../mquickjs (mquickjs.c + libm.c). Do not search other workspace
-dirs. Build -Doptimize=ReleaseFast with Zig 0.15.2 at
-/home/vexcess/zig-x86_64-linux-0.15.2/zig. Fix one C-verified bug per
-turn, then stop. Do not rewrite the GC. Do not commit unless asked.
+Octane was RESOLVED (9/9) before fix 14. Compare only against ../mquickjs
+(mquickjs.c + libm.c). Do not search other workspace dirs. Build
+-Doptimize=ReleaseFast with Zig 0.15.2 at
+/home/vexcess/zig-x86_64-linux-0.15.2/zig. Fix one C-verified bug per turn,
+then stop. Do not rewrite the GC. Do not commit unless asked.
 
 ## What's done (do not redo)
 
-- Phase 1A: all `_ = utils.popValue` sites checklist-complete (fixes 10–11)
-- Phase 1B–1D static: no new must-fix in parser/lexer/GC layouts (fix 12)
-- Fixes 1–13 documented in debug-notes.md — do NOT revert
-- Differential harness: tests/difftest/ (16 scripts + run.sh + README)
-  → currently ALL MATCH vs ../mquickjs/mqjs at 256M/16M/4M/2M
+- Phase 1A: all `_ = utils.popValue` sites checklist-complete (fixes 10-11)
+- Phase 1B-1D static: no new must-fix in parser/lexer/GC layouts (fix 12)
+- Phase 1C watchlist: closed by difftest 19 (defineProperty getters/setters,
+  hasOwnProperty, JSON stringify keys, all under explicit gc()) - clean
+- Fixes 1-14 documented in debug-notes.md - do NOT revert
+- libm signed/unsigned sweep: done, no behavioural divergence vs C
+- `js_alloc_byte_array` sweep (the fix-14 follow-up): done, clean. Every call
+  site matches C in *both* allocation size and in passing
+  `vt.byteArrayBuf(arr)` rather than the header. `js_resize_byte_array` and
+  `re_parse_quantifier`'s pointer refreshes match C line by line. Do not redo
+  this sweep; the notes list every site checked.
+- Differential harness: tests/difftest/ (19 scripts + run.sh + README)
+  -> ALL MATCH vs ../mquickjs/mqjs at 256M/16M/4M/2M, and both engines OOM at
+  byte-identical points at 1M/1200K/800K. tests/test_*.js also match.
+
+## Octane gate status
+
+Fix 14 landed but the user has **not** confirmed the post-fix Octane batch.
+No engine code changed after fix 14 (the last turn was discovery only), so a
+batch now still covers the current tree. If the user says Octane is clean,
+note it in debug-notes.md and proceed. Otherwise wait for 9+ consecutive
+`zig build octane -Doptimize=ReleaseFast` runs before landing the next fix.
 
 ## Discovery method (use this first)
 
 ./tests/difftest/run.sh
 
-Any stdout/exit-code divergence vs C is a port bug. Fix 13 (Math.sin/cos/tan
-returning 0 for all negative inputs) was found this way after static audit
-found nothing. Read tests/difftest/README.md for rules:
+Any stdout/exit-code divergence vs C is a port bug. Read
+tests/difftest/README.md for rules:
 - strip ANSI colour in diffs (run.sh does this)
 - every script must end with print("DONE <filename>")
 - respect README "Deviations from mquickjs": direct eval = global scope,
-  let/const alias var — NOT bugs
+  let/const alias var - NOT bugs
+- use `(1, eval)(...)` not bare `eval(...)` in new scripts
+- catch bindings cannot be reused within a scope; name them e1, e2, ...
 
 SLOW=1 ./tests/difftest/run.sh  # adds slow/17_regexp_deep.js (~2 min)
+LIMITS="1M 800K" ./tests/difftest/run.sh  # OOM-boundary comparison
+
+**Call `gc()` explicitly in new probes.** A tight `--memory-limit` only
+collects when the allocator runs out; `gc()` forces compaction between
+"take pointer" and "use pointer". That is how fix 14 was found. Keep `gc()`
+calls cheap - one inside a 3000-element sort comparator cost ~100 s.
 
 ## Highest-priority next work
 
-1. libm_lib.zig signed/unsigned drift — fix 13 was getHighWord vs
-   getHighWordSigned; grep remaining getHighWord uses and compare to libm.c
-   (js_pow, js_exp, js_log, js_scalbn, js_atan2, softfloat paths). Add a
-   difftest script for any new bug class found.
+Discovery is hitting diminishing returns at the script level: two full turns
+of new differential coverage (19, 20) found nothing. Prefer these next:
 
-2. Extend difftest for untested subsystems:
-   - Array.prototype.sort comparator under GC (alloc in compare fn)
-   - Property-table growth at scale (10k+ keys with hasOwnProperty/in)
-   - Phase 1C watchlist: defineProperty with getter descriptor under 8M
-   - Bytecode round-trip edge cases if host -o/-b paths change
+1. Areas difftest still cannot reach from script level:
+   - the host: `load()`, `console`, bytecode `-o`/`-b` with hand-corrupted or
+     truncated images (C and Zig images already round-trip identically)
+   - `mqjs` argv handling (known SEGV in `run.js <suite>`, Phase 4 item)
+2. Run real-world code differentially instead of synthetic probes: drive the
+   Octane suite sources under both engines with a deterministic wrapper
+   (fixed iteration counts, no Date.now) and diff the printed results.
+3. Static: the remaining `_ = utils.popValue` sites outside the hot files in
+   the Phase 1A table (the table covers string/regexp/parser/value/array/std).
+4. Latent libm only (no repro yet - do not "fix" without C proof):
+   `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`
+   for negative high word / negative n. Currently matches C output.
 
-3. If difftest is clean but you suspect GC bugs: one-off /tmp/gc_stress_*.js
-   at --memory-limit 8M, then promote to tests/difftest/ if it catches something.
+## Already probed clean (do not redo)
+
+- Adversarial libm sweep (~2700 lines, pow/atan2/%/subnormals)
+- Integer conversion / typed-array stores / shift counts
+- Number<->string (toString radix, toFixed, parseInt/parseFloat)
+- Builtin surface enumeration (identical on both engines; the only globals
+  with no coverage are console/load/Math.random, all host-side)
+- 12k property tables, delete/re-add, for-in with mid-enumeration gc()
+- Accessor properties whose getter/setter calls gc()
+- Callbacks that mutate the array/object a builtin is walking
+- setPrototypeOf chains and swaps under gc(), array index/length edges,
+  arguments aliasing, stack-overflow recovery, surrogate/NUL strings
 
 ## Do NOT do
 
-- Revert fixes 1–13
+- Revert fixes 1-14
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
-- "Fix" newShortInt without C proof
+- "Fix" newShortInt or kernelExp latent spots without C proof
 - Rewrite GC or intern algorithm
 - Report direct eval / let-as-var as bugs (documented deviations)
 - Use mqjs tests/octane/run.js <suite> (host argv SEGV); full Octane via
   zig build octane is fine
+- Temporarily reintroduce a known bug to "prove" a test catches it
 
 ## After each fix
 
@@ -508,4 +614,10 @@ SLOW=1 ./tests/difftest/run.sh  # adds slow/17_regexp_deep.js (~2 min)
 3. Add or extend a difftest script for the repro
 4. Update debug-notes.md (fix N + session log)
 5. Ask user to batch Octane (9 runs) before the next fix
+
+## Git state (do not commit unless asked)
+
+Fixes 1-14 are committed (8cfc492 "json patches" = fix 14). Uncommitted:
+debug-notes.md, tests/difftest/README.md, tests/difftest/19_gc_hooks.js,
+tests/difftest/20_mutate_reentrant.js.
 ```
