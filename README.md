@@ -49,7 +49,15 @@ microbench: 4147.40
 octane: 2142  
 microbench: 4174.75  
 
-### Run test262
+### Test262
+Results:
+```
+Ran 45308 tests
+8521 passed
+36787 failed
+18.8% success rate
+```
+Run:
 ```sh
 git clone https://github.com/tc39/test262.git --depth 1
 cd test262
