@@ -7,7 +7,14 @@ divergence is a port bug, because `../mquickjs` is the reference.
 zig build -Doptimize=ReleaseFast
 ./tests/difftest/run.sh              # -> "ALL MATCH"
 SLOW=1 ./tests/difftest/run.sh       # also run slow/ (~2 min per engine/limit)
+./tests/difftest/bytecode.sh         # -> "ALL BYTECODE MATCH"
 ```
+
+`run.sh` compares what the engines **print**. `bytecode.sh` compares what they
+**emit**: `-o` and `-m32 -o` image sizes, plus all four cross combinations of
+"compiled by A, executed by B". These are different bug classes — the 64->32
+bit heap conversion behind `-m32` is not reachable by running a script at all,
+and `debug-notes.md` fix 15 lived there.
 
 Each script is run at several `--memory-limit` values (default
 `256M 16M 4M 2M`) because a tighter heap changes the GC schedule and

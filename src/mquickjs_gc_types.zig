@@ -65,9 +65,12 @@ pub const JSString_32 = extern struct {
     buf: [0]u8,
 };
 
-pub const JSFloat64_32 = packed struct {
+// C keeps the double unaligned so the block is 12 bytes, not 16
+// (mquickjs.c JSFloat64_32: "unaligned 64 bit access in 32-bit mode").
+// A Zig packed struct would be backed by u96 and round up to 16.
+pub const JSFloat64_32 = extern struct {
     header: u32,
-    dval: f64,
+    dval: f64 align(4),
 };
 
 pub const JSFunctionBytecode_32 = extern struct {
