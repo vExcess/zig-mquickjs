@@ -19,6 +19,10 @@ Fix **one** correctness bug per turn, then stop for manual verify. Leave
 performance for last. Do not rewrite subsystems. Keep the fixes listed below;
 they are real.
 
+**Discovery order (2026-08-15):** run `./tests/difftest/run.sh` first. Static
+Phase 1A–1D is largely complete; the trig bug (fix 13) was found only by
+differential testing after three static passes found nothing new.
+
 ---
 
 ## Octane status — RESOLVED (2026-08-15 evening)
@@ -32,8 +36,12 @@ C reference score ~2485. Zig scores ~2300–2370 vary with Octane’s
 engine bug class is fixed.
 
 Octane remains the **regression gate** after future fixes. Do not use full
-Octane for discovery iteration (slow); use targeted repros below, then ask
-the user to batch-verify Octane.
+Octane for discovery iteration (slow); use `tests/difftest/` first, then ask
+the user to batch-verify Octane after each fix.
+
+**Post fix 13 (2026-08-15):** user confirmed tests still pass after the trig
+fix and difftest harness landing. Octane gate should be re-run after the
+next fix, not before every discovery turn.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -60,7 +68,10 @@ surface in other workloads. Work in order; do not skip Phase 1.
 
 ### Phase 1 — Static audit (highest ROI)
 
-#### 1A. Complete the `JS_POP_VALUE` audit
+#### 1A. Complete the `JS_POP_VALUE` audit — **DONE**
+
+Checklist table below is complete. All `_ = utils.popValue` sites in hot
+files are C-verified. Fixes 10–11 came from this pass.
 
 Grep `_ = utils.popValue` in `src/` (~57 sites). Most are safe (pop only
 cleans GC roots). **Dangerous pattern:**
@@ -88,42 +99,37 @@ Already fixed (do not revert): CodeLoad `func`/`byte_code`; parser
 `label_name`; `js_create_property` `prop`; `JS_ToPrimitive` `method`;
 `js_function_bound` `params`.
 
-#### 1B. Raw-pointer-across-alloc audit
+#### 1B. Raw-pointer-across-alloc audit — **DONE (no new must-fix)**
 
-Grep locals holding `source_buf`, raw `p` into source, or `*Ext` from
-`valueToPtr` across `js_malloc`. C saves **offsets** (`pos`, `buf_pos`) and
-refreshes `JSParseState.source_buf` from `source_str` after GC. Parser and
-lexer are main targets.
+Parser/lexer match C offset/`source_buf` refresh discipline. Prior fixes
+(parseNumber, explore_arr reload, json paths) intact. Latent shared C+Zig
+risk in `compute_stack_size` mid-iteration reload — not a port divergence.
 
-#### 1C. Intern / property-key audit
+#### 1C. Intern / property-key audit — **DONE (no new must-fix)**
 
-Any path that stores a string/`JSValue` as property key, label, or table
-slot after a GC-capable call without `popValue` reload. Check comparison
-sites (`pr.key == prop`, label break/continue).
+Hot paths fixed or match C. Latent same-as-C watchlist (needs difftest if
+suspected): `js_object_defineProperty`, `hasOwnProperty`,
+`JS_GetPropertyStr`/`SetPropertyStr`, JSON stringify keys, `js_operator_in`
+— all use unrooted `ToPropertyKey` locals like C. Add a difftest script
+before fixing any of these.
 
-#### 1D. Layout / type overlay audit
+#### 1D. Layout / type overlay audit — **DONE**
 
-Compare struct sizes and field order for GC-marked types vs C:
-- `JSFunctionBytecodeExt` (extra `flags` in `utils_types` — parser/GC use
-  `runtime_types`)
-- `JSObjectExt` / regexp overlay on `&p.u`
+Runtime GC/parser paths use `runtime_types` correctly. Fix 12 removed the
+stale `utils_types.JSFunctionBytecodeExt` duplicate (debug dumps only).
+Regexp overlay and `JSFunctionBytecodeExt` mark/thread/sizing match C.
 
-### Phase 2 — Targeted runtime tests
+### Phase 2 — Targeted runtime tests — **superseded by `tests/difftest/`**
 
-Use `/tmp/gc_stress_*.js` (delete when done). Low memory forces GC:
+The 16 default difftest scripts cover the original Phase 2 list and more.
+For ad-hoc GC pressure while iterating on a fix, still use one-off scripts
+with `--memory-limit 8M`:
 
 ```sh
 ./zig-out/bin/mqjs --memory-limit 8M /tmp/gc_stress_foo.js
 ```
 
-Scripts to write and run **10× back-to-back**:
-1. Labeled `break`/`continue` (label intern identity)
-2. 10k+ unique property names, then read back
-3. `Function.prototype.bind` chains under stack pressure
-4. Large nested `eval` / function declarations (parser finalize)
-5. RegExp with many captures (string builtin GC roots)
-6. Math edge cases (`Math.pow`, `floor` near zero) vs Node or C mqjs
-
+Add a permanent script under `tests/difftest/` when a fix gets a repro.
 `DEBUG_GC` in `include/mquickjs_priv.h` (GC every malloc): slow; use to
 **validate a fix**, not daily iteration.
 
@@ -152,8 +158,16 @@ Current coverage (all matching): labels, property/intern tables, bind,
 parser/eval, regexp, math, strings, arrays+JSON, objects/coercion, deep
 recursion + stack growth, closures/varrefs, typed arrays, documented ES6
 extras, hostile-argument fuzzing, exhaustive numeric sweep, UTF-8/UTF-16
-index conversion. `slow/17_regexp_deep.js` (11850 regexp cases, ~2 min/run)
-is kept out of the default run.
+index conversion, explicit-`gc()` stale-pointer probing.
+`slow/17_regexp_deep.js` (11850 regexp cases, ~2 min/run) is kept out of the
+default run.
+
+**Call `gc()` explicitly in new scripts.** A tight `--memory-limit` only
+collects when the allocator happens to run out; `gc()` puts a compaction
+between "take pointer" and "use pointer", which is what this bug class needs.
+Fix 14 was invisible to all 16 original scripts at every memory limit and
+fell out of `18_gc_explicit.js` immediately. Keep `gc()` calls cheap — one
+inside an O(n log n) sort comparator over a 3000-element array cost ~100 s.
 
 Add a differential script for each new fix; that is now the cheapest
 regression gate short of full Octane.
@@ -176,21 +190,26 @@ a port bug.
 - Host fix when useful: `mqjs` argv SEGV for `run.js <suite>` (Zig slice
   as `char**`).
 
-### Execution order
+### Execution order (current)
 
-1. Phase 1A checklist → fix must-fix sites one at a time
-2. Phase 2 scripts for each fix
-3. User batch Octane (9+ runs) as regression
-4. Phases 1B–1D, 3, 4 in parallel as 1A narrows
+1. `./tests/difftest/run.sh` — any diff is a bug; extend suite for new areas
+2. Fix one C-verified bug; add a difftest script if the repro is new
+3. Re-run `./tests/difftest/run.sh` + project tests (`tests/test_*.js`)
+4. User batch Octane (9+ runs) after substantive fixes
+5. Remaining static sweeps: `libm_lib.zig` signedness is **done** (clean);
+   Phase 1C watchlist if a difftest diverges
+6. Audit the other `js_alloc_byte_array` scratch-buffer call sites the way fix
+   14 was found: the pointer handed to a callee must be
+   `vt.byteArrayBuf(arr)`, never `arr`
 
 ### Success criteria
 
-| Milestone | Gate |
-|-----------|------|
-| 1A complete | Every `_ = popValue` has C-verified verdict |
-| GC-stress | 10/10 runs match oracle on all scripts |
-| C differential | Zero diffs on property/intern/bind/eval scripts |
-| Octane regression | 9+ consecutive full runs (current bar) |
+| Milestone | Gate | Status |
+|-----------|------|--------|
+| 1A complete | Every `_ = popValue` has C-verified verdict | **done** |
+| 1B–1D static | No new must-fix vs C in parser/GC/layout | **done** |
+| C differential | `./tests/difftest/run.sh` → ALL MATCH | **done** |
+| Octane regression | 9+ consecutive full runs | **done** (re-run after next fix) |
 
 ### Do not do yet
 
@@ -305,6 +324,30 @@ dead. Four defects, all now fixed via a new `getHighWordSigned` helper:
 
 Verified: 4001 values x 13 Math functions now byte-identical to C.
 
+### 14. JSON number scratch buffer overwrote its own block header
+
+`src/mquickjs_parser_lib.zig:723` (`js_parse_json_value`). `JSON.parse` of a
+document containing numbers corrupted the heap: **SEGV**, or a bogus
+`SyntaxError: invalid number literal` partway through a valid document.
+
+C passes `js_atod` the byte array's **data area**
+(`mquickjs.c:11576-11577`, `(JSATODTempMem *)tmp_arr->buf`). Zig passed
+`tmp_arr` itself, i.e. the block header. `JSATODTempMem` is 216 bytes and the
+block is `header + 216`, so `js_atod`'s scratch space started 8 bytes early:
+it destroyed the `JSByteArray` header (GC mtag + size) and left the last 8
+bytes of the allocation unwritten. `js_free` then freed a block whose size
+word was garbage, so a later allocation overlapped a live block — usually the
+JSON source string itself, hence the bogus number error.
+
+The lexer's `parseNumber` (fix 4) already did this correctly with
+`vt.byteArrayBuf(tmp_arr)`; the JSON path was the only site that did not.
+It stayed hidden because it needs a heap busy enough for the mis-sized free
+block to be reused: `JSON.parse` in isolation passes at any memory limit.
+
+Found by the new `tests/difftest/18_gc_explicit.js` (explicit `gc()` between
+allocation and use). Regression: `JSON.parse` of ~180-200 element documents
+plus every number shape, at all memory limits.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -346,9 +389,40 @@ SEGVs. Full Octane via `zig build octane` is fine.
 
 ---
 
+## Audit session log (2026-08-15)
+
+| Turn | What | Result |
+|------|------|--------|
+| GPT | Phase 1A checklist; fixes 10–11 (string replace `val`, error backtrace) | Octane 9/9 clean |
+| Opus | Phase 1B–1D static; fix 12 (debug bytecode layout); difftest harness | — |
+| Opus | `./tests/difftest/` vs C; fix 13 (trig negative inputs) | 156 hostile diffs → 0 |
+| User | Tests still pass after fix 13 + harness | Octane gate OK for now |
+| Opus | libm signedness sweep (clean); fix 14 (JSON atod scratch buffer) | difftest 18 added, ALL MATCH |
+
+### libm signed/unsigned drift — swept, no behavioural divergence
+
+Priority 1 from the previous handoff is **done**. Every remaining unsigned
+`getHighWord` site was compared to `libm.c`: `js_scalbn`, `kernelSin`,
+`kernelCos`, `jsRemPio2Impl`, `js_atan2`'s sign flip, `kernelExp`, `js_exp`
+and `kernelLog2` all mask or `@bitCast` exactly where C does. ~2700 lines of
+adversarial values (subnormals, every power of two both signs, `pow`/`atan2`/
+`%` cross products, NaN/Inf) are byte-identical to C.
+
+Two **latent** (non-diverging) spots in `kernelExp`, left alone deliberately:
+`@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))` are illegal for
+a negative high word / negative `n`, where C relies on well-defined unsigned
+wraparound. `zz` is always positive there and LLVM currently emits the
+wrapping add, so output matches; revisit only with a C-verified repro.
+
+**Uncommitted on disk:** `src/libm_lib.zig`, `src/mquickjs_parser_lib.zig`,
+`debug-notes.md`, `tests/difftest/*` (plus prior session changes to
+string/utils). Do not commit unless asked.
+
+---
+
 ## Handoff prompt (paste to a new agent)
 
-See bottom of file after edits — **Post-Octane audit** prompt.
+See bottom of file — **Post-Octane audit (continued)** prompt.
 
 ---
 
@@ -365,30 +439,73 @@ See bottom of file after edits — **Post-Octane audit** prompt.
 
 ---
 
-## Handoff prompt — Post-Octane audit (paste to new agent)
+## Handoff prompt — Post-Octane audit (continued) (paste to new agent)
 
 ```
 Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
 
-Octane is RESOLVED (user: 9/9 full runs, no errors). Your job is the
-post-Octane audit in debug-notes.md — find silent bugs (stale JSValue after
-GC, intern identity, raw pointers across alloc), not Octane suite ports.
+You are continuing the post-Octane correctness audit for zig-mquickjs.
+Octane is RESOLVED (9/9). User confirmed tests still pass after fix 13
+(trig negative inputs) and the difftest harness landing. Compare only
+against ../mquickjs (mquickjs.c + libm.c). Do not search other workspace
+dirs. Build -Doptimize=ReleaseFast with Zig 0.15.2 at
+/home/vexcess/zig-x86_64-linux-0.15.2/zig. Fix one C-verified bug per
+turn, then stop. Do not rewrite the GC. Do not commit unless asked.
 
-Compare only against ../mquickjs (mquickjs.c). Zig 0.15.2 at
-/home/vexcess/zig-x86_64-linux-0.15.2/zig. Build -Doptimize=ReleaseFast only.
-Fix one correctness bug per turn, then stop. Do not rewrite the GC. Do not
-commit unless asked.
+## What's done (do not redo)
 
-Start Phase 1A: grep `_ = utils.popValue` in src/, compare each suspicious
-site to C JS_POP_VALUE. Prioritize builtins_string, regexp, parser. Fill the
-checklist table in debug-notes.md. Fix the first C-verified must-fix site;
-build ReleaseFast; add or run a small /tmp gc_stress repro; ask user to
-batch Octane (9 runs) before the next fix.
+- Phase 1A: all `_ = utils.popValue` sites checklist-complete (fixes 10–11)
+- Phase 1B–1D static: no new must-fix in parser/lexer/GC layouts (fix 12)
+- Fixes 1–13 documented in debug-notes.md — do NOT revert
+- Differential harness: tests/difftest/ (16 scripts + run.sh + README)
+  → currently ALL MATCH vs ../mquickjs/mqjs at 256M/16M/4M/2M
 
-Do NOT revert fixes 1–9. Do NOT re-apply compact-by-len, MakeUniqueString
-post-resize extras, or global js_resize_value_array2 memcpy change. Do NOT
-"fix" newShortInt without C proof.
+## Discovery method (use this first)
 
-Do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV). Use
-/tmp/gc_stress_*.js with --memory-limit 8M for discovery.
+./tests/difftest/run.sh
+
+Any stdout/exit-code divergence vs C is a port bug. Fix 13 (Math.sin/cos/tan
+returning 0 for all negative inputs) was found this way after static audit
+found nothing. Read tests/difftest/README.md for rules:
+- strip ANSI colour in diffs (run.sh does this)
+- every script must end with print("DONE <filename>")
+- respect README "Deviations from mquickjs": direct eval = global scope,
+  let/const alias var — NOT bugs
+
+SLOW=1 ./tests/difftest/run.sh  # adds slow/17_regexp_deep.js (~2 min)
+
+## Highest-priority next work
+
+1. libm_lib.zig signed/unsigned drift — fix 13 was getHighWord vs
+   getHighWordSigned; grep remaining getHighWord uses and compare to libm.c
+   (js_pow, js_exp, js_log, js_scalbn, js_atan2, softfloat paths). Add a
+   difftest script for any new bug class found.
+
+2. Extend difftest for untested subsystems:
+   - Array.prototype.sort comparator under GC (alloc in compare fn)
+   - Property-table growth at scale (10k+ keys with hasOwnProperty/in)
+   - Phase 1C watchlist: defineProperty with getter descriptor under 8M
+   - Bytecode round-trip edge cases if host -o/-b paths change
+
+3. If difftest is clean but you suspect GC bugs: one-off /tmp/gc_stress_*.js
+   at --memory-limit 8M, then promote to tests/difftest/ if it catches something.
+
+## Do NOT do
+
+- Revert fixes 1–13
+- Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
+  js_resize_value_array2 memcpy change
+- "Fix" newShortInt without C proof
+- Rewrite GC or intern algorithm
+- Report direct eval / let-as-var as bugs (documented deviations)
+- Use mqjs tests/octane/run.js <suite> (host argv SEGV); full Octane via
+  zig build octane is fine
+
+## After each fix
+
+1. zig build -Doptimize=ReleaseFast
+2. ./tests/difftest/run.sh
+3. Add or extend a difftest script for the repro
+4. Update debug-notes.md (fix N + session log)
+5. Ask user to batch Octane (9 runs) before the next fix
 ```

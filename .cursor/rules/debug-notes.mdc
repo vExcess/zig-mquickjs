@@ -7,10 +7,12 @@ alwaysApply: true
 
 Read `debug-notes.md` before diagnosing GC, parse, math, or correctness issues.
 
-- Octane is **resolved** (9/9 runs). Use it as regression gate, not discovery loop.
-- Current work: **post-Octane audit** (Phase 1A–1D in debug-notes.md).
+- Octane is **resolved** (9/9 runs). Use it as regression gate after fixes, not discovery.
+- **Discovery:** run `./tests/difftest/run.sh` first (C reference at `../mquickjs/mqjs`).
+- Phase 1A–1D static audit is **largely complete**; fix 13 (trig negatives) was found only by difftest.
 - Compare only against `../mquickjs` (C). Do not search other workspace dirs.
 - Build `-Doptimize=ReleaseFast`. Fix one bug per turn. Performance last.
 - C `JS_POP_VALUE` assigns the GC-updated pointer back. Never discard `popValue` when the local is used after a GC-capable call.
-- Do not revert fixes 1–9. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
-- `mqjs tests/octane/run.js <suite>` segfaults (host argv). Use `/tmp/gc_stress_*.js` + `--memory-limit 8M` for targeted repros.
+- Do not revert fixes 1–13. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
+- `eval` global scope and `let`/`const` as `var` are **documented deviations** — not bugs.
+- `mqjs tests/octane/run.js <suite>` segfaults (host argv). Use `tests/difftest/` or `/tmp/gc_stress_*.js` + `--memory-limit 8M`.

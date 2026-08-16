@@ -720,7 +720,7 @@ pub fn js_parse_json_value(s: *JSParseState, state: c_int, dummy_param: c_int) c
                 const tmp_arr = value.js_alloc_byte_array(s.ctx, @intCast(@sizeOf(c.JSATODTempMem))) orelse lexer.js_parse_error_mem(s);
                 p = s.source_buf + s.buf_pos;
                 var next: [*c]const u8 = p;
-                const d = dtoa.js_atod(p, @ptrCast(&next), 10, 0, @ptrCast(@alignCast(tmp_arr)));
+                const d = dtoa.js_atod(p, @ptrCast(&next), 10, 0, @ptrCast(@alignCast(vt.byteArrayBuf(tmp_arr))));
                 utils.js_free(s.ctx, tmp_arr);
                 if (std.math.isNan(d))
                     lexer.js_parse_error(s, "invalid number literal");

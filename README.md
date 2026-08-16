@@ -33,14 +33,14 @@ The code is relatively C-style. Future work will convert the Zig code to be more
 
 
 ### Benchmarks
-Dissapointingly, the Zig port is roughly 5% slower than the C version.
+Dissapointingly, the Zig port is roughly 88% the performance of the C version.
 
 #### mquickjs
 octane: 2445  
 microbench: 4147.40  
 
 #### zig-mquickjs
-octane: 2329  
+octane: 2142  
 microbench: 4174.75  
 
 ### Run test262

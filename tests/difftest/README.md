@@ -49,7 +49,19 @@ classes found nothing new. The first differential run immediately caught
 | `14_hostile_args` | every builtin x hostile arguments (type confusion, boundaries) |
 | `15_numeric_sweep` | exhaustive Math + number formatting/parsing |
 | `16_unicode_strings` | UTF-8 storage vs UTF-16 indexing, position cache |
+| `18_gc_explicit` | explicit `gc()` between allocation and use (found fix 14) |
 | `slow/17_regexp_deep` | 11850 pattern x subject x flag combinations |
+
+## Call `gc()` explicitly
+
+A tight `--memory-limit` only collects when the allocator happens to run out.
+Calling `gc()` directly forces a compaction between "take a pointer" and "use
+that pointer", which is the Octane bug class. `debug-notes.md` fix 14 (JSON
+number scratch buffer clobbering its own block header) passed all 16 original
+scripts at every memory limit and failed `18_gc_explicit.js` immediately.
+
+Keep the `gc()` calls cheap: one inside a comparator sorting a 3000-element
+array made a single script take ~100 s.
 
 ## Intended deviations — not bugs
 
