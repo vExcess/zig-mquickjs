@@ -82,6 +82,12 @@ inline fn getHighWord(d: f64) u32 {
     return @truncate(float64AsUint64(d) >> 32);
 }
 
+// C stores the high word in a signed `int`, so `hx < 0` tests the sign bit of
+// the double. Reading it as u32 makes those tests dead.
+inline fn getHighWordSigned(d: f64) c_int {
+    return @bitCast(getHighWord(d));
+}
+
 inline fn getLowWord(d: f64) u32 {
     return @truncate(float64AsUint64(d));
 }
@@ -529,7 +535,7 @@ pub fn js_rem_pio2(x: f64, y: [*]f64) c_int {
 
 fn jsRemPio2Impl(x: f64, y: []f64) c_int {
     std.debug.assert(y.len >= 2);
-    const hx = getHighWord(x);
+    const hx = getHighWordSigned(x);
     const ix = hx & 0x7fffffff;
     if (ix <= 0x3fe921fb) {
         y[0] = x;
@@ -564,7 +570,7 @@ fn jsRemPio2Impl(x: f64, y: []f64) c_int {
             r = t - fn_val * pio2_tab[@intCast(it)];
             w = fn_val * pio2_t_tab[@intCast(it)];
             y[0] = r - w;
-            j = @as(c_int, @intCast(hx >> 20));
+            j = ix >> 20;
             i = j - @as(c_int, @intCast((getHighWord(y[0]) >> 20) & 0x7ff));
             if (it == 2 or i <= rem_pio2_emax[@intCast(it)])
                 break;
@@ -592,10 +598,12 @@ fn jsSinCos(x: f64, flag: c_int) f64 {
     var y: [2]f64 = undefined;
     var s: f64 = 0;
     var c: f64 = 0;
-    const ix = getHighWord(x);
+    const ix = getHighWordSigned(x);
     if (ix >= 0x7ff00000)
         return x - x;
-    const n: u32 = @intCast(js_rem_pio2(x, &y));
+    // js_rem_pio2 returns a negative n for negative x; C relies on the
+    // modular int -> uint32_t conversion here.
+    const n: u32 = @bitCast(js_rem_pio2(x, &y));
     if (flag == 3 or (n & 1) == @as(u32, @intCast(flag))) {
         s = kernelSin(y[0], y[1], true);
         if (flag != 3) {
@@ -661,10 +669,10 @@ pub fn js_asin(x: f64) f64 {
     var c: f64 = undefined;
     var p: f64 = undefined;
     var q: f64 = undefined;
-    const hx = getHighWord(x);
+    const hx = getHighWordSigned(x);
     const ix = hx & 0x7fffffff;
     if (ix >= 0x3ff00000) {
-        if (((ix - 0x3ff00000) | getLowWord(x)) == 0)
+        if ((@as(u32, @bitCast(ix - 0x3ff00000)) | getLowWord(x)) == 0)
             return x * pio2_hi + x * pio2_lo;
         return (x - x) / (x - x);
     } else if (ix < 0x3fe00000) {
@@ -702,10 +710,10 @@ pub fn js_acos(x: f64) f64 {
     var s: f64 = undefined;
     var c: f64 = undefined;
     var df: f64 = undefined;
-    const hx = getHighWord(x);
+    const hx = getHighWordSigned(x);
     const ix = hx & 0x7fffffff;
     if (ix >= 0x3ff00000) {
-        if (((ix - 0x3ff00000) | getLowWord(x)) == 0) {
+        if ((@as(u32, @bitCast(ix - 0x3ff00000)) | getLowWord(x)) == 0) {
             if (hx > 0) return 0.0;
             return pi_val + 2.0 * pio2_lo;
         }
@@ -769,7 +777,7 @@ pub fn js_atan(x: f64) f64 {
     var s1: f64 = undefined;
     var s2: f64 = undefined;
     var z: f64 = undefined;
-    const hx = getHighWord(x);
+    const hx = getHighWordSigned(x);
     const ix = hx & 0x7fffffff;
     var id: c_int = undefined;
     if (ix >= 0x44100000) {

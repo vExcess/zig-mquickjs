@@ -127,10 +127,47 @@ Scripts to write and run **10× back-to-back**:
 `DEBUG_GC` in `include/mquickjs_priv.h` (GC every malloc): slow; use to
 **validate a fix**, not daily iteration.
 
-### Phase 3 — Differential vs C reference
+### Phase 3 — Differential vs C reference — **HIGHEST YIELD, use this first**
 
-Build C `mqjs` from `../mquickjs`. Run Phase 2 scripts on Zig and C; diff
-stdout + exit code. Any divergence is a port bug.
+The C reference binary is **already built** at `../mquickjs/mqjs`. Diffing it
+against Zig found the trig bug (fix 13) that three static audit passes missed.
+Prefer this over more static reading.
+
+Harness is committed at `tests/difftest/` (see its `README.md`):
+
+```sh
+./tests/difftest/run.sh            # ALL MATCH == clean
+SLOW=1 ./tests/difftest/run.sh     # + slow/17_regexp_deep.js
+```
+
+It runs every script on both engines at each memory limit and diffs
+stdout+exit code. Two rules learned the hard way:
+
+1. **Strip ANSI colour** — C `mqjs` colourises errors, the Zig host does
+   not. Cosmetic; it otherwise masks every real diff.
+2. **Require a `DONE <file>` sentinel** — a script that dies early makes
+   "matching" output meaningless. `run.sh` flags truncation separately.
+
+Current coverage (all matching): labels, property/intern tables, bind,
+parser/eval, regexp, math, strings, arrays+JSON, objects/coercion, deep
+recursion + stack growth, closures/varrefs, typed arrays, documented ES6
+extras, hostile-argument fuzzing, exhaustive numeric sweep, UTF-8/UTF-16
+index conversion. `slow/17_regexp_deep.js` (11850 regexp cases, ~2 min/run)
+is kept out of the default run.
+
+Add a differential script for each new fix; that is now the cheapest
+regression gate short of full Octane.
+
+Watch for **intended deviations** (README "Deviations from mquickjs") — do
+not report these as bugs: direct `eval` runs in global scope, and
+`let`/`const` alias `var`. Also unsupported in both engines: array
+elisions, writing past array end, `**=`, `Object.freeze`,
+`Object.getOwnPropertyDescriptor`, reused `catch` bindings.
+
+Bytecode (`-o` / `-b`) was checked separately: C and Zig images are
+cross-loadable and execute identically in all four combinations. The byte
+differences are struct/heap padding (stale bytes in **both** engines), not
+a port bug.
 
 ### Phase 4 — Hardening
 
@@ -246,6 +283,27 @@ field relative to C.
 Phase 1B parser/lexer pointer-lifetime and Phase 1C intern/property-key
 audits found no additional Zig-vs-C must-fix divergences. Phase 1D runtime
 GC layouts and regexp overlay match C after the debug-only type cleanup.
+
+### 13. Trig functions broken for all negative inputs (`libm_lib.zig`)
+
+Found by C-differential testing, **not** static audit. `Math.sin`/`cos`/`tan`
+returned `0` for every negative argument; `acos(-1)` returned `0` instead of
+pi; `atan`/`asin` dropped the sign. Same class as fix 1.
+
+`getHighWord` returns `u32`, but C declares `int hx, ix` and uses `hx < 0` /
+`hx > 0` to test the **sign bit of the double**. As `u32` those tests are
+dead. Four defects, all now fixed via a new `getHighWordSigned` helper:
+
+- `jsSinCos`: `ix >= 0x7ff00000` was always true for negative `x`, so it
+  returned `x - x` (= 0) immediately. This was the sin/cos/tan bug.
+- `jsSinCos`: `n` used `@intCast` on `js_rem_pio2`'s possibly-negative
+  return — illegal behavior in ReleaseFast. C relies on modular
+  `int` -> `uint32_t` conversion, so use `@bitCast`.
+- `jsRemPio2Impl`: `if (hx < 0)` never fired (no argument negation), and
+  `j` shifted `hx` where C shifts `ix` (`libm.c:1030`).
+- `js_asin` / `js_acos` / `js_atan`: sign-selection branches were dead.
+
+Verified: 4001 values x 13 Math functions now byte-identical to C.
 
 ---
 
