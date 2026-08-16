@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const pt = @import("mquickjs_parser_types.zig");
 const lt = pt.lt;
@@ -45,7 +46,7 @@ fn parsePopInt(s: *JSParseState) c_int {
 }
 
 fn c_abort() noreturn {
-    std.posix.abort();
+    platform_abort.abort();
 }
 
 fn asBool(v: u8) bool {

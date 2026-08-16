@@ -34,8 +34,10 @@ pub const POS_TYPE_UTF8: c_int = 0;
 pub const POS_TYPE_UTF16: c_int = 1;
 
 pub const JS_FLOAT64_VALUE_EXP_MIN: i32 = 1023 - 127;
-pub const JS_FLOAT64_VALUE_ADDEND: u64 =
-    @as(u64, @bitCast(@as(i64, JS_FLOAT64_VALUE_EXP_MIN - (@as(i32, @intCast(c.JS_TAG_SHORT_FLOAT)) << 8)))) << 52;
+pub const JS_FLOAT64_VALUE_ADDEND: u64 = if (@sizeOf(c.JSWord) == 8)
+    @as(u64, @bitCast(@as(i64, JS_FLOAT64_VALUE_EXP_MIN - (@as(i32, @intCast(c.JS_TAG_SHORT_FLOAT)) << 8)))) << 52
+else
+    0;
 
 pub const StringBuffer = extern struct {
     buffer_ref: c.JSGCRef,
@@ -47,7 +49,8 @@ pub const JSROMClassExt = extern struct {
     header: c.JSWord,
     props: c.JSValue,
     ctor_idx: i32,
-    _pad: i32 = 0,
+    // 64-bit only: proto_props is 8-byte aligned. 32-bit C has no gap.
+    _pad: [if (@sizeOf(c.JSWord) == 8) 1 else 0]i32 = undefined,
     proto_props: c.JSValue,
     parent_class: c.JSValue,
 };
@@ -89,7 +92,10 @@ pub fn valueGetInt(v: c.JSValue) c_int {
 }
 
 pub fn newShortInt(val: i32) c.JSValue {
-    return @as(c.JSValue, @bitCast(@as(i64, val << 1)));
+    if (@sizeOf(c.JSWord) == 8) {
+        return @as(c.JSValue, @bitCast(@as(i64, val << 1)));
+    }
+    return @as(c.JSValue, @bitCast(@as(i32, val << 1)));
 }
 
 pub fn newStringChar(ch: u32) c.JSValue {

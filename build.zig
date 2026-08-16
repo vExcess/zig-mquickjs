@@ -35,6 +35,12 @@ fn addCommonIncludes(
     exe.addIncludePath(b.path("include"));
 }
 
+fn addFreestandingLibcIncludes(mod: *std.Build.Module, b: *std.Build) void {
+    const zig_lib_path = b.graph.zig_lib_directory.path orelse @panic("missing zig lib directory");
+    mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/libc/include/generic-musl", .{zig_lib_path}) });
+    mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/libc/include/any-linux-any", .{zig_lib_path}) });
+}
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -65,15 +71,25 @@ pub fn build(b: *std.Build) !void {
     const gen_atoms = b.addRunArtifact(mqjs_stdlib_tool);
     gen_atoms.addArg("-a");
     const mquickjs_atom_h = gen_atoms.captureStdOut();
+    const gen_atoms_wasm = b.addRunArtifact(mqjs_stdlib_tool);
+    gen_atoms_wasm.addArgs(&.{ "-m32", "-a" });
+    const mquickjs_atom_h_wasm = gen_atoms_wasm.captureStdOut();
     const gen_stdlib = b.addRunArtifact(mqjs_stdlib_tool);
     const mqjs_stdlib_h = gen_stdlib.captureStdOut();
     const gen_stdlib_zig = b.addRunArtifact(mqjs_stdlib_tool);
     gen_stdlib_zig.addArg("-z");
     const mqjs_stdlib_data_zig = gen_stdlib_zig.captureStdOut();
+    const gen_stdlib_zig_wasm = b.addRunArtifact(mqjs_stdlib_tool);
+    gen_stdlib_zig_wasm.addArgs(&.{ "-m32", "-z" });
+    const mqjs_stdlib_data_zig_wasm = gen_stdlib_zig_wasm.captureStdOut();
     const wf = b.addWriteFiles();
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
     const mqjs_stdlib_data_file = wf.addCopyFile(mqjs_stdlib_data_zig, "mqjs_stdlib_data.zig");
+    const mqjs_stdlib_data_file_wasm = wf.addCopyFile(mqjs_stdlib_data_zig_wasm, "mqjs_stdlib_data_wasm.zig");
+    const wf_wasm = b.addWriteFiles();
+    _ = wf_wasm.addCopyFile(mquickjs_atom_h_wasm, "mquickjs_atom.h");
+    _ = wf_wasm.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
 
     // Compile the Zig version of cutils into an object file
     const cutils_obj = b.addObject(.{
@@ -240,6 +256,103 @@ pub fn build(b: *std.Build) !void {
     const run_octane = b.addRunArtifact(exe);
     run_octane.addArgs(&.{ "--memory-limit", "256M", "tests/octane/run.js" });
     octane_step.dependOn(&run_octane.step);
+
+    // wasm32-freestanding browser playground
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+
+    const wasm_cutils_obj = b.addObject(.{
+        .name = "cutils_wasm",
+        .root_module = b.createModule(.{
+            .target = wasm_target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/cutils.zig"),
+            .link_libc = false,
+        }),
+    });
+    addCommonIncludes(wasm_cutils_obj, b, wf_wasm);
+    addFreestandingLibcIncludes(wasm_cutils_obj.root_module, b);
+
+    const wasm_dtoa_obj = b.addObject(.{
+        .name = "dtoa_wasm",
+        .root_module = b.createModule(.{
+            .target = wasm_target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/dtoa.zig"),
+            .link_libc = false,
+        }),
+    });
+    addFreestandingLibcIncludes(wasm_dtoa_obj.root_module, b);
+
+    const wasm_libm_obj = b.addObject(.{
+        .name = "libm_wasm",
+        .root_module = b.createModule(.{
+            .target = wasm_target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/libm.zig"),
+            .link_libc = false,
+        }),
+    });
+    wasm_libm_obj.root_module.addOptions("build_options", libm_opts);
+    wasm_libm_obj.root_module.addIncludePath(b.path("include"));
+
+    const wasm_engine_obj = b.addObject(.{
+        .name = "mquickjs_engine_wasm",
+        .root_module = b.createModule(.{
+            .target = wasm_target,
+            .optimize = optimize,
+            .root_source_file = b.path("src/mquickjs_engine.zig"),
+            .link_libc = false,
+        }),
+    });
+    addCommonIncludes(wasm_engine_obj, b, wf_wasm);
+    addFreestandingLibcIncludes(wasm_engine_obj.root_module, b);
+
+    const mqjs_stdlib_data_mod_wasm = b.createModule(.{
+        .root_source_file = mqjs_stdlib_data_file_wasm,
+        .target = wasm_target,
+        .optimize = optimize,
+        .link_libc = false,
+    });
+    mqjs_stdlib_data_mod_wasm.addIncludePath(b.path("include"));
+    mqjs_stdlib_data_mod_wasm.addIncludePath(wf_wasm.getDirectory());
+    addFreestandingLibcIncludes(mqjs_stdlib_data_mod_wasm, b);
+
+    const wasm_exe = b.addExecutable(.{
+        .name = "mqjs",
+        .root_module = b.createModule(.{
+            .target = wasm_target,
+            .optimize = optimize,
+            .link_libc = false,
+            .root_source_file = b.path("src/wasm_host.zig"),
+            .imports = &.{
+                .{ .name = "mqjs_stdlib_data", .module = mqjs_stdlib_data_mod_wasm },
+            },
+        }),
+    });
+    addCommonIncludes(wasm_exe, b, wf_wasm);
+    addFreestandingLibcIncludes(wasm_exe.root_module, b);
+    addRuntimeObjects(wasm_exe, wasm_cutils_obj, wasm_dtoa_obj, wasm_libm_obj, null, wasm_engine_obj);
+    wasm_exe.entry = .disabled;
+    wasm_exe.rdynamic = true;
+    // 2 MiB JS heap + data + 1 MiB native stack. Emscripten demo uses 16 MiB.
+    wasm_exe.stack_size = 1024 * 1024;
+    wasm_exe.initial_memory = 16 * 1024 * 1024;
+    wasm_exe.max_memory = 16 * 1024 * 1024;
+
+    const wasm_step = b.step("wasm", "Build WebAssembly browser playground");
+    const install_wasm = b.addInstallArtifact(wasm_exe, .{
+        .dest_dir = .{ .override = .{ .custom = "web" } },
+    });
+    wasm_step.dependOn(&install_wasm.step);
+
+    const copy_wasm_to_src = b.addSystemCommand(&.{ "cp", "-f" });
+    copy_wasm_to_src.addFileArg(wasm_exe.getEmittedBin());
+    copy_wasm_to_src.addArg(b.pathJoin(&.{ b.build_root.path.?, "web", "mqjs.wasm" }));
+    copy_wasm_to_src.step.dependOn(&wasm_exe.step);
+    wasm_step.dependOn(&copy_wasm_to_src.step);
 
     std.debug.print("Build complete. The executable is located in ./zig-out/bin/\n", .{});
 }

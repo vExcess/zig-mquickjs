@@ -26,6 +26,7 @@
 // Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
+const builtin = @import("builtin");
 const cutils = @import("cutils_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const dtoa = @import("dtoa_lib.zig");
@@ -52,10 +53,12 @@ fn boolVal(v: bool) c.JS_BOOL {
 }
 
 pub fn js_get_short_float(v: c.JSValue) f64 {
+    if (@sizeOf(c.JSWord) != 8) unreachable;
     return uint64AsFloat64(vt.rotl64(v, 60) + vt.JS_FLOAT64_VALUE_ADDEND);
 }
 
 pub fn js_to_short_float(d: f64) c.JSValue {
+    if (@sizeOf(c.JSWord) != 8) unreachable;
     return vt.rotl64(float64AsUint64(d) -% vt.JS_FLOAT64_VALUE_ADDEND, 4);
 }
 
@@ -68,6 +71,9 @@ pub fn js_alloc_float64(ctx: *c.JSContext, d: f64) c.JSValue {
 }
 
 pub fn __JS_NewFloat64(ctx: *c.JSContext, d: f64) c.JSValue {
+    if (@sizeOf(c.JSWord) != 8) {
+        return js_alloc_float64(ctx, d);
+    }
     if (float64AsUint64(d) == 0x8000000000000000) {
         return mc.ctxExt(ctx).minus_zero;
     } else if (@abs(d) >= 0x1p-127 and @abs(d) <= 0x1p+128) {
@@ -383,6 +389,7 @@ pub fn is_valid_len4_utf8(buf: [*c]const u8) c.JS_BOOL {
 }
 
 pub fn dump_string_pos_cache(ctx: *c.JSContext) void {
+    if (builtin.os.tag == .freestanding) return;
     const x = mc.ctxExt(ctx);
     var i: usize = 0;
     while (i < vt.JS_STRING_POS_CACHE_SIZE) : (i += 1) {

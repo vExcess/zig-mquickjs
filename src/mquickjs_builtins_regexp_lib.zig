@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const cutils = @import("cutils_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const bt = @import("mquickjs_builtins_types.zig");
@@ -403,7 +404,7 @@ fn re_emit_range_base(s: *JSParseState, ch: c_int) void {
         },
         bt.CHAR_RANGE_s => re_emit_range_base1(s, &bt.char_range_s),
         bt.CHAR_RANGE_w => re_emit_range_base1(s, &bt.char_range_w),
-        else => std.posix.abort(),
+        else => platform_abort.abort(),
     }
     if (invert)
         parser.emit_u32(s, 0x110000);
@@ -1727,7 +1728,7 @@ pub fn lre_exec(ctx: *c.JSContext, capture_buf: c.JSValue, byte_code: c.JSValue,
                     }
                 }
             },
-            else => std.posix.abort(),
+            else => platform_abort.abort(),
         }
     }
 }

@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const cutils = @import("cutils_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const pt = @import("mquickjs_parser_types.zig");
@@ -26,8 +27,10 @@ const value = @import("mquickjs_value_lib.zig");
 const runtime = @import("mquickjs_runtime_lib.zig");
 const builtins = @import("mquickjs_builtins_lib.zig");
 const dtoa = @import("dtoa_lib.zig");
+const sjlj = @import("mquickjs_sjlj.zig");
+const ut = @import("mquickjs_utils_types.zig");
 
-extern fn setjmp(env: *anyopaque) c_int;
+const is_wasm = @import("builtin").cpu.arch == .wasm32 and @import("builtin").os.tag == .freestanding;
 
 const min_int = cutils.min_int;
 
@@ -60,7 +63,7 @@ fn parsePopInt(s: *JSParseState) c_int {
 }
 
 fn c_abort() noreturn {
-    std.posix.abort();
+    platform_abort.abort();
 }
 
 fn asBool(v: u8) bool {
@@ -855,25 +858,92 @@ fn js_parse_json(s: *JSParseState) c.JSValue {
     return s.token.value;
 }
 
+fn jsParseBody(s: *JSParseState, filename: [*:0]const u8, eval_flags: c_int) c.JSValue {
+    var top_func: c.JSValue = undefined;
+    if ((eval_flags & c.JS_EVAL_JSON) != 0) {
+        top_func = js_parse_json(s);
+    } else if ((eval_flags & c.JS_EVAL_REGEXP) != 0) {
+        top_func = builtins.js_parse_regexp(s, eval_flags >> c.JS_EVAL_REGEXP_FLAGS_SHIFT);
+    } else {
+        s.filename_str = value.JS_NewString(s.ctx, filename);
+        if (vt.isExactException(s.filename_str))
+            lexer.js_parse_error_mem(s);
+        const b = js_alloc_function_bytecode(s.ctx) orelse lexer.js_parse_error_mem(s);
+        b.filename = s.filename_str;
+        b.func_name = utils.js_get_atom(s.ctx, c.JS_ATOM__eval_);
+        pt.bytecodeSetHasColumn(b, asBool(s.has_column));
+        top_func = mc.valueFromPtr(b);
+        reset_parse_state(s, 0, top_func);
+        s.is_eval = 1;
+        s.has_retval = @intFromBool((eval_flags & c.JS_EVAL_RETVAL) != 0);
+        s.is_repl = @intFromBool((eval_flags & c.JS_EVAL_REPL) != 0);
+        var top_func_ref: c.JSGCRef = undefined;
+        utils.pushValue(s.ctx, &top_func_ref, top_func);
+        js_parse_program(s);
+        js_parse_local_functions(s, &top_func_ref.val);
+        top_func = utils.popValue(s.ctx, &top_func_ref);
+    }
+    return top_func;
+}
+
+var wasm_parse_result: c.JSValue = undefined;
+var wasm_parse_filename: [*:0]const u8 = undefined;
+var wasm_parse_state: JSParseState = undefined;
+var wasm_short_str_buf: [5]u8 = undefined;
+
+export fn mqjs_parse_after_setjmp(state_ptr: *anyopaque, eval_flags: c_int) void {
+    const s: *JSParseState = @ptrCast(@alignCast(state_ptr));
+    wasm_parse_result = jsParseBody(s, wasm_parse_filename, eval_flags);
+}
+
+fn handleParseError(
+    ctx: *c.JSContext,
+    s: *JSParseState,
+    saved_top_gc_ref: ?*ut.JSGCRefExt,
+    saved_sp: *c.JSValue,
+    filename: [*:0]const u8,
+    eval_flags: c_int,
+) c.JSValue {
+    mc.ctxExt(ctx).parse_state = null;
+    mc.ctxExt(ctx).top_gc_ref = saved_top_gc_ref;
+    mc.ctxExt(ctx).sp = saved_sp;
+    mc.ctxExt(ctx).stack_bottom = mc.ctxExt(ctx).sp;
+    var col_num: c_int = 0;
+    const line_num = lexer.get_line_col(&col_num, s.source_buf, if ((eval_flags & (c.JS_EVAL_JSON | c.JS_EVAL_REGEXP)) != 0)
+        s.buf_pos
+    else
+        s.token.source_pos);
+    const val = utils.JS_ThrowError(ctx, c.JS_CLASS_SYNTAX_ERROR, "%s", @as([*:0]const u8, @ptrCast(&s.error_msg)));
+    runtime.build_backtrace(ctx, mc.ctxExt(ctx).current_exception, filename, line_num + 1, col_num + 1, 0);
+    return val;
+}
+
 pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) c.JSValue {
     var parse_state: JSParseState = undefined;
-    @memset(std.mem.asBytes(&parse_state), 0);
-    const s = &parse_state;
+    var str_buf: [5]u8 = undefined;
+    const s: *JSParseState = if (is_wasm) blk: {
+        @memset(std.mem.asBytes(&wasm_parse_state), 0);
+        break :blk &wasm_parse_state;
+    } else blk: {
+        @memset(std.mem.asBytes(&parse_state), 0);
+        break :blk &parse_state;
+    };
+    const short_buf: *[5]u8 = if (is_wasm) &wasm_short_str_buf else &str_buf;
+
     s.ctx = ctx;
     mc.ctxExt(ctx).parse_state = s;
     s.source_str = c.JS_NULL;
     s.filename_str = c.JS_NULL;
     s.has_column = @intFromBool((eval_flags & c.JS_EVAL_STRIP_COL) == 0);
 
-    var str_buf: [5]u8 = undefined;
     if (mc.isPtr(source_str)) {
         const p: *vt.JSStringExt = @ptrCast(@alignCast(mc.valueToPtr(source_str)));
         s.source_str = source_str;
         s.buf_len = @intCast(vt.stringLen(p));
         s.source_buf = vt.stringBuf(p);
     } else if (rt.valueGetSpecialTag(source_str) == c.JS_TAG_STRING_CHAR) {
-        s.buf_len = @intCast(utils.get_short_string(&str_buf, source_str));
-        s.source_buf = &str_buf;
+        s.buf_len = @intCast(utils.get_short_string(short_buf, source_str));
+        s.source_buf = short_buf;
     } else {
         s.buf_len = @intCast(input_len);
         s.source_buf = @ptrCast(input.?);
@@ -882,45 +952,20 @@ pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8
     const saved_top_gc_ref = mc.ctxExt(ctx).top_gc_ref;
     const saved_sp = mc.ctxExt(ctx).sp;
 
-    if (setjmp(@ptrCast(&s.jmp_env)) != 0) {
+    if (is_wasm) {
+        wasm_parse_filename = filename;
+        if (sjlj.invokeParse(@ptrCast(s), eval_flags) != 0) {
+            return handleParseError(ctx, s, saved_top_gc_ref, saved_sp, filename, eval_flags);
+        }
         mc.ctxExt(ctx).parse_state = null;
-        mc.ctxExt(ctx).top_gc_ref = saved_top_gc_ref;
-        mc.ctxExt(ctx).sp = saved_sp;
-        mc.ctxExt(ctx).stack_bottom = mc.ctxExt(ctx).sp;
-        var col_num: c_int = 0;
-        const line_num = lexer.get_line_col(&col_num, s.source_buf, if ((eval_flags & (c.JS_EVAL_JSON | c.JS_EVAL_REGEXP)) != 0)
-            s.buf_pos
-        else
-            s.token.source_pos);
-        const val = utils.JS_ThrowError(ctx, c.JS_CLASS_SYNTAX_ERROR, "%s", @as([*:0]const u8, @ptrCast(&s.error_msg)));
-        runtime.build_backtrace(ctx, mc.ctxExt(ctx).current_exception, filename, line_num + 1, col_num + 1, 0);
-        return val;
+        return wasm_parse_result;
     }
 
-    var top_func: c.JSValue = undefined;
-    if ((eval_flags & c.JS_EVAL_JSON) != 0) {
-        top_func = js_parse_json(s);
-    } else if ((eval_flags & c.JS_EVAL_REGEXP) != 0) {
-        top_func = builtins.js_parse_regexp(s, eval_flags >> c.JS_EVAL_REGEXP_FLAGS_SHIFT);
-    } else {
-        s.filename_str = value.JS_NewString(ctx, filename);
-        if (vt.isExactException(s.filename_str))
-            lexer.js_parse_error_mem(s);
-        const b = js_alloc_function_bytecode(ctx) orelse lexer.js_parse_error_mem(s);
-        b.filename = s.filename_str;
-        b.func_name = utils.js_get_atom(ctx, c.JS_ATOM__eval_);
-        pt.bytecodeSetHasColumn(b, asBool(s.has_column));
-        top_func = mc.valueFromPtr(b);
-        reset_parse_state(s, 0, top_func);
-        s.is_eval = 1;
-        s.has_retval = @intFromBool((eval_flags & c.JS_EVAL_RETVAL) != 0);
-        s.is_repl = @intFromBool((eval_flags & c.JS_EVAL_REPL) != 0);
-        var top_func_ref: c.JSGCRef = undefined;
-        utils.pushValue(ctx, &top_func_ref, top_func);
-        js_parse_program(s);
-        js_parse_local_functions(s, &top_func_ref.val);
-        top_func = utils.popValue(ctx, &top_func_ref);
+    if (sjlj.setjmp(@ptrCast(&s.jmp_env)) != 0) {
+        return handleParseError(ctx, s, saved_top_gc_ref, saved_sp, filename, eval_flags);
     }
+
+    const top_func = jsParseBody(s, filename, eval_flags);
     mc.ctxExt(ctx).parse_state = null;
     return top_func;
 }

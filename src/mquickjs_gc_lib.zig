@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const value = @import("mquickjs_value_lib.zig");
 const gt = @import("mquickjs_gc_types.zig");
@@ -674,7 +675,7 @@ fn convert_mblock_64to32(ptr1: *anyopaque, ptr: *const anyopaque) c_int {
             @memmove((@as([*]u8, @ptrCast(&b1.buf)))[0 .. len + 1], vt.stringBuf(b)[0 .. len + 1]);
         },
         else => {
-            std.process.abort();
+            platform_abort.abort();
         },
     }
     return 0;
@@ -789,7 +790,7 @@ fn expand_short_floats(ctx: *c.JSContext) c_int {
             },
             mc.JS_MTAG_STRING, mc.JS_MTAG_FLOAT64, mc.JS_MTAG_BYTE_ARRAY => {},
             else => {
-                std.process.abort();
+                platform_abort.abort();
             },
         }
         ptr += @intCast(size);
@@ -919,7 +920,7 @@ pub fn JS_RelocateBytecode2(
             },
             mc.JS_MTAG_STRING, mc.JS_MTAG_FLOAT64, mc.JS_MTAG_BYTE_ARRAY => {},
             else => {
-                std.process.abort();
+                platform_abort.abort();
             },
         }
         ptr += @intCast(size);

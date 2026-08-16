@@ -224,7 +224,7 @@ noinline fn mp_div1norm(
     var i: slimb_t = undefined;
     var r = r_in;
     if (shift != 0) {
-        r = (r << @intCast(shift)) | mp_shl(tabr, taba, n, shift, 0);
+        r = (r << @intCast(shift)) | mp_shl(tabr, taba, @intCast(n), shift, 0);
     }
     i = @intCast(n - 1);
     while (i >= 0) : (i -= 1) {

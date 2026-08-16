@@ -628,7 +628,7 @@ fn defineProps(
                     }
                 } else {
                     if (ctx.emit_zig) {
-                        try ctx.out.print("@as(c.JSWord, @bitCast(@as(i64, {d}))) << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
+                        try ctx.out.print("jsWordFromI32({d}) << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
                     } else {
                         try ctx.out.print("{d} << 1,", .{@as(i32, @intFromFloat(d.u.f64))});
                     }
@@ -800,7 +800,7 @@ fn defineClass(ctx: *BuildContext, d: *const bt.ClassDef) anyerror!i32 {
         try ctx.out.print("  JS_NULL,\n", .{});
     }
     if (ctx.emit_zig) {
-        try ctx.out.print("    @as(c.JSWord, @bitCast(@as(i64, {d}))),\n", .{ctor_func_idx});
+        try ctx.out.print("    jsWordFromI64({d}),\n", .{ctor_func_idx});
     } else {
         try ctx.out.print("  {d},\n", .{ctor_func_idx});
     }
@@ -1068,6 +1068,14 @@ fn emitZigPreamble(out: *std.Io.Writer, zig_prelude: []const u8) !void {
         \\}}
         \\fn jsValueMakeSpecial(tag: c_int, v: i32) c.JSWord {{
         \\    return @as(c.JSWord, @intCast(tag)) | (@as(c.JSWord, @as(u32, @intCast(v))) << JS_TAG_SPECIAL_BITS);
+        \\}}
+        \\fn jsWordFromI32(v: i32) c.JSWord {{
+        \\    if (@sizeOf(c.JSWord) == 8) return @bitCast(@as(i64, v));
+        \\    return @bitCast(v);
+        \\}}
+        \\fn jsWordFromI64(v: i64) c.JSWord {{
+        \\    if (@sizeOf(c.JSWord) == 8) return @bitCast(v);
+        \\    return @bitCast(@as(i32, @truncate(v)));
         \\}}
         \\
         \\

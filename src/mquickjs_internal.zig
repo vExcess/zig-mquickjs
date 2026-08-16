@@ -47,6 +47,7 @@ pub fn isPtr(v: c.JSValue) bool {
 }
 
 pub fn isShortFloat(v: c.JSValue) bool {
+    if (@sizeOf(c.JSWord) != 8) return false;
     return (v & (c.JSW - 1)) == c.JS_TAG_SHORT_FLOAT;
 }
 

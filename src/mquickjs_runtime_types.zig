@@ -85,7 +85,10 @@ pub fn varRefIsDetached(p: *const vt.JSVarRefExt) bool {
 }
 
 pub fn makeSpecial(tag: c.JSWord, v: c_int) c.JSValue {
-    return @as(c.JSValue, @intCast(tag)) | (@as(c.JSValue, @bitCast(@as(i64, v))) << @as(u6, @intCast(c.JS_TAG_SPECIAL_BITS)));
+    if (@sizeOf(c.JSWord) == 8) {
+        return @as(c.JSValue, @intCast(tag)) | (@as(c.JSValue, @bitCast(@as(i64, v))) << @as(u6, @intCast(c.JS_TAG_SPECIAL_BITS)));
+    }
+    return @as(c.JSValue, @intCast(tag)) | (@as(c.JSValue, @intCast(@as(u32, @bitCast(v)))) << @as(u6, @intCast(c.JS_TAG_SPECIAL_BITS)));
 }
 
 pub fn newBool(val: bool) c.JSValue {
@@ -106,7 +109,10 @@ pub fn asI32(v: c.JSValue) i32 {
 }
 
 pub fn storeI32(v: i32) c.JSValue {
-    return @as(c.JSValue, @bitCast(@as(i64, v)));
+    if (@sizeOf(c.JSWord) == 8) {
+        return @as(c.JSValue, @bitCast(@as(i64, v)));
+    }
+    return @as(c.JSValue, @bitCast(v));
 }
 
 pub fn storeU32(v: u32) c.JSValue {
@@ -118,6 +124,7 @@ pub fn isBothInt(a: c.JSValue, b: c.JSValue) bool {
 }
 
 pub fn isBothShortFloat(a: c.JSValue, b: c.JSValue) bool {
+    if (@sizeOf(c.JSWord) != 8) return false;
     const tag: c.JSValue = @intCast(c.JS_TAG_SHORT_FLOAT);
     return (((a -% tag) | (b -% tag)) & 7) == 0;
 }

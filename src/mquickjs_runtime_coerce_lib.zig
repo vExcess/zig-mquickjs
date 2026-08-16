@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const dtoa = @import("dtoa_lib.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const gc = @import("mquickjs_gc_lib.zig");
@@ -53,7 +54,7 @@ fn throwInternalError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
 }
 
 fn c_abort() noreturn {
-    std.posix.abort();
+    platform_abort.abort();
 }
 
 pub fn JS_ToPrimitive(ctx: *c.JSContext, val_in: c.JSValue, hint: c_int) c.JSValue {

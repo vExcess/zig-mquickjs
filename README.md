@@ -4,7 +4,7 @@ MicroQuickJS
 ## Zigged
 MicroQuickJS ported entirely to Zig. 
 
-IMPORTANT: This port was performed almost entirely by AI. The AI introduced a ton of bugs that do not exist in the original mquickjs. Do NOT use this if you need anything stable or secure.
+IMPORTANT: This port was performed nearly entirely by AI. The AI introduced a ton of bugs that do not exist in the original mquickjs. Do NOT use this if you need anything stable or secure.
 
 You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
 
@@ -15,6 +15,9 @@ Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`
 Run tests: `zig build test -Doptimize=ReleaseFast`  
 Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.  
 
+Build mqjs for wasm: `zig build wasm -Doptimize=ReleaseFast`  
+Run wasm build: `cd web && http-server .`
+
 ### Why use Zig over C?
 - Memory safety - Zig can detect double-frees, use-after-frees, memory leaks, and out of bounds accesses
 - Speed - Because Zig does not have to maintain strict binary layouts in memory, the compiler can reorder structs to achieve better cache locality resulting in even better performance than equivelant C code
@@ -22,9 +25,10 @@ Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
 - Guard Rails - Zig has a lot of guard rails to prevent you from introducing silly mistake bugs such as forgetting to cast an item before operating on it
 - Comptime - Comptime is an objectively superior metaprogramming system compared to C macros
 - Portability - The Zig compiler can cross-compile to nearly any platform without any special setup by the programmer
+- WASM - Zig has builtin WASM support
 
 ### Process
-The first ~3,000 lines were ported very manually with some assistance from Gemini 3 Pro. However, it took a lot of time to get that far and I started with the sections easiest to port. I realized manually porting would be extremely difficult and take years. So I decided to do a Bun move. Just how Bun used AI to rewrite their entire JavaScript runtime from Zig to Rust, I decided to use AI to rewrite the entire of this JavaScript runtime from C to Zig. Using a combination of Composer 2.6 and Grok 4.6 was able to port the entire project to Zig in ~28,000 lines of code. The port took a few hours and used 50% of my monthly Cursor model's usage quota. The output was functional enough to run most the benchmarks, but some failed so I had to spend an entire month worth of Opus 5 credits debugging it. I also tried to use GPT 5.6 Sol to do debugging worth, but it flagged me as a malicious hacker and refused to do any debugging.
+The first ~3,000 lines were ported very manually with some assistance from Gemini 3 Pro. However, it took a lot of time to get that far and I started with the sections easiest to port. I realized manually porting would be extremely difficult and take years. So I decided to do a Bun move. Just how Bun used AI to rewrite their entire JavaScript runtime from Zig to Rust, I decided to use AI to rewrite the entire of this JavaScript runtime from C to Zig. Using a combination of Composer 2.6 and Grok 4.6 was able to port the entire project to Zig in ~28,000 lines of code. The port took a few hours and used 50% of my monthly Cursor model's usage quota. The output was functional enough to run most the benchmarks, but some failed so I had to spend an entire month worth of Opus 5 credits debugging it. I also tried to use GPT 5.6 Sol to do debugging work, but it flagged me as a malicious hacker and refused to do any debugging.
 
 ### Result
 The result is a functioning copy of mquickjs written entirely in Zig with no C code (only a few small header files are still needed).

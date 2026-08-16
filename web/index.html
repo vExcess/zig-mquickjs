@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zig-MicroQuickJS Playground</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      max-width: 960px;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      font-family: ui-monospace, monospace;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .row {
+      display: flex;
+      gap: 0.75rem;
+      margin: 0.75rem 0;
+      flex-wrap: wrap;
+    }
+    button {
+      font: inherit;
+      padding: 0.5rem 1rem;
+    }
+    #status {
+      margin: 0.75rem 0;
+      min-height: 1.25rem;
+    }
+    pre {
+      background: rgba(127, 127, 127, 0.15);
+      padding: 1rem;
+      overflow: auto;
+      white-space: pre-wrap;
+      min-height: 4rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Zig-MicroQuickJS WASM Playground</h1>
+  <p>Zig-MicroQuickJS compiled to <code>wasm32-freestanding</code>. Output from <code>print()</code> / <code>console.log()</code> appears below and in the browser console.</p>
+
+  <textarea id="source">print("hello from mquickjs");
+var sum = 0;
+for (var i = 1; i <= 10; i = i + 1) sum = sum + i;
+print("sum 1..10 =", sum);
+sum</textarea>
+
+  <div class="row">
+    <button id="run" disabled>Run</button>
+    <button id="clear" type="button">Clear output</button>
+  </div>
+
+  <div id="status">Loading WASM…</div>
+  <pre id="output"></pre>
+
+  <script type="module">
+    import { loadMqjs, evalScript } from "./mqjs.js";
+
+    const sourceEl = document.getElementById("source");
+    const runBtn = document.getElementById("run");
+    const clearBtn = document.getElementById("clear");
+    const statusEl = document.getElementById("status");
+    const outputEl = document.getElementById("output");
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function appendOutput(text) {
+      outputEl.textContent += text;
+    }
+
+    clearBtn.addEventListener("click", () => {
+      outputEl.textContent = "";
+      setStatus("Ready.");
+    });
+
+    runBtn.addEventListener("click", () => {
+      outputEl.textContent = "";
+      try {
+        const result = evalScript(sourceEl.value);
+        if (result.output) appendOutput(result.output);
+        if (result.ok) {
+          setStatus("Finished without exception.");
+        } else {
+          setStatus(`Script threw or failed (code ${result.code}).`);
+        }
+      } catch (err) {
+        setStatus(String(err));
+      }
+    });
+
+    loadMqjs("mqjs.wasm")
+      .then(() => {
+        runBtn.disabled = false;
+        setStatus("Ready.");
+      })
+      .catch((err) => {
+        setStatus(`Failed to load WASM: ${err}`);
+      });
+  </script>
+</body>
+</html>

@@ -8,6 +8,7 @@
 //
 
 const std = @import("std");
+const platform_abort = @import("platform_abort.zig");
 const utils = @import("mquickjs_utils_lib.zig");
 const value = @import("mquickjs_value_lib.zig");
 const builtins = @import("mquickjs_builtins_lib.zig");
@@ -45,7 +46,7 @@ fn get_i8(pc: [*]const u8) i32 {
 }
 
 fn c_abort() noreturn {
-    std.posix.abort();
+    platform_abort.abort();
 }
 
 const Resume = enum {

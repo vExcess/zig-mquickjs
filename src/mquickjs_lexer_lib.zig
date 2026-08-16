@@ -17,12 +17,11 @@ const lt = @import("mquickjs_lexer_types.zig");
 const vt = lt.vt;
 const mc = lt.mc;
 pub const c = lt.c;
-
-extern fn longjmp(env: *anyopaque, val: c_int) noreturn;
+const sjlj = @import("mquickjs_sjlj.zig");
 
 pub fn js_parse_error_va(s: *lt.JSParseState, fmt: [*:0]const u8, ap: *anyopaque) noreturn {
     _ = utils.js_vsnprintf(@ptrCast(&s.error_msg), s.error_msg.len, fmt, ap);
-    longjmp(@ptrCast(&s.jmp_env), 1);
+    sjlj.longjmp(@ptrCast(&s.jmp_env), 1);
 }
 
 pub fn js_parse_error(s: *lt.JSParseState, fmt: [*:0]const u8, ...) callconv(.c) noreturn {

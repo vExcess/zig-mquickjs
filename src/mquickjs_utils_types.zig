@@ -150,7 +150,8 @@ pub const JSPropertyExt = extern struct {
     key: c.JSValue,
     value: c.JSValue,
     hash_and_type: u32,
-    _pad: u32 = 0,
+    // 64-bit only: matches C's alignment padding after the 32-bit bitfield.
+    _pad: [if (@sizeOf(c.JSWord) == 8) 1 else 0]u32 = undefined,
 };
 
 pub const JS_STACK_SLACK: c_uint = 16;

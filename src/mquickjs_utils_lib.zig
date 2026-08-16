@@ -26,6 +26,8 @@
 // Ported from C to Zig by Composer 2.5 + Grok 4.6 + Gemini 3 Pro + VExcess
 
 const std = @import("std");
+const builtin = @import("builtin");
+const platform_abort = @import("platform_abort.zig");
 const cutils = @import("cutils_lib.zig");
 const dtoa = @import("dtoa_lib.zig");
 const gc = @import("mquickjs_gc_lib.zig");
@@ -102,7 +104,7 @@ pub fn JS_DeleteGCRef(ctx: *c.JSContext, ref: *c.JSGCRef) void {
     var pref: *?*c.JSGCRef = @ptrCast(&x.last_gc_ref);
     while (true) {
         const ref1 = pref.* orelse {
-            std.process.abort();
+            platform_abort.abort();
         };
         if (ref1 == ref) {
             pref.* = ref1.prev;
@@ -249,8 +251,15 @@ fn pad(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, ch: u8, width: c_int, 
     }
 }
 
+const VaListPtr = switch (builtin.cpu.arch) {
+    .x86_64 => *std.builtin.VaListX86_64,
+    .aarch64 => *std.builtin.VaListAarch64,
+    .wasm32 => **anyopaque,
+    else => @compileError("js_vprintf: unsupported CPU arch"),
+};
+
 pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]const u8, ap: *anyopaque) void {
-    const vap: *std.builtin.VaListX86_64 = @ptrCast(@alignCast(ap));
+    const vap: VaListPtr = @ptrCast(@alignCast(ap));
     var fmt_ptr: [*c]const u8 = fmt;
     var tmp_buf: [32]u8 = undefined;
 
@@ -311,7 +320,8 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
         while (true) {
             const ch = fmt_ptr[0];
             if (ch == 'l') {
-                if (@sizeOf(c_long) == @sizeOf(i64) or fmt_ptr[-1] == 'l')
+                const prev_ch: u8 = if (fmt_ptr > fmt) (fmt_ptr - 1)[0] else 0;
+                if (@sizeOf(c_long) == @sizeOf(i64) or prev_ch == 'l')
                     flags |= PF_INT64;
             } else if (ch == 'z' or ch == 't') {
                 if (@sizeOf(usize) == @sizeOf(u64))
@@ -375,7 +385,7 @@ pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]c
             },
             'o' => {
                 const val: c.JSValue = if (flags & PF_INT64 != 0)
-                    @cVaArg(vap, c_ulonglong)
+                    @as(c.JSValue, @truncate(@cVaArg(vap, c_ulonglong)))
                 else
                     @cVaArg(vap, c_uint);
 
