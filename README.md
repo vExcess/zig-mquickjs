@@ -24,10 +24,12 @@ Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
 - Portability - The Zig compiler can cross-compile to nearly any platform without any special setup by the programmer
 
 ### Process
-The first ~3,000 lines were ported very manually with some assistance from Gemini 3 Pro. However, it took a lot of time to get that far and I started with the sections easiest to port. I realized manually porting would be extremely difficult and take years. So I decided to do a Bun move. Just how Bun used AI to rewrite their entire JavaScript runtime from Zig to Rust, I decided to use AI to rewrite the entire of this JavaScript runtime from C to Zig. Using a combination of Composer 2.6 and Grok 4.6 was able to port the entire project to Zig in 27,790 lines of code. The port took a few hours and used 50% of my monthly Cursor model's usage quota.
+The first ~3,000 lines were ported very manually with some assistance from Gemini 3 Pro. However, it took a lot of time to get that far and I started with the sections easiest to port. I realized manually porting would be extremely difficult and take years. So I decided to do a Bun move. Just how Bun used AI to rewrite their entire JavaScript runtime from Zig to Rust, I decided to use AI to rewrite the entire of this JavaScript runtime from C to Zig. Using a combination of Composer 2.6 and Grok 4.6 was able to port the entire project to Zig in ~28,000 lines of code. The port took a few hours and used 50% of my monthly Cursor model's usage quota. The output was functional enough to run most the benchmarks, but some failed so I had to spend an entire month worth of Opus 5 credits debugging it. I also tried to use GPT 5.6 Sol to do debugging worth, but it flagged me as a malicious hacker and refused to do any debugging.
 
 ### Result
 The result is a functioning copy of mquickjs written entirely in Zig with no C code (only a few small header files are still needed).
+
+The result absolutely has bugs still in it, but after spending an entire month worth of Opus 5 credits debugging it, all of the benchmarks are able to run without error.
 
 The code is relatively C-style. Future work will convert the Zig code to be more idiomatic Zig.
 
