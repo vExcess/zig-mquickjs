@@ -131,7 +131,7 @@ pub const term_exit = switch (builtin.os.tag) {
     else => (struct {
         fn term_exit() callconv(.c) void {
             _ = std.posix.tcsetattr(0, std.posix.TCSA.NOW, oldtty) catch {};
-            _ = std.posix.fcntl(0, std.posix.F.SETFL, @as(usize, @intCast(old_fd0_flags))) catch {};
+            _ = std.c.fcntl(0, std.c.F.SETFL, old_fd0_flags);
         }
     }).term_exit,
 };
@@ -139,7 +139,7 @@ pub const term_exit = switch (builtin.os.tag) {
 pub const sigint_handler = switch (builtin.os.tag) {
     .windows => @panic("posix only function"),
     else => (struct {
-        fn sigint_handler(signo: c_int) callconv(.c) void {
+        fn sigint_handler(signo: std.posix.SIG) callconv(.c) void {
             _ = signo;
             ctrl_c_pressed += 1;
             if (ctrl_c_pressed >= 4) {
@@ -183,7 +183,7 @@ pub export const readline_tty_init = switch (builtin.os.tag) {
 
             var tty = P.tcgetattr(0) catch @panic("tcgetattr failed");
             oldtty = tty;
-            old_fd0_flags = @as(i32, @intCast(P.fcntl(0, P.F.GETFL, 0) catch 0));
+            old_fd0_flags = @as(i32, @intCast(std.c.fcntl(0, std.c.F.GETFL, @as(c_int, 0))));
 
             tty.iflag.IGNBRK = false; // Ignore break condition.
             tty.iflag.BRKINT = false; // Signal interrupt on break.

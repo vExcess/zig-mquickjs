@@ -1183,6 +1183,10 @@ pub fn buildAtoms(
     args: []const []const u8,
     zig_prelude: []const u8,
 ) !u8 {
+    var threaded: std.Io.Threaded = .init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var jsw: u32 = if (@sizeOf(usize) >= 8) 8 else 4;
     var build_atom_defines = false;
     var emit_zig = false;
@@ -1199,13 +1203,13 @@ pub fn buildAtoms(
             emit_zig = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
             var stderr_buf: [1024]u8 = undefined;
-            var stderr_w = std.fs.File.stderr().writerStreaming(&stderr_buf);
+            var stderr_w = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
             const code = try usage(&stderr_w.interface, args[0]);
             try stderr_w.interface.flush();
             return code;
         } else {
             var stderr_buf: [1024]u8 = undefined;
-            var stderr_w = std.fs.File.stderr().writerStreaming(&stderr_buf);
+            var stderr_w = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
             try stderr_w.interface.print("invalid argument '{s}'\n", .{args[i]});
             const code = try usage(&stderr_w.interface, args[0]);
             try stderr_w.interface.flush();
@@ -1214,7 +1218,7 @@ pub fn buildAtoms(
     }
 
     var stdout_buf: [8192]u8 = undefined;
-    var stdout_w = std.fs.File.stdout().writerStreaming(&stdout_buf);
+    var stdout_w = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const out = &stdout_w.interface;
     defer out.flush() catch {};
 

@@ -27,7 +27,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const posix = std.posix;
 const ascii = std.ascii;
 const cutils = @import("cutils_lib.zig");
 
@@ -115,7 +114,8 @@ fn throwInternalError(ctx: *c.JSContext, comptime msg: [:0]const u8) c.JSValue {
 
 fn getTimeMs() i64 {
     if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
-        const ts = posix.clock_gettime(posix.CLOCK.MONOTONIC) catch unreachable;
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
         return @as(i64, @intCast(ts.sec)) * 1000 + @divTrunc(@as(i64, @intCast(ts.nsec)), 1_000_000);
     }
     var tv: c.struct_timeval = undefined;
@@ -157,7 +157,7 @@ fn jsLogFunc(opaque_ptr: ?*anyopaque, buf: ?*const anyopaque, buf_len: usize) ca
 
 fn dumpError(ctx: *c.JSContext) void {
     const obj = c.JS_GetException(ctx);
-    const use_color = posix.isatty(posix.STDERR_FILENO);
+    const use_color = std.c.isatty(std.c.STDERR_FILENO) != 0;
     if (use_color) {
         _ = c.fprintf(c.stderr, "%s", c.term_colors[@intCast(STYLE_ERROR_MSG)]);
     }
@@ -356,7 +356,8 @@ fn runTimers(ctx: *c.JSContext) void {
         if (min_delay > 0) {
             const sec: u64 = @intCast(@divTrunc(min_delay, 1000));
             const nsec: u64 = @intCast(@mod(min_delay, 1000) * 1_000_000);
-            posix.nanosleep(sec, nsec);
+            const req = std.c.timespec{ .sec = @intCast(sec), .nsec = @intCast(nsec) };
+            _ = std.c.nanosleep(&req, null);
         }
     }
 }
@@ -635,11 +636,11 @@ fn help() noreturn {
     std.process.exit(1);
 }
 
-pub fn main() u8 {
+pub fn main(init: std.process.Init.Minimal) u8 {
     stdlib_data.relocate();
-    const allocator = std.heap.page_allocator;
-    const argv = std.process.argsAlloc(allocator) catch return 1;
-    defer std.process.argsFree(allocator, argv);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const argv = init.args.toSlice(arena.allocator()) catch return 1;
     var mem_size: usize = 16 << 20;
     var dump_memory: c_int = 0;
     var interactive: c_int = 0;

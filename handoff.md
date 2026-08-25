@@ -1,7 +1,7 @@
 # microquickjs Zig — Debugging Handoff
 
 Last updated: 2026-08-13  
-Zig version: **0.15.2** (see `.zigversion`)
+Zig version: **0.16.0**
 
 This document is for agents debugging the **completed** C→Zig port. The port is a faithful, line-by-line translation — not idiomatic Zig. Treat bugs as likely port artifacts; compare against the C reference when stuck.
 
@@ -25,7 +25,7 @@ Public API headers (`include/mquickjs.h`, `include/mquickjs_priv.h`) are still `
 ## 2. Environment & build
 
 ```sh
-export ZIG=/home/vexcess/zig-x86_64-linux-0.15.2/zig   # if zig not on PATH
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig   # if zig not on PATH
 ```
 
 ### Required optimize mode
@@ -306,7 +306,7 @@ Context:
 - Full C→Zig port is complete; all logic is in src/*.zig (zero compiled C).
 - Faithful line-by-line translation — compare against archive/c/mquickjs_*.c when stuck.
 - Build/test requires -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall.
-- Zig 0.15.2 (/home/vexcess/zig-x86_64-linux-0.15.2/zig if not on PATH)
+- Zig 0.16.0 (/home/vexcess/zig-x86_64-linux-0.16.0/zig if not on PATH)
 
 Your task: [describe the bug or failing test]
 
@@ -317,7 +317,7 @@ Workflow:
 4. Fix minimally; run test gate before finishing
 
 Test gate:
-  export ZIG=/home/vexcess/zig-x86_64-linux-0.15.2/zig
+  export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
   $ZIG build -Doptimize=ReleaseFast
   $ZIG build test -Doptimize=ReleaseFast
   bash run-tests.sh

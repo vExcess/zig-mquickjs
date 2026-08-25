@@ -5,12 +5,12 @@ Zig against `/home/vexcess/Sync/Workspace/mquickjs/mquickjs.c` (and
 `libm.c` / `libm_lib.zig`). Only `zig-mquickjs` and `mquickjs` matter. Do
 not search other workspace trees.
 
-Build with `-Doptimize=ReleaseFast` and Zig 0.15.2
-(`/home/vexcess/zig-x86_64-linux-0.15.2/zig`). Debug/ReleaseSafe cannot run
+Build with `-Doptimize=ReleaseFast` and Zig 0.16
+(`/home/vexcess/zig-x86_64-linux-0.16/zig`). Debug/ReleaseSafe cannot run
 this engine (tagged pointers).
 
 ```sh
-export ZIG=/home/vexcess/zig-x86_64-linux-0.15.2/zig
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16/zig
 $ZIG build -Doptimize=ReleaseFast
 ./zig-out/bin/mqjs --memory-limit 256M path/to/repro.js
 ```
@@ -617,8 +617,8 @@ Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
 
 You are continuing the post-Octane correctness audit for zig-mquickjs.
 Compare only against ../mquickjs (mquickjs.c + libm.c). Do not search other
-workspace dirs. Build -Doptimize=ReleaseFast with Zig 0.15.2 at
-/home/vexcess/zig-x86_64-linux-0.15.2/zig. Fix one C-verified bug per turn,
+workspace dirs. Build -Doptimize=ReleaseFast with Zig 0.16 at
+/home/vexcess/zig-x86_64-linux-0.16/zig. Fix one C-verified bug per turn,
 then stop. Do not rewrite the GC. Do not commit unless asked.
 
 ## Octane gate status

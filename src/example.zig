@@ -27,7 +27,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const posix = std.posix;
 
 const c = @cImport({
     @cInclude("stddef.h");
@@ -60,7 +59,8 @@ const FilledRectangleData = extern struct {
 
 fn getTimeMs() i64 {
     if (builtin.os.tag == .linux or builtin.os.tag == .macos) {
-        const ts = posix.clock_gettime(posix.CLOCK.MONOTONIC) catch unreachable;
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
         return @as(i64, @intCast(ts.sec)) * 1000 + @divTrunc(@as(i64, @intCast(ts.nsec)), 1_000_000);
     }
     var tv: c.struct_timeval = undefined;
@@ -311,9 +311,9 @@ fn loadFile(filename: [*:0]const u8, plen: ?*c_int) [*]u8 {
     return buf;
 }
 
-pub fn main() void {
+pub fn main(init: std.process.Init.Minimal) void {
     stdlib_data.relocate();
-    var args = std.process.argsWithAllocator(std.heap.page_allocator) catch unreachable;
+    var args = init.args.iterateAllocator(std.heap.page_allocator) catch unreachable;
     defer args.deinit();
     _ = args.skip();
 

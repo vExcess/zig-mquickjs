@@ -6,7 +6,7 @@ MicroQuickJS ported entirely to Zig.
 
 IMPORTANT: This port was performed nearly entirely by AI. The AI introduced a ton of bugs that do not exist in the original mquickjs. Do NOT use this if you need anything stable or secure.
 
-You can build the project using the Zig build system. Currently using Zig 0.15.2. Will port to 0.16.0 in the future.
+You can build the project using the Zig build system. Project uses Zig 0.16.0
 
 Build mqjs: `zig build -Doptimize=ReleaseFast`  
 Build example: `zig build example -Doptimize=ReleaseFast`  
@@ -17,6 +17,8 @@ Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.
 
 Build mqjs for wasm: `zig build wasm -Doptimize=ReleaseFast`  
 Run wasm build: `cd web && http-server .`
+
+v0.16.0 introduced a regression in Zig where the project may not compile unless the zig-cache is in the tmp directory. Add `--cache-dir /tmp/mquickjs-zig-cache` to the compiler flags.
 
 ### Why use Zig over C?
 - Memory safety - Zig can detect double-frees, use-after-frees, memory leaks, and out of bounds accesses

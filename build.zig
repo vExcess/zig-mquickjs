@@ -12,16 +12,16 @@ fn addRuntimeObjects(
     readline_obj: ?*std.Build.Step.Compile,
     mquickjs_engine_obj: *std.Build.Step.Compile,
 ) void {
-    exe.addObject(mquickjs_engine_obj);
-    exe.addObject(cutils_obj);
+    exe.root_module.addObject(mquickjs_engine_obj);
+    exe.root_module.addObject(cutils_obj);
     if (dtoa_obj) |dtoa| {
-        exe.addObject(dtoa);
+        exe.root_module.addObject(dtoa);
     }
     if (libm_obj) |libm| {
-        exe.addObject(libm);
+        exe.root_module.addObject(libm);
     }
     if (readline_obj) |rl| {
-        exe.addObject(rl);
+        exe.root_module.addObject(rl);
     }
 }
 
@@ -30,9 +30,9 @@ fn addCommonIncludes(
     b: *std.Build,
     wf: *std.Build.Step.WriteFile,
 ) void {
-    exe.addConfigHeader(b.addConfigHeader(.{ .style = .blank }, .{}));
-    exe.addIncludePath(wf.getDirectory());
-    exe.addIncludePath(b.path("include"));
+    exe.root_module.addConfigHeader(b.addConfigHeader(.{ .style = .blank }, .{}));
+    exe.root_module.addIncludePath(wf.getDirectory());
+    exe.root_module.addIncludePath(b.path("include"));
 }
 
 fn addFreestandingLibcIncludes(mod: *std.Build.Module, b: *std.Build) void {
@@ -70,18 +70,18 @@ pub fn build(b: *std.Build) !void {
     // Generate Header Files
     const gen_atoms = b.addRunArtifact(mqjs_stdlib_tool);
     gen_atoms.addArg("-a");
-    const mquickjs_atom_h = gen_atoms.captureStdOut();
+    const mquickjs_atom_h = gen_atoms.captureStdOut(.{});
     const gen_atoms_wasm = b.addRunArtifact(mqjs_stdlib_tool);
     gen_atoms_wasm.addArgs(&.{ "-m32", "-a" });
-    const mquickjs_atom_h_wasm = gen_atoms_wasm.captureStdOut();
+    const mquickjs_atom_h_wasm = gen_atoms_wasm.captureStdOut(.{});
     const gen_stdlib = b.addRunArtifact(mqjs_stdlib_tool);
-    const mqjs_stdlib_h = gen_stdlib.captureStdOut();
+    const mqjs_stdlib_h = gen_stdlib.captureStdOut(.{});
     const gen_stdlib_zig = b.addRunArtifact(mqjs_stdlib_tool);
     gen_stdlib_zig.addArg("-z");
-    const mqjs_stdlib_data_zig = gen_stdlib_zig.captureStdOut();
+    const mqjs_stdlib_data_zig = gen_stdlib_zig.captureStdOut(.{});
     const gen_stdlib_zig_wasm = b.addRunArtifact(mqjs_stdlib_tool);
     gen_stdlib_zig_wasm.addArgs(&.{ "-m32", "-z" });
-    const mqjs_stdlib_data_zig_wasm = gen_stdlib_zig_wasm.captureStdOut();
+    const mqjs_stdlib_data_zig_wasm = gen_stdlib_zig_wasm.captureStdOut(.{});
     const wf = b.addWriteFiles();
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
@@ -134,7 +134,8 @@ pub fn build(b: *std.Build) !void {
     });
     const libm_opts = b.addOptions();
     libm_opts.addOption(bool, "softfloat", configSoftFloat);
-    libm_obj.root_module.addOptions("build_options", libm_opts);
+    const libm_opts_mod = libm_opts.createModule();
+    libm_obj.root_module.addImport("build_options", libm_opts_mod);
     libm_obj.root_module.addIncludePath(b.path("include"));
 
     const mquickjs_engine_obj = b.addObject(.{
@@ -158,10 +159,10 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     const gen_example_stdlib = b.addRunArtifact(example_stdlib_tool);
-    const example_stdlib_h = gen_example_stdlib.captureStdOut();
+    const example_stdlib_h = gen_example_stdlib.captureStdOut(.{});
     const gen_example_stdlib_zig = b.addRunArtifact(example_stdlib_tool);
     gen_example_stdlib_zig.addArg("-z");
-    const example_stdlib_data_zig = gen_example_stdlib_zig.captureStdOut();
+    const example_stdlib_data_zig = gen_example_stdlib_zig.captureStdOut(.{});
     _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
     const example_stdlib_data_file = wf.addCopyFile(example_stdlib_data_zig, "example_stdlib_data.zig");
 
@@ -295,7 +296,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = false,
         }),
     });
-    wasm_libm_obj.root_module.addOptions("build_options", libm_opts);
+    wasm_libm_obj.root_module.addImport("build_options", libm_opts_mod);
     wasm_libm_obj.root_module.addIncludePath(b.path("include"));
 
     const wasm_engine_obj = b.addObject(.{
