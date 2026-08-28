@@ -13,6 +13,6 @@ Read `debug-notes.md` before diagnosing GC, parse, math, or correctness issues.
 - Compare only against `../mquickjs` (C). Do not search other workspace dirs.
 - Build `-Doptimize=ReleaseFast`. Fix one bug per turn. Performance last.
 - C `JS_POP_VALUE` assigns the GC-updated pointer back. Never discard `popValue` when the local is used after a GC-capable call.
-- Do not revert fixes 1–16. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
+- Do not revert fixes 1–17. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
 - `eval` global scope and `let`/`const` as `var` are **documented deviations** — not bugs.
 - `mqjs tests/octane/run.js <suite>` segfaults (host argv). Use `tests/difftest/` or `/tmp/gc_stress_*.js` + `--memory-limit 8M`.

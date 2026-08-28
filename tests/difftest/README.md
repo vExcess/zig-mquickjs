@@ -59,7 +59,7 @@ classes found nothing new. The first differential run immediately caught
 | `18_gc_explicit` | explicit `gc()` between allocation and use (found fix 14) |
 | `19_gc_hooks` | 12k-key property tables, accessor properties, and builtin callbacks that call `gc()` from inside the builtin |
 | `20_mutate_reentrant` | callbacks that *mutate* what a builtin is walking; prototype surgery; index/length/argument edges |
-| `21_print_cfunc` | host `print()` of C functions/constructors (JSCFunctionDef table stride, fix 16) |
+| `21_print_cfunc` | host `print()` of C functions/constructors (fix 16) and Date/Number/String/Boolean/typed-array instances (fix 17) |
 | `slow/17_regexp_deep` | 11850 pattern x subject x flag combinations |
 
 `19` and `20` target the same bug class as fix 14 from the other side: a

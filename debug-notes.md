@@ -46,9 +46,10 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
-**Post fix 15/16 (2026-08-28): gate still pending.** Fix 15 (`-m32` float64
-blocks) and fix 16 (`JSCFunctionDef` print stride) have not been through an
-Octane batch. Ask the user to run 9 consecutive
+**Post fix 15/16/17 (2026-08-28): gate still pending.** Fix 15 (`-m32` float64
+blocks), fix 16 (`JSCFunctionDef` print stride), and fix 17 (`js_dump_object`
+`default:`) have not been through an Octane batch. 15 is bytecode-only; 16 and
+17 are dump/print only. Ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before the next engine fix.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
@@ -456,11 +457,32 @@ generated C `sizeof`/`offsetof` dump vs Zig `@sizeOf`/`@offsetOf` for every
 
 Regression: `tests/difftest/21_print_cfunc.js`.
 
-Related dump bug **not fixed this turn**: Zig `js_dump_object` switches
-`JS_CLASS_ARRAY, JS_CLASS_OBJECT` where C uses `default:` plus those two
-labels, so Date/Number/String/Boolean/typed-array *instances* print blank
-(`print(new Date(0))` → empty vs C's `Date {  }`). Ready repro for next
-turn; do not fold it into this fix.
+### 17. `js_dump_object` missing `default:` (Date / typed-array print blank)
+
+`src/mquickjs_utils_lib.zig` `js_dump_object`. C (`mquickjs.c:6748-6750`) is
+
+```c
+default:
+case JS_CLASS_ARRAY:
+case JS_CLASS_OBJECT:
+```
+
+Zig only matched `ARRAY` and `OBJECT`, so any other class_id printed nothing:
+`print(new Date(0))` was empty vs C `Date {  }`. Same for ArrayBuffer and
+every typed-array instance. Number/String/Boolean constructors are unsupported
+in both engines (`TypeError: number constructor not supported`), so boxed
+primitives cannot be constructed from JS; Date / ArrayBuffer / typed arrays
+are the reachable repro.
+
+The typed-array dump branch lived inside that case and was therefore **dead**
+in Zig. C indexes with element pointer arithmetic
+(`*((int16_t *)arr->buf + idx)`); `JSTypedArray.offset` is in elements
+(`mquickjs.c:304-308`). Zig used `byte_buf[idx]` as a byte offset, which is
+wrong for every multi-byte type. Matched the live getter in
+`mquickjs_value_lib.zig` (`buf[idx * sizeof(T)]`). Inner switch `else` now
+matches C's `default: UINT8C / UINT8`.
+
+Regression: `tests/difftest/21_print_cfunc.js` (extended).
 
 ---
 
@@ -516,6 +538,7 @@ SEGVs. Full Octane via `zig build octane` is fine.
 | User | Octane batch after fix 14 | no regressions — gate confirmed |
 | Opus | Deterministic Octane differential; GC-root and opcode structural audits (all clean); fix 15 (32-bit float64 block size) | found by bytecode diffing; `bytecode.sh` added |
 | Opus | Struct layout sweep vs C `sizeof`/`offsetof`; fix 16 (`JSCFunctionDef` table stride 16 vs 24) | `print(Math.sin)` was `concat()`, `print(Date)` SEGV; difftest 21 added |
+| Opus | Fix 17 (`js_dump_object` missing `default:`); Date/ArrayBuffer/typed-array print was blank | difftest 21 extended; ALL MATCH |
 
 ### Deterministic Octane differential — clean
 
@@ -619,10 +642,11 @@ truncation warning fires, never a diff), and `tests/test_*.js` +
 `mandelbrot.js` match at 256M and 4M.
 
 The engine's builtin surface was enumerated on both engines and is identical;
-`print()` of C functions/constructors is now covered (fix 16 / difftest 21).
-Still no coverage: `console`, `load()`, and `Math.random` (host / non-deterministic).
-`print()` of Date/Number/String/Boolean/typed-array *instances* still diverges
-(missing `default:` in `js_dump_object` — next-turn bug).
+`print()` of C functions/constructors is covered (fix 16 / difftest 21), as is
+`print()` of Date/ArrayBuffer/typed-array *instances* (fix 17). Number/String/
+Boolean constructors are unsupported in both engines, so boxed primitives
+cannot be constructed from JS. Still no coverage: `console`, `load()`, and
+`Math.random` (host / non-deterministic).
 
 ### libm signed/unsigned drift — swept, no behavioural divergence
 
@@ -639,11 +663,10 @@ a negative high word / negative `n`, where C relies on well-defined unsigned
 wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
-**Git state:** fixes 1–15 are committed (`7603946` is the float64_32 layout).
-Uncommitted this turn: `src/mquickjs_utils_types.zig` (fix 16),
-`tests/difftest/21_print_cfunc.js`, `debug-notes.md`,
-`tests/difftest/README.md`, `.cursor/rules/debug-notes.mdc`.
-Pre-existing staged (not this turn): `build.zig`, `build.zig.zon`.
+**Git state:** fixes 1–16 are committed (`f783342` is `JSCFunctionDefExt`).
+Uncommitted this turn: `src/mquickjs_utils_lib.zig` (fix 17),
+`tests/difftest/21_print_cfunc.js`, `tests/difftest/README.md`,
+`debug-notes.md`, `.cursor/rules/debug-notes.mdc`.
 Do not commit unless asked.
 
 ---
@@ -683,14 +706,14 @@ GC. Do not commit unless asked.
 
 ## Octane gate status
 
-Octane was confirmed clean after fix 14. **Fixes 15 and 16 have NOT been
-through an Octane batch** — ask the user to run 9 consecutive
+Octane was confirmed clean after fix 14. **Fixes 15, 16, and 17 have NOT
+been through an Octane batch** — ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before landing the next fix.
-Fix 15 is `-m32` bytecode only; fix 16 is dump/print of C functions.
+Fix 15 is `-m32` bytecode only; fixes 16 and 17 are dump/print only.
 
 ## What's done (do not redo)
 
-- Fixes 1-16 documented in debug-notes.md - do NOT revert
+- Fixes 1-17 documented in debug-notes.md - do NOT revert
 - Phase 1A-1D static audit: complete. Every `_ = utils.popValue` discard site
   is in the Phase 1A table; there are no uncovered files.
 - libm signed/unsigned sweep: clean
@@ -710,9 +733,10 @@ Fix 15 is `-m32` bytecode only; fix 16 is dump/print of C functions.
 
 ## Discovery method
 
-Script-level differential has saturated except host dump. Last three real
+Script-level differential has saturated except host dump. Last four real
 bugs came from comparing things that are *not* normal program output:
-scratch pointer (14), emitted image size (15), struct sizeof (16).
+scratch pointer (14), emitted image size (15), struct sizeof (16), dump
+switch fallthrough (17).
 
 ./tests/difftest/run.sh          # any stdout/exit-code diff is a port bug
 ./tests/difftest/bytecode.sh     # any *size* diff is a port bug
@@ -726,17 +750,12 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 
 ## Highest-priority next work
 
-1. `js_dump_object` missing `default:` — C-verified, ready repro.
-   C (mquickjs.c ~6748) is `default: case JS_CLASS_ARRAY: case JS_CLASS_OBJECT:`.
-   Zig only matches ARRAY and OBJECT, so Date/Number/String/Boolean/typed-array
-   *instances* print blank (`print(new Date(0))` empty vs C `Date {  }`).
-   Extend tests/difftest/21_print_cfunc.js when fixing. Do not fold into fix 16.
-2. Host surface still uncovered: `load()`, `console`, known `mqjs` argv SEGV
+1. Host surface still uncovered: `load()`, `console`, known `mqjs` argv SEGV
    for `run.js <suite>` (Phase 4 item).
-3. Latent libm only (no repro — do not "fix" without C proof):
+2. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
-4. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
+3. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
    bug. Leave unless @sizeOf(JSObjectExt) starts being used.
 
 ## Already probed clean (do not redo)
@@ -745,6 +764,7 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 - Adversarial libm sweep; integer conversion / typed-array stores / shifts
 - Number<->string; builtin surface enumeration (identical on both engines)
 - print() of C functions/constructors (fix 16)
+- print() of Date/ArrayBuffer/typed-array instances (fix 17)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
 - Accessor properties whose getter/setter calls gc()
 - Callbacks that mutate the array/object a builtin is walking
@@ -755,7 +775,7 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 
 ## Do NOT do
 
-- Revert fixes 1-16
+- Revert fixes 1-17
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
 - "Fix" newShortInt or kernelExp latent spots without C proof
@@ -777,8 +797,7 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 
 ## Git state (do not commit unless asked)
 
-Fixes 1-15 are committed (7603946 float64_32). Uncommitted this turn:
-src/mquickjs_utils_types.zig (fix 16), tests/difftest/21_print_cfunc.js,
-debug-notes.md, tests/difftest/README.md, .cursor/rules/debug-notes.mdc.
-Pre-existing staged (not this turn): build.zig, build.zig.zon.
+Fixes 1-16 are committed (f783342 JSCFunctionDefExt). Uncommitted this turn:
+src/mquickjs_utils_lib.zig (fix 17), tests/difftest/21_print_cfunc.js,
+tests/difftest/README.md, debug-notes.md, .cursor/rules/debug-notes.mdc.
 ```

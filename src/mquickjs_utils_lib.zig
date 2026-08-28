@@ -628,7 +628,8 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
             },
             c.JS_CLASS_ERROR => js_dump_error(ctx, p),
             c.JS_CLASS_REGEXP => builtins.dump_regexp(ctx, p),
-            c.JS_CLASS_ARRAY, c.JS_CLASS_OBJECT => {
+            // C: default: case JS_CLASS_ARRAY: case JS_CLASS_OBJECT:
+            else => {
                 if (class_id >= c.JS_CLASS_UINT8C_ARRAY and class_id <= c.JS_CLASS_FLOAT64_ARRAY) {
                     var i: c_int = 0;
                     JS_PrintValueF(ctx, js_find_class_name(ctx, class_id), c.JS_DUMP_NOQUOTE);
@@ -639,41 +640,42 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
                     while (i < @as(c_int, @intCast(p.u.typed_array.len))) : (i += 1) {
                         if (i != 0)
                             js_printf(ctx, ", ");
+                        // offset is in elements; C does *((T *)arr->buf + idx)
                         const idx = i + @as(c_int, @intCast(p.u.typed_array.offset));
                         switch (class_id) {
-                            c.JS_CLASS_UINT8C_ARRAY, c.JS_CLASS_UINT8_ARRAY => {
-                                const v = byte_buf[@intCast(idx)];
-                                js_printf(ctx, "%d", v);
-                            },
                             c.JS_CLASS_INT8_ARRAY => {
                                 const v: *const i8 = @ptrCast(&byte_buf[@intCast(idx)]);
-                                js_printf(ctx, "%d", v.*);
+                                js_printf(ctx, "%d", @as(c_int, v.*));
                             },
                             c.JS_CLASS_INT16_ARRAY => {
-                                const v: *const i16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
-                                js_printf(ctx, "%d", v.*);
+                                const v: *const i16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 2)]));
+                                js_printf(ctx, "%d", @as(c_int, v.*));
                             },
                             c.JS_CLASS_UINT16_ARRAY => {
-                                const v: *const u16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
-                                js_printf(ctx, "%d", v.*);
+                                const v: *const u16 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 2)]));
+                                js_printf(ctx, "%d", @as(c_int, v.*));
                             },
                             c.JS_CLASS_INT32_ARRAY => {
-                                const v: *const i32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
+                                const v: *const i32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 4)]));
                                 js_printf(ctx, "%d", v.*);
                             },
                             c.JS_CLASS_UINT32_ARRAY => {
-                                const v: *const u32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
+                                const v: *const u32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 4)]));
                                 js_printf(ctx, "%u", v.*);
                             },
                             c.JS_CLASS_FLOAT32_ARRAY => {
-                                const v: *const f32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
+                                const v: *const f32 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 4)]));
                                 js_dump_float64(ctx, v.*);
                             },
                             c.JS_CLASS_FLOAT64_ARRAY => {
-                                const v: *const f64 = @ptrCast(@alignCast(&byte_buf[@intCast(idx)]));
+                                const v: *const f64 = @ptrCast(@alignCast(&byte_buf[@intCast(idx * 8)]));
                                 js_dump_float64(ctx, v.*);
                             },
-                            else => {},
+                            else => {
+                                // C default: UINT8C / UINT8
+                                const v = byte_buf[@intCast(idx)];
+                                js_printf(ctx, "%d", @as(c_int, v));
+                            },
                         }
                     }
                     js_printf(ctx, " ])");
@@ -729,7 +731,6 @@ fn js_dump_object(ctx: *c.JSContext, p: *mc.JSObjectExt, flags: c_int) void {
                     js_printf(ctx, " %c", end_ch);
                 }
             },
-            else => {},
         }
     } else {
         const str: [*:0]const u8 = if (class_id == c.JS_CLASS_ARRAY)
