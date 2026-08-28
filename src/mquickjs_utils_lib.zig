@@ -945,7 +945,7 @@ pub fn JS_DumpMemory(ctx: *c.JSContext, is_long: c.JS_BOOL) void {
             const ratio = @as(c_int, @intCast(js_lrint(
                 @as(f64, @floatFromInt(mtag_mem_size[@intCast(i)])) / @as(f64, @floatFromInt(tot_size)) * 100.0,
             )));
-            js_printf(ctx, "%15s %8u %8d %8u %7d%%", get_mtag_name(i), mtag_count[@intCast(i)], avg_size, mtag_mem_size[@intCast(i)], ratio);
+            js_printf(ctx, "%15s %8u %8d %8u %7d%%\n", get_mtag_name(i), mtag_count[@intCast(i)], avg_size, mtag_mem_size[@intCast(i)], ratio);
         }
     }
     js_printf(ctx, "heap size=%u/%u stack_size=%u\n", @as(c_uint, @intCast(@intFromPtr(x.heap_free) - @intFromPtr(x.heap_base))), @as(c_uint, @intCast(@intFromPtr(x.stack_top) - @intFromPtr(x.heap_base))), @as(c_uint, @intCast(@intFromPtr(x.stack_top) - @intFromPtr(x.sp))));

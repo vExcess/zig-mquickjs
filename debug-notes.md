@@ -46,12 +46,12 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
-**Post fix 15–18 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
+**Post fix 15–19 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
 blocks), 16 (`JSCFunctionDef` print stride), 17 (`js_dump_object` `default:`),
-and 18 (host `scriptArgs` argv) have not been through an Octane batch. 15 is
-bytecode-only; 16–17 are dump/print; 18 is host argv. Ask the user to run 9
-consecutive `zig build octane -Doptimize=ReleaseFast` before the next engine
-fix.
+18 (host `scriptArgs` argv), and 19 (`JS_DumpMemory` tag-line `\\n`) have not
+been through an Octane batch. 15 is bytecode-only; 16–17 and 19 are dump/print;
+18 is host argv. Ask the user to run 9 consecutive
+`zig build octane -Doptimize=ReleaseFast` before the next engine fix.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -501,6 +501,29 @@ Regression: `tests/difftest/22_script_args.js` plus sidecar
 `22_script_args.argv` (`foo`, `bar`, `has space`). `run.sh` now appends
 a `<script>.argv` sidecar if present.
 
+### 19. `JS_DumpMemory` tag table missing newline
+
+`src/mquickjs_utils_lib.zig` `JS_DumpMemory`. C (`mquickjs.c:7102`) prints
+each mtag summary line with a trailing newline:
+
+```c
+js_printf(ctx, "%15s %8u %8d %8u %7d%%\n", ...);
+```
+
+Zig omitted the newline, so `mqjs -d` ran every tag onto one line
+(`free ... 1%         object ...`). Counts, sizes, and heap totals were
+already identical to C — only the format was wrong. Same dump class as
+fixes 16–17.
+
+Regression: `tests/difftest/23_dump_memory.js` plus sidecar
+`23_dump_memory.flags` (`-d`). `run.sh` now prepends a `<script>.flags`
+sidecar if present.
+
+`load()` / `console` were probed this turn against C (nested load, throw
+inside a loaded file, `console.log`, missing-file `perror`+`exit(1)`).
+Happy path matches; missing file is a host `exit(1)` in both engines, not
+a JS exception.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -560,6 +583,7 @@ regression gate.
 | Opus | Struct layout sweep vs C `sizeof`/`offsetof`; fix 16 (`JSCFunctionDef` table stride 16 vs 24) | `print(Math.sin)` was `concat()`, `print(Date)` SEGV; difftest 21 added |
 | Opus | Fix 17 (`js_dump_object` missing `default:`); Date/ArrayBuffer/typed-array print was blank | difftest 21 extended; ALL MATCH |
 | Opus | Fix 18 (host `scriptArgs` argv: slice-of-slices as `char **` SEGV) | `run.js <suite>` no longer SEGVs; difftest 22 added |
+| Opus | Fix 19 (`JS_DumpMemory` tag-line missing `\\n`); load()/console probed | `mqjs -d` table was one line; difftest 23 added |
 
 ### Deterministic Octane differential — clean
 
@@ -666,9 +690,11 @@ The engine's builtin surface was enumerated on both engines and is identical;
 `print()` of C functions/constructors is covered (fix 16 / difftest 21), as is
 `print()` of Date/ArrayBuffer/typed-array *instances* (fix 17). Number/String/
 Boolean constructors are unsupported in both engines, so boxed primitives
-cannot be constructed from JS. Still no coverage: `console` and `load()`
-(host). `scriptArgs` extra argv is covered (fix 18 / difftest 22).
-`Math.random` is host / non-deterministic.
+cannot be constructed from JS. `console.log` and `load()` happy path match
+C (probed with fix 19). Missing `load()` target is `perror`+`exit(1)` in
+both engines. `scriptArgs` extra argv is covered (fix 18 / difftest 22).
+`mqjs -d` dump is covered (fix 19 / difftest 23). `Math.random` is host /
+non-deterministic.
 
 ### libm signed/unsigned drift — swept, no behavioural divergence
 
@@ -686,9 +712,9 @@ wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
 **Git state:** fixes 1–16 are committed (`f783342` is `JSCFunctionDefExt`).
-Uncommitted this turn: `src/mqjs.zig` (fix 18), `src/mquickjs_utils_lib.zig`
-(fix 17), `tests/difftest/21_print_cfunc.js`, `tests/difftest/22_script_args.js`,
-`tests/difftest/22_script_args.argv`, `tests/difftest/run.sh`,
+Uncommitted: fixes 17–19 (`src/mquickjs_utils_lib.zig`, `src/mqjs.zig`),
+`tests/difftest/21_print_cfunc.js`, `22_script_args.js`+`.argv`,
+`23_dump_memory.js`+`.flags`, `tests/difftest/run.sh`,
 `tests/difftest/README.md`, `debug-notes.md`, `.cursor/rules/debug-notes.mdc`.
 Do not commit unless asked.
 
@@ -729,14 +755,14 @@ GC. Do not commit unless asked.
 
 ## Octane gate status
 
-Octane was confirmed clean after fix 14. **Fixes 15–18 have NOT been
+Octane was confirmed clean after fix 14. **Fixes 15–19 have NOT been
 through an Octane batch** — ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before landing the next fix.
-Fix 15 is `-m32` bytecode only; 16–17 are dump/print; 18 is host argv.
+Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv.
 
 ## What's done (do not redo)
 
-- Fixes 1-18 documented in debug-notes.md - do NOT revert
+- Fixes 1-19 documented in debug-notes.md - do NOT revert
 - Phase 1A-1D static audit: complete. Every `_ = utils.popValue` discard site
   is in the Phase 1A table; there are no uncovered files.
 - libm signed/unsigned sweep: clean
@@ -748,7 +774,7 @@ Fix 15 is `-m32` bytecode only; 16–17 are dump/print; 18 is host argv.
   site starts using @sizeOf(JSObjectExt)).
 - Structural audits vs C, both clean: GC-root push/pop counts, opcode
   dispatch coverage.
-- Runtime differential: tests/difftest/ (22 scripts) ALL MATCH at
+- Runtime differential: tests/difftest/ (23 scripts) ALL MATCH at
   256M/16M/4M/2M, both engines OOM identically at 1M/800K
 - Bytecode differential: tests/difftest/bytecode.sh ALL BYTECODE MATCH
 - Deterministic whole-Octane differential: all 15 suites produce identical
@@ -759,7 +785,7 @@ Fix 15 is `-m32` bytecode only; 16–17 are dump/print; 18 is host argv.
 Script-level differential has saturated except remaining host APIs. Last
 real bugs came from comparing things that are *not* normal program output:
 scratch pointer (14), emitted image size (15), struct sizeof (16), dump
-switch fallthrough (17), host argv layout (18).
+switch fallthrough (17), host argv layout (18), dump-memory format (19).
 
 ./tests/difftest/run.sh          # any stdout/exit-code diff is a port bug
 ./tests/difftest/bytecode.sh     # any *size* diff is a port bug
@@ -771,11 +797,13 @@ script ends with print("DONE <file>"), direct eval = global scope and
 let/const alias var are documented deviations, use `(1, eval)(...)` not bare
 eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 Optional sidecar `<script>.argv` (one arg per line) is appended after the
-script path — used by 22_script_args.js.
+script path. Optional sidecar `<script>.flags` (one mqjs option per line)
+is prepended before `--memory-limit`.
 
 ## Highest-priority next work
 
-1. Host surface still uncovered: `load()`, `console`.
+1. Host `-dd` long dump (`JS_DumpMemory` is_long) still uncompared line-by-line
+   beyond the summary table. `load()` / `console` happy path probed clean.
 2. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
@@ -790,6 +818,9 @@ script path — used by 22_script_args.js.
 - print() of C functions/constructors (fix 16)
 - print() of Date/ArrayBuffer/typed-array instances (fix 17)
 - host scriptArgs extra argv (fix 18)
+- host mqjs -d JS_DumpMemory summary (fix 19)
+- load() / console.log happy path (nested load, throw-in-load, missing file
+  is perror+exit(1) in both)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
 - Accessor properties whose getter/setter calls gc()
 - Callbacks that mutate the array/object a builtin is walking
@@ -800,7 +831,7 @@ script path — used by 22_script_args.js.
 
 ## Do NOT do
 
-- Revert fixes 1-18
+- Revert fixes 1-19
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
 - "Fix" newShortInt or kernelExp latent spots without C proof
@@ -823,8 +854,8 @@ script path — used by 22_script_args.js.
 ## Git state (do not commit unless asked)
 
 Fixes 1-16 are committed (f783342 JSCFunctionDefExt). Uncommitted:
-src/mquickjs_utils_lib.zig (fix 17), src/mqjs.zig (fix 18),
-tests/difftest/21_print_cfunc.js, tests/difftest/22_script_args.js,
-tests/difftest/22_script_args.argv, tests/difftest/run.sh,
+src/mquickjs_utils_lib.zig (fixes 17+19), src/mqjs.zig (fix 18),
+tests/difftest/21_print_cfunc.js, 22_script_args.js+.argv,
+23_dump_memory.js+.flags, tests/difftest/run.sh,
 tests/difftest/README.md, debug-notes.md, .cursor/rules/debug-notes.mdc.
 ```

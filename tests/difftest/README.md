@@ -61,6 +61,7 @@ classes found nothing new. The first differential run immediately caught
 | `20_mutate_reentrant` | callbacks that *mutate* what a builtin is walking; prototype surgery; index/length/argument edges |
 | `21_print_cfunc` | host `print()` of C functions/constructors (fix 16) and Date/ArrayBuffer/typed-array instances (fix 17) |
 | `22_script_args` | host `scriptArgs` extra argv (`char **` vs slice-of-slices, fix 18); sidecar `.argv` |
+| `23_dump_memory` | host `mqjs -d` `JS_DumpMemory` tag table (missing `\\n`, fix 19); sidecar `.flags` |
 | `slow/17_regexp_deep` | 11850 pattern x subject x flag combinations |
 
 `19` and `20` target the same bug class as fix 14 from the other side: a
@@ -95,4 +96,6 @@ binding name.
 
 Keep it deterministic — no `Date.now()`, no `Math.random()`. Allocate
 garbage inside loops so the GC runs at tight memory limits. End with the
-`DONE` sentinel.
+`DONE` sentinel. Optional sidecars next to the script: `<name>.argv`
+(extra arguments after the script, one per line) and `<name>.flags`
+(extra `mqjs` options before `--memory-limit`, one per line).

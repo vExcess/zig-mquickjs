@@ -48,8 +48,19 @@ for f in $files; do
       done < "$argv_file"
     fi
 
-    cout=$("$C_MQJS" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); crc=${PIPESTATUS[0]}
-    zout=$("$Z_MQJS" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); zrc=${PIPESTATUS[0]}
+    # Optional sidecar <script>.flags: extra mqjs options before the
+    # script path (one per line). 23_dump_memory.js uses -d (fix 19).
+    flags=()
+    flags_file="${f%.js}.flags"
+    if [ -f "$flags_file" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        flags+=("$line")
+      done < "$flags_file"
+    fi
+
+    cout=$("$C_MQJS" "${flags[@]}" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); crc=${PIPESTATUS[0]}
+    zout=$("$Z_MQJS" "${flags[@]}" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); zrc=${PIPESTATUS[0]}
 
     if [ "$cout" != "$zout" ] || [ "$crc" != "$zrc" ]; then
       FAIL=1
