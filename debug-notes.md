@@ -46,11 +46,12 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
-**Post fix 15–19 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
+**Post fix 15–20 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
 blocks), 16 (`JSCFunctionDef` print stride), 17 (`js_dump_object` `default:`),
-18 (host `scriptArgs` argv), and 19 (`JS_DumpMemory` tag-line `\\n`) have not
-been through an Octane batch. 15 is bytecode-only; 16–17 and 19 are dump/print;
-18 is host argv. Ask the user to run 9 consecutive
+18 (host `scriptArgs` argv), 19 (`JS_DumpMemory` tag-line `\\n`), and 20
+(function-body first-token re-lex) have not been through an Octane batch.
+15 is bytecode-only; 16–17 and 19 are dump/print; 18 is host argv; 20 is
+parser heap layout (leftover ident strings). Ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before the next engine fix.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
@@ -524,6 +525,31 @@ inside a loaded file, `console.log`, missing-file `perror`+`exit(1)`).
 Happy path matches; missing file is a host `exit(1)` in both engines, not
 a JS exception.
 
+### 20. Function body first token re-lexed (`js_parse_seek_token`)
+
+`src/mquickjs_parser_lib.zig` `js_parse_function`. C (`mquickjs.c:11113-11119`)
+parses `{` then uses the current token as the first body token. Zig always
+saved that position, emitted default-arg initializers (a Zig-only extension;
+C has no `function f(a = 1)` path), then `js_parse_seek_token` — which calls
+`next_token` and therefore **re-lexed the first body token of every function**,
+even when `default_count == 0`.
+
+Each extra `js_parse_ident` of a ROM keyword (`var`, `return`, `print`, …)
+leaves a 16-byte non-unique string plus an 8-byte free tail: `js_shrink` after
+`string_buffer_pop` plants a free block, and `js_free` only retracts if the
+block is last (`mquickjs.c:573-583`). Same leftover class exists in C (~18
+`"var"` on `01_labels.js`); Zig had **two extra `"var"` and one extra
+`"return"`** on that file, and `+2` leftover `"var"` on a two-function
+repro. Heap size, string count, and later unique-string pointers (property
+hash chains) then diverged. Bytecode and program stdout still matched.
+
+Fix: only seek back when `default_count > 0`.
+
+Regression: `tests/difftest/24_func_body_relex.js` plus sidecar
+`24_func_body_relex.flags` (`-d`). The `-d` tag table’s string count catches
+the extra leftovers; `-dd` EXTRA still has ROM `props` offsets that differ
+by ASLR on both engines (not a port bug).
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -584,6 +610,7 @@ regression gate.
 | Opus | Fix 17 (`js_dump_object` missing `default:`); Date/ArrayBuffer/typed-array print was blank | difftest 21 extended; ALL MATCH |
 | Opus | Fix 18 (host `scriptArgs` argv: slice-of-slices as `char **` SEGV) | `run.js <suite>` no longer SEGVs; difftest 22 added |
 | Opus | Fix 19 (`JS_DumpMemory` tag-line missing `\\n`); load()/console probed | `mqjs -d` table was one line; difftest 23 added |
+| Opus | Fix 20 (`js_parse_function` re-lexed first body token); `-dd` dump format | extra leftover `"var"`/`"return"`; difftest 24 added |
 
 ### Deterministic Octane differential — clean
 
@@ -711,12 +738,8 @@ a negative high word / negative `n`, where C relies on well-defined unsigned
 wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
-**Git state:** fixes 1–16 are committed (`f783342` is `JSCFunctionDefExt`).
-Uncommitted: fixes 17–19 (`src/mquickjs_utils_lib.zig`, `src/mqjs.zig`),
-`tests/difftest/21_print_cfunc.js`, `22_script_args.js`+`.argv`,
-`23_dump_memory.js`+`.flags`, `tests/difftest/run.sh`,
-`tests/difftest/README.md`, `debug-notes.md`, `.cursor/rules/debug-notes.mdc`.
-Do not commit unless asked.
+**Git state:** fixes 1–19 are committed (`d38f6ec` is dump-memory newline).
+Fix 20 is in the working tree, not committed. Do not commit/push unless asked.
 
 ---
 
@@ -755,14 +778,15 @@ GC. Do not commit unless asked.
 
 ## Octane gate status
 
-Octane was confirmed clean after fix 14. **Fixes 15–19 have NOT been
+Octane was confirmed clean after fix 14. **Fixes 15–20 have NOT been
 through an Octane batch** — ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before landing the next fix.
-Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv.
+Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv;
+20 is parser leftover-ident heap layout.
 
 ## What's done (do not redo)
 
-- Fixes 1-19 documented in debug-notes.md - do NOT revert
+- Fixes 1-20 documented in debug-notes.md - do NOT revert
 - Phase 1A-1D static audit: complete. Every `_ = utils.popValue` discard site
   is in the Phase 1A table; there are no uncovered files.
 - libm signed/unsigned sweep: clean
@@ -774,18 +798,26 @@ Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv.
   site starts using @sizeOf(JSObjectExt)).
 - Structural audits vs C, both clean: GC-root push/pop counts, opcode
   dispatch coverage.
-- Runtime differential: tests/difftest/ (23 scripts) ALL MATCH at
+- Runtime differential: tests/difftest/ (24 scripts) ALL MATCH at
   256M/16M/4M/2M, both engines OOM identically at 1M/800K
 - Bytecode differential: tests/difftest/bytecode.sh ALL BYTECODE MATCH
 - Deterministic whole-Octane differential: all 15 suites produce identical
   state hashes at 512M/64M/24M, with and without forced gc()
+
+## Latest fixes this session (do not revert)
+
+- Fix 20: `js_parse_function` unconditionally `js_parse_seek_token` after `{`,
+  re-lexing the first body token of every function. Extra leftover
+  `"var"`/`"return"` vs C. Seek only when `default_count > 0`. Difftest 24
+  + `.flags` (`-d`).
 
 ## Discovery method
 
 Script-level differential has saturated except remaining host APIs. Last
 real bugs came from comparing things that are *not* normal program output:
 scratch pointer (14), emitted image size (15), struct sizeof (16), dump
-switch fallthrough (17), host argv layout (18), dump-memory format (19).
+switch fallthrough (17), host argv layout (18), dump-memory format (19),
+function-body first-token re-lex (20).
 
 ./tests/difftest/run.sh          # any stdout/exit-code diff is a port bug
 ./tests/difftest/bytecode.sh     # any *size* diff is a port bug
@@ -802,13 +834,19 @@ is prepended before `--memory-limit`.
 
 ## Highest-priority next work
 
-1. Host `-dd` long dump (`JS_DumpMemory` is_long) still uncompared line-by-line
-   beyond the summary table. `load()` / `console` happy path probed clean.
+1. Host `-dd` long dump format itself matches C when heaps match (21/23 and
+   the two-function repro after fix 20), after masking ROM pointers
+   (`val_to_offset` does not check `JS_IS_ROM_PTR`; 8-digit hex > 0x00100000
+   is ASLR, same in C). Leftover keyword strings that C also has are
+   same-as-C (`js_shrink` tail + bump `js_free`). Do not treat ROM offset
+   diffs as bugs.
 2. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
 3. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
    bug. Leave unless @sizeOf(JSObjectExt) starts being used.
+4. Latent: Zig `js_vprintf` maps `' '` to `PF_PAD_POS`; C uses `PF_MARK_POS`.
+   Neither flag is read. No output diff.
 
 ## Already probed clean (do not redo)
 
@@ -819,6 +857,8 @@ is prepended before `--memory-limit`.
 - print() of Date/ArrayBuffer/typed-array instances (fix 17)
 - host scriptArgs extra argv (fix 18)
 - host mqjs -d JS_DumpMemory summary (fix 19)
+- host mqjs -dd dump format when heaps match (ROM offsets excluded); extra
+  leftover ident strings were fix 20, not a dump-printer bug
 - load() / console.log happy path (nested load, throw-in-load, missing file
   is perror+exit(1) in both)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
@@ -831,7 +871,7 @@ is prepended before `--memory-limit`.
 
 ## Do NOT do
 
-- Revert fixes 1-19
+- Revert fixes 1-20
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
 - "Fix" newShortInt or kernelExp latent spots without C proof
@@ -853,9 +893,6 @@ is prepended before `--memory-limit`.
 
 ## Git state (do not commit unless asked)
 
-Fixes 1-16 are committed (f783342 JSCFunctionDefExt). Uncommitted:
-src/mquickjs_utils_lib.zig (fixes 17+19), src/mqjs.zig (fix 18),
-tests/difftest/21_print_cfunc.js, 22_script_args.js+.argv,
-23_dump_memory.js+.flags, tests/difftest/run.sh,
-tests/difftest/README.md, debug-notes.md, .cursor/rules/debug-notes.mdc.
+Fixes 1-19 are committed (`d38f6ec` = fix 19). Fix 20 is in the working
+tree, not committed. Do not push/commit unless asked.
 ```

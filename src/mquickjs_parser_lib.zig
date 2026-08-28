@@ -368,13 +368,17 @@ fn js_parse_function(s: *JSParseState) void {
     lexer.next_token(s);
     lexer.js_parse_expect(s, '{');
 
-    var body_pos: JSParsePos = undefined;
-    lexer.js_parse_get_pos(s, &body_pos);
-    var i: c_int = 0;
-    while (i < default_count) : (i += 1) {
-        emit_arg_default(s, default_arg_idx[@intCast(i)], &default_pos[@intCast(i)]);
+    // C (mquickjs.c:11113-11119) does not rewind after `{`. Only seek back
+    // when default-arg emission (Zig-only) moved the cursor.
+    if (default_count > 0) {
+        var body_pos: JSParsePos = undefined;
+        lexer.js_parse_get_pos(s, &body_pos);
+        var i: c_int = 0;
+        while (i < default_count) : (i += 1) {
+            emit_arg_default(s, default_arg_idx[@intCast(i)], &default_pos[@intCast(i)]);
+        }
+        lexer.js_parse_seek_token(s, &body_pos);
     }
-    lexer.js_parse_seek_token(s, &body_pos);
 
     b = funcBc(s.cur_func);
     if (pt.bytecodeHasArguments(b)) {
