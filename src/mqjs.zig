@@ -810,9 +810,16 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     } else if (optind >= argv.len) {
         interactive += 1;
     } else {
-        const script_argv = argv[optind..];
-        const script_argc: c_int = @intCast(script_argv.len);
-        if (evalFile(ctx, script_argv[0].ptr, script_argc, @ptrCast(script_argv.ptr), parse_flags, allow_bytecode) != 0) {
+        // C argv is const char **. Zig args are []const [:0]const u8
+        // (ptr+len pairs). Casting the slice pointer made argv[1] read
+        // the first argument's length as a pointer (SEGV).
+        const n = argv.len - optind;
+        const c_argv = arena.allocator().alloc([*:0]const u8, n) catch return 1;
+        var ai: usize = 0;
+        while (ai < n) : (ai += 1)
+            c_argv[ai] = argv[optind + ai].ptr;
+        const script_argc: c_int = @intCast(n);
+        if (evalFile(ctx, c_argv[0], script_argc, c_argv.ptr, parse_flags, allow_bytecode) != 0) {
             c.JS_FreeContext(ctx);
             c.free(mem_buf);
             return 1;

@@ -46,11 +46,12 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
-**Post fix 15/16/17 (2026-08-28): gate still pending.** Fix 15 (`-m32` float64
-blocks), fix 16 (`JSCFunctionDef` print stride), and fix 17 (`js_dump_object`
-`default:`) have not been through an Octane batch. 15 is bytecode-only; 16 and
-17 are dump/print only. Ask the user to run 9 consecutive
-`zig build octane -Doptimize=ReleaseFast` before the next engine fix.
+**Post fix 15–18 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
+blocks), 16 (`JSCFunctionDef` print stride), 17 (`js_dump_object` `default:`),
+and 18 (host `scriptArgs` argv) have not been through an Octane batch. 15 is
+bytecode-only; 16–17 are dump/print; 18 is host argv. Ask the user to run 9
+consecutive `zig build octane -Doptimize=ReleaseFast` before the next engine
+fix.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -205,8 +206,7 @@ be validated by executing it here.
 
 - Document: after `pushValue` + GC-capable call, always `local = popValue`.
 - Update this file as audits complete.
-- Host fix when useful: `mqjs` argv SEGV for `run.js <suite>` (Zig slice
-  as `char**`).
+- Host `mqjs` argv SEGV for `run.js <suite>` — **fixed** (fix 18).
 
 ### Execution order (current)
 
@@ -484,6 +484,23 @@ matches C's `default: UINT8C / UINT8`.
 
 Regression: `tests/difftest/21_print_cfunc.js` (extended).
 
+### 18. Host `scriptArgs` SEGV on extra argv (Zig slice as `char **`)
+
+`src/mqjs.zig` `main`. C passes `argv + optind` (`const char **`) into
+`eval_file` (`mqjs.c:772`). Zig's `init.args.toSlice` is
+`[]const [:0]const u8` — an array of `{ptr, len}` pairs (16 bytes each).
+`@ptrCast(script_argv.ptr)` treated that as `[*]const [*:0]const u8`, so
+`argv[0]` coincidentally read the first slice's pointer (script still ran)
+and `argv[1]` read the first slice's *length* as a pointer → SEGV.
+
+That is why `mqjs tests/octane/run.js <suite>` crashed (second arg) while
+`zig build octane` (no extra script argv) was fine. Fixed by copying
+`.ptr` of each slice into a real `[][*:0]const u8` before `evalFile`.
+
+Regression: `tests/difftest/22_script_args.js` plus sidecar
+`22_script_args.argv` (`foo`, `bar`, `has space`). `run.sh` now appends
+a `<script>.argv` sidecar if present.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -492,17 +509,20 @@ Was intermittent `parseErrors.length` not 192/193 when intern/property keys
 were wrong. Resolved with fixes 7–9 and `js_create_property` popValue.
 
 For isolated repro without full Octane: heap pressure from earlier suites;
-do not use `mqjs tests/octane/run.js <suite>` (host argv SEGV). Wrappers:
+do not use `mqjs tests/octane/run.js <suite>` for isolated Octane discovery
+(use `zig build octane` as the gate). The host argv SEGV that used to crash
+the second arg is **fixed** (fix 18). Wrappers:
 avoid globals `files` / `i`; use `octane_file_list`. Pipe with `stdbuf -oL`.
 
 gdb on silent SEGV: `mov -0x1(%reg)` is `valueToPtr`. `rax=0x7` is `JS_NULL`.
 
 ---
 
-## Do not use `mqjs tests/octane/run.js <suite>`
+## `mqjs tests/octane/run.js <suite>` (host argv — fixed)
 
-Host bug: `script_argv.ptr` as C `char **` with Zig slices. Second arg
-SEGVs. Full Octane via `zig build octane` is fine.
+Was a host bug: `script_argv.ptr` as C `char **` with Zig slices. Second arg
+SEGVd. Fixed in fix 18. Full Octane via `zig build octane` remains the
+regression gate.
 
 ---
 
@@ -539,6 +559,7 @@ SEGVs. Full Octane via `zig build octane` is fine.
 | Opus | Deterministic Octane differential; GC-root and opcode structural audits (all clean); fix 15 (32-bit float64 block size) | found by bytecode diffing; `bytecode.sh` added |
 | Opus | Struct layout sweep vs C `sizeof`/`offsetof`; fix 16 (`JSCFunctionDef` table stride 16 vs 24) | `print(Math.sin)` was `concat()`, `print(Date)` SEGV; difftest 21 added |
 | Opus | Fix 17 (`js_dump_object` missing `default:`); Date/ArrayBuffer/typed-array print was blank | difftest 21 extended; ALL MATCH |
+| Opus | Fix 18 (host `scriptArgs` argv: slice-of-slices as `char **` SEGV) | `run.js <suite>` no longer SEGVs; difftest 22 added |
 
 ### Deterministic Octane differential — clean
 
@@ -645,8 +666,9 @@ The engine's builtin surface was enumerated on both engines and is identical;
 `print()` of C functions/constructors is covered (fix 16 / difftest 21), as is
 `print()` of Date/ArrayBuffer/typed-array *instances* (fix 17). Number/String/
 Boolean constructors are unsupported in both engines, so boxed primitives
-cannot be constructed from JS. Still no coverage: `console`, `load()`, and
-`Math.random` (host / non-deterministic).
+cannot be constructed from JS. Still no coverage: `console` and `load()`
+(host). `scriptArgs` extra argv is covered (fix 18 / difftest 22).
+`Math.random` is host / non-deterministic.
 
 ### libm signed/unsigned drift — swept, no behavioural divergence
 
@@ -664,9 +686,10 @@ wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
 **Git state:** fixes 1–16 are committed (`f783342` is `JSCFunctionDefExt`).
-Uncommitted this turn: `src/mquickjs_utils_lib.zig` (fix 17),
-`tests/difftest/21_print_cfunc.js`, `tests/difftest/README.md`,
-`debug-notes.md`, `.cursor/rules/debug-notes.mdc`.
+Uncommitted this turn: `src/mqjs.zig` (fix 18), `src/mquickjs_utils_lib.zig`
+(fix 17), `tests/difftest/21_print_cfunc.js`, `tests/difftest/22_script_args.js`,
+`tests/difftest/22_script_args.argv`, `tests/difftest/run.sh`,
+`tests/difftest/README.md`, `debug-notes.md`, `.cursor/rules/debug-notes.mdc`.
 Do not commit unless asked.
 
 ---
@@ -706,14 +729,14 @@ GC. Do not commit unless asked.
 
 ## Octane gate status
 
-Octane was confirmed clean after fix 14. **Fixes 15, 16, and 17 have NOT
-been through an Octane batch** — ask the user to run 9 consecutive
+Octane was confirmed clean after fix 14. **Fixes 15–18 have NOT been
+through an Octane batch** — ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before landing the next fix.
-Fix 15 is `-m32` bytecode only; fixes 16 and 17 are dump/print only.
+Fix 15 is `-m32` bytecode only; 16–17 are dump/print; 18 is host argv.
 
 ## What's done (do not redo)
 
-- Fixes 1-17 documented in debug-notes.md - do NOT revert
+- Fixes 1-18 documented in debug-notes.md - do NOT revert
 - Phase 1A-1D static audit: complete. Every `_ = utils.popValue` discard site
   is in the Phase 1A table; there are no uncovered files.
 - libm signed/unsigned sweep: clean
@@ -725,7 +748,7 @@ Fix 15 is `-m32` bytecode only; fixes 16 and 17 are dump/print only.
   site starts using @sizeOf(JSObjectExt)).
 - Structural audits vs C, both clean: GC-root push/pop counts, opcode
   dispatch coverage.
-- Runtime differential: tests/difftest/ (21 scripts) ALL MATCH at
+- Runtime differential: tests/difftest/ (22 scripts) ALL MATCH at
   256M/16M/4M/2M, both engines OOM identically at 1M/800K
 - Bytecode differential: tests/difftest/bytecode.sh ALL BYTECODE MATCH
 - Deterministic whole-Octane differential: all 15 suites produce identical
@@ -733,10 +756,10 @@ Fix 15 is `-m32` bytecode only; fixes 16 and 17 are dump/print only.
 
 ## Discovery method
 
-Script-level differential has saturated except host dump. Last four real
-bugs came from comparing things that are *not* normal program output:
+Script-level differential has saturated except remaining host APIs. Last
+real bugs came from comparing things that are *not* normal program output:
 scratch pointer (14), emitted image size (15), struct sizeof (16), dump
-switch fallthrough (17).
+switch fallthrough (17), host argv layout (18).
 
 ./tests/difftest/run.sh          # any stdout/exit-code diff is a port bug
 ./tests/difftest/bytecode.sh     # any *size* diff is a port bug
@@ -747,11 +770,12 @@ Rules in tests/difftest/README.md: strip ANSI colour (run.sh does it), every
 script ends with print("DONE <file>"), direct eval = global scope and
 let/const alias var are documented deviations, use `(1, eval)(...)` not bare
 eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
+Optional sidecar `<script>.argv` (one arg per line) is appended after the
+script path — used by 22_script_args.js.
 
 ## Highest-priority next work
 
-1. Host surface still uncovered: `load()`, `console`, known `mqjs` argv SEGV
-   for `run.js <suite>` (Phase 4 item).
+1. Host surface still uncovered: `load()`, `console`.
 2. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
@@ -765,6 +789,7 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 - Number<->string; builtin surface enumeration (identical on both engines)
 - print() of C functions/constructors (fix 16)
 - print() of Date/ArrayBuffer/typed-array instances (fix 17)
+- host scriptArgs extra argv (fix 18)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
 - Accessor properties whose getter/setter calls gc()
 - Callbacks that mutate the array/object a builtin is walking
@@ -775,7 +800,7 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 
 ## Do NOT do
 
-- Revert fixes 1-17
+- Revert fixes 1-18
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
 - "Fix" newShortInt or kernelExp latent spots without C proof
@@ -783,8 +808,8 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 - Rewrite GC or intern algorithm
 - Report direct eval / let-as-var as bugs (documented deviations)
 - Report `-m32` *padding* byte differences as bugs; size differences ARE bugs
-- Use mqjs tests/octane/run.js <suite> (host argv SEGV); full Octane via
-  zig build octane is fine
+- Prefer `zig build octane` as the Octane gate (run.js <suite> argv SEGV
+  is fixed, but the build target is still the batch gate)
 - Temporarily reintroduce a known bug to "prove" a test catches it
 
 ## After each fix
@@ -797,7 +822,9 @@ eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
 
 ## Git state (do not commit unless asked)
 
-Fixes 1-16 are committed (f783342 JSCFunctionDefExt). Uncommitted this turn:
-src/mquickjs_utils_lib.zig (fix 17), tests/difftest/21_print_cfunc.js,
+Fixes 1-16 are committed (f783342 JSCFunctionDefExt). Uncommitted:
+src/mquickjs_utils_lib.zig (fix 17), src/mqjs.zig (fix 18),
+tests/difftest/21_print_cfunc.js, tests/difftest/22_script_args.js,
+tests/difftest/22_script_args.argv, tests/difftest/run.sh,
 tests/difftest/README.md, debug-notes.md, .cursor/rules/debug-notes.mdc.
 ```

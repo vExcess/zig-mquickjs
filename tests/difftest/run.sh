@@ -36,8 +36,20 @@ for f in $files; do
   for lim in $LIMITS; do
     # C mqjs colourises errors and the Zig host does not; that cosmetic
     # difference otherwise masks every real diff.
-    cout=$("$C_MQJS" --memory-limit "$lim" "$f" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); crc=${PIPESTATUS[0]}
-    zout=$("$Z_MQJS" --memory-limit "$lim" "$f" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); zrc=${PIPESTATUS[0]}
+    # Optional sidecar <script>.argv: extra host arguments after the
+    # script path (one per line). Needed to exercise scriptArgs[1+]
+    # (debug-notes.md fix 18). Empty extra is unchanged for other tests.
+    extra=()
+    argv_file="${f%.js}.argv"
+    if [ -f "$argv_file" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        extra+=("$line")
+      done < "$argv_file"
+    fi
+
+    cout=$("$C_MQJS" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); crc=${PIPESTATUS[0]}
+    zout=$("$Z_MQJS" --memory-limit "$lim" "$f" "${extra[@]}" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'); zrc=${PIPESTATUS[0]}
 
     if [ "$cout" != "$zout" ] || [ "$crc" != "$zrc" ]; then
       FAIL=1
