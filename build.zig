@@ -44,6 +44,7 @@ fn addFreestandingLibcIncludes(mod: *std.Build.Module, b: *std.Build) void {
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const build_cli = b.option(bool, "build-cli", "Build mqjs, example, and wasm playground") orelse (b.pkg_hash.len == 0);
 
     if (optimize == .Debug or optimize == .ReleaseSafe) {
         std.debug.print("The engine uses tagged-pointer JSValues that violate Zig's alignment checks in Debug/ReleaseSafe. \nRun zig build with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall\n", .{});
@@ -82,7 +83,7 @@ pub fn build(b: *std.Build) !void {
     const gen_stdlib_zig_wasm = b.addRunArtifact(mqjs_stdlib_tool);
     gen_stdlib_zig_wasm.addArgs(&.{ "-m32", "-z" });
     const mqjs_stdlib_data_zig_wasm = gen_stdlib_zig_wasm.captureStdOut(.{});
-    const wf = b.addWriteFiles();
+    const wf = b.addNamedWriteFiles("generated_headers");
     _ = wf.addCopyFile(mquickjs_atom_h, "mquickjs_atom.h");
     _ = wf.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
     const mqjs_stdlib_data_file = wf.addCopyFile(mqjs_stdlib_data_zig, "mqjs_stdlib_data.zig");
@@ -149,6 +150,32 @@ pub fn build(b: *std.Build) !void {
     });
     addCommonIncludes(mquickjs_engine_obj, b, wf);
 
+    const mqjs_stdlib_data_mod = b.addModule("mqjs_stdlib_data", .{
+        .root_source_file = mqjs_stdlib_data_file,
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mqjs_stdlib_data_mod.addIncludePath(b.path("include"));
+    mqjs_stdlib_data_mod.addIncludePath(wf.getDirectory());
+
+    const dummy_wf = b.addWriteFiles();
+    const dummy_root = dummy_wf.add("mquickjs_lib.zig", "pub const dummy = {};\n");
+    const lib = b.addLibrary(.{
+        .name = "mquickjs",
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .root_source_file = dummy_root,
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    addRuntimeObjects(lib, cutils_obj, dtoa_obj, libm_obj, null, mquickjs_engine_obj);
+    b.installArtifact(lib);
+
+    if (!build_cli) return;
+
     // example
     const example_stdlib_tool = b.addExecutable(.{
         .name = "example_stdlib",
@@ -165,15 +192,6 @@ pub fn build(b: *std.Build) !void {
     const example_stdlib_data_zig = gen_example_stdlib_zig.captureStdOut(.{});
     _ = wf.addCopyFile(example_stdlib_h, "example_stdlib.h");
     const example_stdlib_data_file = wf.addCopyFile(example_stdlib_data_zig, "example_stdlib_data.zig");
-
-    const mqjs_stdlib_data_mod = b.createModule(.{
-        .root_source_file = mqjs_stdlib_data_file,
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    mqjs_stdlib_data_mod.addIncludePath(b.path("include"));
-    mqjs_stdlib_data_mod.addIncludePath(wf.getDirectory());
 
     const example_stdlib_data_mod = b.createModule(.{
         .root_source_file = example_stdlib_data_file,

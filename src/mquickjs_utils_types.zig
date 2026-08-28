@@ -72,9 +72,11 @@ pub const JSStringPosCacheEntryExt = extern struct {
 };
 
 pub const JSCFunctionDefExt = extern struct {
+    func: ?*const anyopaque,
     name: c.JSValue,
     def_type: u8,
-    magic: c_int,
+    arg_count: u8,
+    magic: i16,
 };
 
 pub const JSClosureDataExt = extern struct {
