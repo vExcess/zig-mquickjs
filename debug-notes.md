@@ -46,13 +46,15 @@ the user to batch-verify Octane after each fix.
 fix and difftest harness landing. Octane gate should be re-run after the
 next fix, not before every discovery turn.
 
-**Post fix 15–20 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
+**Post fix 15–21 (2026-08-28): gate still pending.** Fixes 15 (`-m32` float64
 blocks), 16 (`JSCFunctionDef` print stride), 17 (`js_dump_object` `default:`),
-18 (host `scriptArgs` argv), 19 (`JS_DumpMemory` tag-line `\\n`), and 20
-(function-body first-token re-lex) have not been through an Octane batch.
-15 is bytecode-only; 16–17 and 19 are dump/print; 18 is host argv; 20 is
-parser heap layout (leftover ident strings). Ask the user to run 9 consecutive
-`zig build octane -Doptimize=ReleaseFast` before the next engine fix.
+18 (host `scriptArgs` argv), 19 (`JS_DumpMemory` tag-line `\\n`), 20
+(function-body first-token re-lex), and 21 (Zig-only default-arg comma skip)
+have not been through an Octane batch. 15 is bytecode-only; 16–17 and 19 are
+dump/print; 18 is host argv; 20 is parser heap layout; 21 is a Zig-only
+parser path (`default_count > 0`, C has no `function f(a = 1)`). Ask the
+user to run 9 consecutive `zig build octane -Doptimize=ReleaseFast` before
+the next engine fix.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -550,6 +552,29 @@ Regression: `tests/difftest/24_func_body_relex.js` plus sidecar
 the extra leftovers; `-dd` EXTRA still has ROM `props` offsets that differ
 by ASLR on both engines (not a port bug).
 
+### 21. Default-arg skip consumed later parameters (`js_skip_expr`)
+
+Zig-only. C has no `function f(a = 1)` (SyntaxError: expecting ','). After
+fix 20, the rewind path (`default_count > 0`) was untested against a
+default-arg script and **misbehaved**: `function f(a = 1, b = 2) { return
+a + b; }; f()` threw `ReferenceError: variable 'b' is not defined`.
+
+`js_parse_function` skipped each default with `js_skip_expr`, which only
+stops at `)` (C’s for-loop third-expr skip, `mquickjs.c:7723-7741`). For
+`a = 1, b = 2` that skip ate `, b = 2` as well, so `b` was never
+`add_var`’d. Emission uses `js_parse_assign_expr2` (stops at comma), which
+was already correct.
+
+Fix: `js_skip_assign_expr` in `mquickjs_lexer_lib.zig` — same as
+`js_skip_expr` but also returns on `,`. Nested `,` inside `()`/`[]`/`{}`
+still go through `js_skip_parens`. Do **not** change `js_skip_expr` itself
+(`for (;; i++, j++)` must still skip through commas to `)`).
+
+No C-compared difftest: C cannot parse the repro. Zig-only checks:
+`f(a=1,b=2)`, `f(a,b=2)`, `b = a + 1`, `(1, 2)`, `[1,2]`, `{x:1}`,
+`Math.max(1,2)`, `f(undefined)` uses the default. `for (i=0,j=10; i<3;
+i++, j--)` still matches C.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -611,6 +636,7 @@ regression gate.
 | Opus | Fix 18 (host `scriptArgs` argv: slice-of-slices as `char **` SEGV) | `run.js <suite>` no longer SEGVs; difftest 22 added |
 | Opus | Fix 19 (`JS_DumpMemory` tag-line missing `\\n`); load()/console probed | `mqjs -d` table was one line; difftest 23 added |
 | Opus | Fix 20 (`js_parse_function` re-lexed first body token); `-dd` dump format | extra leftover `"var"`/`"return"`; difftest 24 added |
+| Opus | Host `-e`/`-I`/`-o` dump/`dump_error` stacks/`-b` (clean); `-dd` hash-chain EXTRA is `hash_prop` of absolute/ROM pointers (ASLR, not leftover ident — tag tables and leftover `"var"` offsets match). Fix 21 (default-arg skip ate later params) | Zig-only; C cannot parse the repro; ALL MATCH |
 
 ### Deterministic Octane differential — clean
 
@@ -739,7 +765,7 @@ wraparound. `zz` is always positive there and LLVM currently emits the
 wrapping add, so output matches; revisit only with a C-verified repro.
 
 **Git state:** fixes 1–19 are committed (`d38f6ec` is dump-memory newline).
-Fix 20 is in the working tree, not committed. Do not commit/push unless asked.
+Fixes 20–21 are in the working tree, not committed. Do not commit/push unless asked.
 
 ---
 
@@ -766,7 +792,6 @@ See bottom of file — **Post-Octane audit (continued)** prompt.
 
 ```
 Read debug-notes.md and .cursor/rules/debug-notes.mdc first.
-
 You are continuing the post-Octane correctness audit for zig-mquickjs.
 Compare only against ../mquickjs (mquickjs.c + libm.c). Do not search other
 workspace dirs. Build -Doptimize=ReleaseFast with Zig 0.16 at
@@ -775,19 +800,16 @@ ZIG_LOCAL_CACHE_DIR=/tmp/zig-mquickjs-cache and
 ZIG_GLOBAL_CACHE_DIR=/tmp/zig-global-cache or the build panics on
 renameat2. Fix one C-verified bug per turn, then stop. Do not rewrite the
 GC. Do not commit unless asked.
-
 ## Octane gate status
-
-Octane was confirmed clean after fix 14. **Fixes 15–20 have NOT been
+Octane was confirmed clean after fix 14. **Fixes 15–21 have NOT been
 through an Octane batch** — ask the user to run 9 consecutive
 `zig build octane -Doptimize=ReleaseFast` before landing the next fix.
 Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv;
-20 is parser leftover-ident heap layout.
-
+20 is parser leftover-ident heap layout; 21 is Zig-only default-arg skip
+(C has no `function f(a = 1)`).
 ## What's done (do not redo)
-
-- Fixes 1-20 documented in debug-notes.md - do NOT revert
-- Phase 1A-1D static audit: complete. Every `_ = utils.popValue` discard site
+- Fixes 1–21 documented in debug-notes.md — do NOT revert
+- Phase 1A–1D static audit: complete. Every `_ = utils.popValue` discard site
   is in the Phase 1A table; there are no uncovered files.
 - libm signed/unsigned sweep: clean
 - `js_alloc_byte_array` sweep (fix-14 follow-up): clean
@@ -803,62 +825,94 @@ Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv;
 - Bytecode differential: tests/difftest/bytecode.sh ALL BYTECODE MATCH
 - Deterministic whole-Octane differential: all 15 suites produce identical
   state hashes at 512M/64M/24M, with and without forced gc()
-
 ## Latest fixes this session (do not revert)
-
-- Fix 20: `js_parse_function` unconditionally `js_parse_seek_token` after `{`,
-  re-lexing the first body token of every function. Extra leftover
-  `"var"`/`"return"` vs C. Seek only when `default_count > 0`. Difftest 24
-  + `.flags` (`-d`).
-
+- Fix 17 (92bbefb): `js_dump_object` missing C `default:`. Date/ArrayBuffer/
+  typed-array instances printed blank. Typed-array dump was dead and used
+  byte index instead of element index. Difftest 21 extended.
+  Number/String/Boolean constructors are unsupported in both engines.
+- Fix 18 (f5a1bcf): host `scriptArgs` SEGV. Zig passed a slice-of-slices as
+  C `char **`, so argv[1] read the first arg's length as a pointer.
+  `mqjs tests/octane/run.js <suite>` no longer SEGVs. Difftest 22 + `.argv`.
+- Fix 19 (d38f6ec): `JS_DumpMemory` tag summary missing `\n`. Heap counts
+  already matched C; `mqjs -d` ran every tag onto one line. Difftest 23 +
+  `.flags` (`-d`).
+- Fix 20 (working tree, not committed): `js_parse_function` always called
+  `js_parse_seek_token` after `{`, re-lexing the first body token of every
+  function. C (`mquickjs.c:11113-11119`) does not rewind. Extra leftover
+  non-unique `"var"`/`"return"`/`"print"` vs C (16-byte string + 8-byte
+  free tail). Seek only when `default_count > 0`. Default-arg emission is
+  Zig-only (C has no `function f(a = 1)`). Difftest 24 + `.flags` (`-d`).
+  After the fix, leftover counts and heap size match C on 01_labels.js and
+  the two-function repro.
+- Fix 21 (working tree, not committed): Zig-only default-arg skip. First
+  pass used `js_skip_expr` (stops only at `)`), so `function f(a = 1, b = 2)`
+  never `add_var`'d `b`. `f()` threw `ReferenceError: variable 'b' is not
+  defined`. New `js_skip_assign_expr` also returns on `,`. Do not change
+  `js_skip_expr` (`for (;; i++, j++)`). No C-compared script — C SyntaxError.
 ## Discovery method
-
 Script-level differential has saturated except remaining host APIs. Last
 real bugs came from comparing things that are *not* normal program output:
 scratch pointer (14), emitted image size (15), struct sizeof (16), dump
 switch fallthrough (17), host argv layout (18), dump-memory format (19),
-function-body first-token re-lex (20).
-
+function-body first-token re-lex (20). Fix 21 was the Zig-only default-arg
+path the previous handoff said to test if it misbehaved.
+```sh
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
+export ZIG_LOCAL_CACHE_DIR=/tmp/zig-mquickjs-cache
+export ZIG_GLOBAL_CACHE_DIR=/tmp/zig-global-cache
+$ZIG build -Doptimize=ReleaseFast
 ./tests/difftest/run.sh          # any stdout/exit-code diff is a port bug
 ./tests/difftest/bytecode.sh     # any *size* diff is a port bug
 SLOW=1 ./tests/difftest/run.sh   # adds slow/17_regexp_deep.js (~2 min)
 LIMITS="1M 800K" ./tests/difftest/run.sh   # OOM-boundary comparison
-
-Rules in tests/difftest/README.md: strip ANSI colour (run.sh does it), every
-script ends with print("DONE <file>"), direct eval = global scope and
-let/const alias var are documented deviations, use `(1, eval)(...)` not bare
-eval, and catch bindings cannot be reused in a scope (name them e1, e2, ...).
-Optional sidecar `<script>.argv` (one arg per line) is appended after the
-script path. Optional sidecar `<script>.flags` (one mqjs option per line)
-is prepended before `--memory-limit`.
-
+```
+Rules in tests/difftest/README.md:
+- strip ANSI colour in diffs (run.sh does this)
+- every script must end with print("DONE ")
+- respect README "Deviations from mquickjs": direct eval = global scope,
+  let/const alias var — NOT bugs
+- use (1, eval)(...) not bare eval(...) in new scripts
+- catch bindings cannot be reused in a scope (name them e1, e2, ...)
+- optional sidecar <script>.argv (one arg per line) is appended after the
+  script path; <script>.flags (one mqjs option per line) is prepended
+  before --memory-limit
 ## Highest-priority next work
-
-1. Host `-dd` long dump format itself matches C when heaps match (21/23 and
-   the two-function repro after fix 20), after masking ROM pointers
-   (`val_to_offset` does not check `JS_IS_ROM_PTR`; 8-digit hex > 0x00100000
-   is ASLR, same in C). Leftover keyword strings that C also has are
-   same-as-C (`js_shrink` tail + bump `js_free`). Do not treat ROM offset
-   diffs as bugs.
-2. Latent libm only (no repro — do not "fix" without C proof):
+1. Host CLI vs C is largely clean this turn (`-e`/`--eval`, `-I`, `-o` dump
+   during compile, `dump_error` file:line:col, `-b`, clustered shorts,
+   `--memory-limit` k/G/nosuffix, print of Error subclasses / bind / regexp).
+   Do not treat ROM dump offsets as bugs (`val_to_offset` does not check
+   `JS_IS_ROM_PTR`; hex > 0x00100000 is ASLR in both). Leftover keyword
+   strings that C also has are same-as-C. `-dd` EXTRA hash-bucket numbers
+   on large global objects (04/12) differ while tag tables and leftover
+   `"var"` heap offsets match — `hash_prop` hashes the absolute JSValue
+   pointer (ROM atoms + malloc base); not a leftover-ident bug. REPL is
+   skippable. Remaining thin host: `--memory-limit xyz` is C `assert`
+   abort vs Zig SEGV (C debug assert; do not add a ReleaseFast check
+   without a C release-build policy).
+2. Default-arg path is now skip-correct (fix 21). Further default-arg
+   edges (destructuring, trailing comma) only if a Zig script misbehaves.
+   Do not remove the feature to match C.
+3. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
-3. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
+4. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
    bug. Leave unless @sizeOf(JSObjectExt) starts being used.
-4. Latent: Zig `js_vprintf` maps `' '` to `PF_PAD_POS`; C uses `PF_MARK_POS`.
+5. Latent: Zig `js_vprintf` maps `' '` to `PF_PAD_POS`; C uses `PF_MARK_POS`.
    Neither flag is read. No output diff.
-
 ## Already probed clean (do not redo)
-
 - Struct layout sweep of every *_32 and runtime overlay
 - Adversarial libm sweep; integer conversion / typed-array stores / shifts
-- Number<->string; builtin surface enumeration (identical on both engines)
+- Number↔string; builtin surface enumeration (identical on both engines)
 - print() of C functions/constructors (fix 16)
 - print() of Date/ArrayBuffer/typed-array instances (fix 17)
 - host scriptArgs extra argv (fix 18)
 - host mqjs -d JS_DumpMemory summary (fix 19)
+- host mqjs -e/--eval, -I include, -o compile dump, dump_error stacks
+  (file:line:col), -b bytecode load, clustered shorts
 - host mqjs -dd dump format when heaps match (ROM offsets excluded); extra
-  leftover ident strings were fix 20, not a dump-printer bug
+  leftover ident strings were fix 20, not a dump-printer bug. -dd EXTRA
+  hash-bucket diffs with matching tag tables are hash_prop ASLR, not a bug
+- Zig default-arg skip (fix 21); do not change js_skip_expr
 - load() / console.log happy path (nested load, throw-in-load, missing file
   is perror+exit(1) in both)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
@@ -868,31 +922,28 @@ is prepended before `--memory-limit`.
   stack-overflow recovery, surrogate/NUL strings
 - All 15 Octane suites under a deterministic fixed-iteration driver
 - js_alloc_byte_array scratch-buffer sites; GC-root and opcode audits
-
 ## Do NOT do
-
-- Revert fixes 1-20
+- Revert fixes 1–21
 - Re-apply compact-by-len, MakeUniqueString post-resize extras, or global
   js_resize_value_array2 memcpy change
 - "Fix" newShortInt or kernelExp latent spots without C proof
 - "Fix" JSObjectExt union size without a site that uses @sizeOf(JSObjectExt)
+- "Fix" -dd EXTRA hash-bucket diffs when tag tables / leftover offsets match
+  (hash_prop of absolute pointers)
+- Change js_skip_expr to also stop at ',' (breaks for-loop third expr)
 - Rewrite GC or intern algorithm
 - Report direct eval / let-as-var as bugs (documented deviations)
-- Report `-m32` *padding* byte differences as bugs; size differences ARE bugs
-- Prefer `zig build octane` as the Octane gate (run.js <suite> argv SEGV
-  is fixed, but the build target is still the batch gate)
+- Report `-m32` padding byte differences as bugs; size differences ARE bugs
+- Prefer zig build octane as the Octane gate (run.js argv SEGV is fixed,
+  but the build target is still the batch gate)
 - Temporarily reintroduce a known bug to "prove" a test catches it
-
 ## After each fix
-
 1. zig build -Doptimize=ReleaseFast
 2. ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh
 3. Add or extend a difftest script for the repro
 4. Update debug-notes.md (fix N + session log)
 5. Ask user to batch Octane (9 runs) before the next fix
-
 ## Git state (do not commit unless asked)
-
-Fixes 1-19 are committed (`d38f6ec` = fix 19). Fix 20 is in the working
-tree, not committed. Do not push/commit unless asked.
+Fixes 1–19 are committed (`d38f6ec` = fix 19). Fixes 20–21 are in the
+working tree, not committed. Do not push/commit unless asked.
 ```

@@ -161,6 +161,25 @@ pub fn js_skip_expr(s: *lt.JSParseState) void {
     }
 }
 
+// AssignmentExpression terminator: ',' or ')' at depth 0. C js_skip_expr
+// only stops at ')' (for-loop third expr). Default-arg lists need comma.
+pub fn js_skip_assign_expr(s: *lt.JSParseState) void {
+    while (true) {
+        switch (s.token.val) {
+            ')', ',' => return,
+            ';', lt.TOK_EOF => {
+                js_parse_error(s, "expecting '%c'", @as(c_int, ')'));
+            },
+            '(', '[', '{' => {
+                _ = js_skip_parens(s, null);
+            },
+            else => {
+                next_token(s);
+            },
+        }
+    }
+}
+
 pub fn is_regexp_allowed(tok: c_int) c.JS_BOOL {
     switch (tok) {
         lt.TOK_NUMBER,

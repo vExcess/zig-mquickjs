@@ -354,7 +354,7 @@ fn js_parse_function(s: *JSParseState) void {
                 lexer.js_parse_error(s, "too many default parameters");
             lexer.next_token(s);
             lexer.js_parse_get_pos(s, &default_pos[@intCast(default_count)]);
-            lexer.js_skip_expr(s);
+            lexer.js_skip_assign_expr(s);
             default_arg_idx[@intCast(default_count)] = arg_idx;
             default_count += 1;
         }
