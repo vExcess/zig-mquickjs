@@ -637,6 +637,7 @@ regression gate.
 | Opus | Fix 19 (`JS_DumpMemory` tag-line missing `\\n`); load()/console probed | `mqjs -d` table was one line; difftest 23 added |
 | Opus | Fix 20 (`js_parse_function` re-lexed first body token); `-dd` dump format | extra leftover `"var"`/`"return"`; difftest 24 added |
 | Opus | Host `-e`/`-I`/`-o` dump/`dump_error` stacks/`-b` (clean); `-dd` hash-chain EXTRA is `hash_prop` of absolute/ROM pointers (ASLR, not leftover ident — tag tables and leftover `"var"` offsets match). Fix 21 (default-arg skip ate later params) | Zig-only; C cannot parse the repro; ALL MATCH |
+| Opus | Leftover-ident counts + `-d` tags on all 24 difftest scripts; `-o` opcode/cpool/vars/stack_size/pc2line + `--no-column`; `-m32` same; compile-time `-o -d`; Function/setTimeout/stacks; more host file/CLI edges | **no bug**; that non-output class is saturated |
 
 ### Deterministic Octane differential — clean
 
@@ -825,6 +826,8 @@ Fix 15 is `-m32` bytecode only; 16–17 and 19 are dump/print; 18 is host argv;
 - Bytecode differential: tests/difftest/bytecode.sh ALL BYTECODE MATCH
 - Deterministic whole-Octane differential: all 15 suites produce identical
   state hashes at 512M/64M/24M, with and without forced gc()
+- Leftover-ident / `-d` tags / `-o` opcodes+metadata / pc2line / `-m32`
+  internals / compile-time `-o -d`: saturated this turn, all match C
 ## Latest fixes this session (do not revert)
 - Fix 17 (92bbefb): `js_dump_object` missing C `default:`. Date/ArrayBuffer/
   typed-array instances printed blank. Typed-array dump was dead and used
@@ -877,28 +880,33 @@ Rules in tests/difftest/README.md:
   script path; <script>.flags (one mqjs option per line) is prepended
   before --memory-limit
 ## Highest-priority next work
-1. Host CLI vs C is largely clean this turn (`-e`/`--eval`, `-I`, `-o` dump
-   during compile, `dump_error` file:line:col, `-b`, clustered shorts,
-   `--memory-limit` k/G/nosuffix, print of Error subclasses / bind / regexp).
-   Do not treat ROM dump offsets as bugs (`val_to_offset` does not check
-   `JS_IS_ROM_PTR`; hex > 0x00100000 is ASLR in both). Leftover keyword
-   strings that C also has are same-as-C. `-dd` EXTRA hash-bucket numbers
-   on large global objects (04/12) differ while tag tables and leftover
-   `"var"` heap offsets match — `hash_prop` hashes the absolute JSValue
-   pointer (ROM atoms + malloc base); not a leftover-ident bug. REPL is
-   skippable. Remaining thin host: `--memory-limit xyz` is C `assert`
-   abort vs Zig SEGV (C debug assert; do not add a ReleaseFast check
-   without a C release-build policy).
-2. Default-arg path is now skip-correct (fix 21). Further default-arg
-   edges (destructuring, trailing comma) only if a Zig script misbehaves.
-   Do not remove the feature to match C.
-3. Latent libm only (no repro — do not "fix" without C proof):
+1. **Octane gate first.** Fixes 15–21 have not been through 9 consecutive
+   `zig build octane -Doptimize=ReleaseFast`. Do not land fix 22 until the
+   user confirms that batch.
+2. Leftover-ident / `-d` tags / `-o` opcodes+metadata / pc2line / `-m32`
+   internals are **saturated** (this turn, all match). Do not redo them.
+   Next *non-output* class vs ../mquickjs/mqjs: compiled **regexp bytecode
+   hex** (exec + `byte_array` tag sizes already match on 05; extract reop
+   buffers from the heap after a regexp-heavy script). Line-by-line
+   `dump_string` / `is_ident_*` / `get_special_prop` is low yield after
+   dump probes. Do not treat ROM dump offsets as bugs (`val_to_offset`
+   does not check `JS_IS_ROM_PTR`; hex > 0x00100000 is ASLR). REPL is
+   skippable. `--memory-limit xyz` is C `assert` abort vs Zig SEGV (C
+   debug assert; do not add a ReleaseFast check without a C release-build
+   policy).
+3. Default-arg path is skip-correct (fix 21). Trailing comma, comma-expr
+   defaults, and `Math.max` defaults work on Zig. Further edges only if a
+   Zig script misbehaves. Do not remove the feature to match C. Do not
+   change `js_skip_expr`.
+4. Latent libm only (no repro — do not "fix" without C proof):
    `kernelExp` `@intCast(getHighWord(zz))` and `@as(u32, @intCast(n << 20))`.
    Currently matches C output.
-4. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
+5. JSObjectExt union omits regexp/date/user (sizeof 40 vs 48). Not a heap
    bug. Leave unless @sizeOf(JSObjectExt) starts being used.
-5. Latent: Zig `js_vprintf` maps `' '` to `PF_PAD_POS`; C uses `PF_MARK_POS`.
-   Neither flag is read. No output diff.
+6. Latent: Zig `js_vprintf` maps `' '` to `PF_PAD_POS`; C uses `PF_MARK_POS`.
+   Neither flag is read. No output diff. Zig also consumes `%*` width;
+   C does not increment `fmt` after `*` (would treat `*` as the spec).
+   No format string uses `%*`. Do not "fix" either.
 ## Already probed clean (do not redo)
 - Struct layout sweep of every *_32 and runtime overlay
 - Adversarial libm sweep; integer conversion / typed-array stores / shifts
@@ -912,7 +920,18 @@ Rules in tests/difftest/README.md:
 - host mqjs -dd dump format when heaps match (ROM offsets excluded); extra
   leftover ident strings were fix 20, not a dump-printer bug. -dd EXTRA
   hash-bucket diffs with matching tag tables are hash_prop ASLR, not a bug
-- Zig default-arg skip (fix 21); do not change js_skip_expr
+- Zig default-arg skip (fix 21); trailing comma / comma-expr / Math.max
+  defaults work; do not change js_skip_expr
+- leftover-ident *counts* and `"var"` offsets on all 24 difftest scripts
+  (including large 02/14/15/16/18/19/20); `-d` tag tables match
+- `-o` opcode bytes, cpool, vars, ext_vars, stack_size, unique-string
+  order, pc2line, `--no-column` images; same for `-m32`; compile-time
+  `-o -d` tag tables; tests/test_*.js included
+- Function() constructor / toString / bind print; setTimeout(0) /
+  clearTimeout / not-a-function; --no-column exception stacks
+- empty / comment-only / syntax-error compile+run; `-I` missing; load
+  bytecode with and without `-b`; unknown options; `-o` missing args;
+  print(Function); JSON.stringify(Date/regexp)
 - load() / console.log happy path (nested load, throw-in-load, missing file
   is perror+exit(1) in both)
 - 12k property tables, delete/re-add, for-in with mid-enumeration gc()
