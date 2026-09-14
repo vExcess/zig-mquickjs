@@ -46,11 +46,6 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const build_cli = b.option(bool, "build-cli", "Build mqjs, example, and wasm playground") orelse (b.pkg_hash.len == 0);
 
-    if (optimize == .Debug or optimize == .ReleaseSafe) {
-        std.debug.print("The engine uses tagged-pointer JSValues that violate Zig's alignment checks in Debug/ReleaseSafe. \nRun zig build with -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall\n", .{});
-        return;
-    }
-
     _ = b.option(bool, "small", "Optimize for size (no-op: no C translation units remain)");
     const configSoftFloat = b.option(bool, "softfloat", "Use soft float") orelse false;
 

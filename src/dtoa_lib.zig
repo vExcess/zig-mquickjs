@@ -169,9 +169,12 @@ inline fn udiv1norm(pr: *limb_t, a1: limb_t, a0: limb_t, d: limb_t, d_inv: limb_
     var a: dlimb_t = @as(dlimb_t, d_inv) * @as(dlimb_t, a1 -% n1m) + n_adj;
     var q: limb_t = @as(limb_t, @truncate(a >> LIMB_BITS)) +% a1;
     a = (@as(dlimb_t, a1) << LIMB_BITS) | a0;
-    a = a -% @as(dlimb_t, q) * @as(dlimb_t, d) - @as(dlimb_t, d);
+    // dtoa.c:127-129 subtracts an extra 'd' so that a borrow shows up as
+    // ah == all-ones, then folds that borrow back into q. Both steps rely on
+    // unsigned wraparound.
+    a = a -% @as(dlimb_t, q) * @as(dlimb_t, d) -% @as(dlimb_t, d);
     const ah: limb_t = @truncate(a >> LIMB_BITS);
-    q +%= 1 + ah;
+    q +%= 1 +% ah;
     const r: limb_t = @as(limb_t, @truncate(a)) +% (ah & d);
     pr.* = r;
     return q;

@@ -30,15 +30,19 @@ export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig   # if zig not on PATH
 
 ### Required optimize mode
 
-**Must use `-Doptimize=ReleaseFast` or `-Doptimize=ReleaseSmall`.**  
-`build.zig` rejects Debug and ReleaseSafe.
+**ReleaseFast / ReleaseSmall** are shipping. **ReleaseSafe** is the UB-detector
+test mode (`./tests/difftest/run-safe.sh`). Debug does not compile yet
+(`js_vprintf` `@cVaArg` / `auto does not support var args`).
 
-Reason: the engine uses **tagged-pointer JSValues** (`value = ptr + 1`). `valueToPtr` produces odd addresses via `@ptrFromInt`, which panics under ReleaseSafe alignment checks. Debug mode also fails to compile `js_vprintf` (`@cVaArg` / `VaListX86_64` error).
+Tagged-pointer JSValues (`value = ptr + 1`) are handled in `valueToPtr`
+(`@setRuntimeSafety(false)` + wrapping sub). Do not restore the old
+ReleaseFast-only build guard.
 
 ### Build commands
 
 ```sh
-$ZIG build -Doptimize=ReleaseFast              # build mqjs
+$ZIG build -Doptimize=ReleaseFast              # build mqjs (shipping)
+$ZIG build -Doptimize=ReleaseSafe              # UB detector
 $ZIG build example -Doptimize=ReleaseFast      # build example
 $ZIG build test -Doptimize=ReleaseFast         # run built-in JS tests via mqjs
 $ZIG build -Doptimize=ReleaseFast -Dsoftfloat=true   # soft-float libm path
@@ -47,7 +51,8 @@ $ZIG build -Doptimize=ReleaseFast -Dsoftfloat=true   # soft-float libm path
 ### Test commands
 Do not test with the microbenchmark test. It takes too long to run
 ```sh
-bash run-tests.sh                               # broader smoke tests
+./tests/difftest/run.sh                         # C vs Zig stdout (ReleaseFast)
+./tests/difftest/run-safe.sh                    # after ReleaseSafe build; panic = bug
 ./zig-out/bin/mqjs tests/test_language.js       # single test
 ./zig-out/bin/example tests/test_rect.js        # example-specific test
 ./zig-out/bin/mqjs -o out.bin tests/test_builtin.js && ./zig-out/bin/mqjs -b out.bin  # bytecode round-trip
@@ -193,7 +198,7 @@ Host apps import generated `*_stdlib_data.zig` and **must** call `relocate()` at
 |----------------|--------------|-------------|
 | Wrong integer from JSValue | Used raw shift instead of helper | Use `vt.valueGetInt` for negative shorts |
 | Exception checks fail | `JS_IsException` semantics | Use `vt.isExactException` or `val == c.JS_EXCEPTION` |
-| Alignment panic (ReleaseSafe only) | Tagged pointer via `@ptrFromInt` | Expected — use ReleaseFast; real fix needs JSValue redesign |
+| Alignment panic (ReleaseSafe) | Speculative tagged pointer or integer-as-pointer | Defer the cast, or see `valueToPtr` / `valueFromAddr`; do not disable safety globally |
 | Link error on engine symbol | Missing export/extern pair | Add `export fn` in provider root, `extern fn` in consumer `_lib` |
 | Regexp parse crash | Wrong `callconv(.c)` on `re_parse_*` | Must match `parse_func_table` entries |
 | Bitwise NOT on alignment mask | Sign extension | Use `~@as(usize, c.JSW - 1)` not `~(c.JSW - 1)` |
@@ -305,7 +310,7 @@ Read handoff.md first.
 Context:
 - Full C→Zig port is complete; all logic is in src/*.zig (zero compiled C).
 - Faithful line-by-line translation — compare against archive/c/mquickjs_*.c when stuck.
-- Build/test requires -Doptimize=ReleaseFast or -Doptimize=ReleaseSmall.
+- Build/test: ReleaseFast for shipping, ReleaseSafe for UB checks (`run-safe.sh`).
 - Zig 0.16.0 (/home/vexcess/zig-x86_64-linux-0.16.0/zig if not on PATH)
 
 Your task: [describe the bug or failing test]

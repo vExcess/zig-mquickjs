@@ -324,8 +324,11 @@ fn intFromFloat(d: f64, sat_flag: c.JS_BOOL) i32 {
             var v = (u & ((@as(u64, 1) << 52) - 1)) | (@as(u64, 1) << 52);
             v = v << @as(u6, @intCast(e - 1023 - 52 + 32));
             var ret: i32 = @bitCast(@as(u32, @truncate(v >> 32)));
+            // The truncated mantissa can be exactly 0x80000000, whose negation
+            // wraps back to itself. C negates an `int` here (mquickjs.c:4375-4376)
+            // and ToInt32 is specified modulo 2^32, so the wrap is the answer.
             if (u >> 63 != 0)
-                ret = -ret;
+                ret = -%ret;
             return ret;
         } else {
             return 0;

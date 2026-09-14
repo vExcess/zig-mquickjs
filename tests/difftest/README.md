@@ -8,6 +8,9 @@ zig build -Doptimize=ReleaseFast
 ./tests/difftest/run.sh              # -> "ALL MATCH"
 SLOW=1 ./tests/difftest/run.sh       # also run slow/ (~2 min per engine/limit)
 ./tests/difftest/bytecode.sh         # -> "ALL BYTECODE MATCH"
+
+# UB detector (after `zig build -Doptimize=ReleaseSafe`):
+./tests/difftest/run-safe.sh         # run.sh + bytecode.sh at 16M; any panic is a bug
 ```
 
 `run.sh` compares what the engines **print**. `bytecode.sh` compares what they

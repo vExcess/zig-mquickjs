@@ -7,11 +7,12 @@ alwaysApply: true
 
 Read `debug-notes.md` before diagnosing GC, parse, math, or correctness issues.
 
-- Octane is **resolved** (9/9 runs). Use it as regression gate after fixes, not discovery.
-- **Discovery:** run `./tests/difftest/run.sh` first (C reference at `../mquickjs/mqjs`).
-- Phase 1A–1D static audit is **largely complete**; fix 13 (trig negatives) was found only by difftest.
+- **Current phase (2026-09-14): ReleaseSafe is the UB detector.** Difftest + bytecode (`-o`/`-m32`) run with no panics. `./tests/difftest/run-safe.sh` after `-Doptimize=ReleaseSafe`. A panic is a genuine bug. C differential testing is saturated. See "ReleaseSafe phase — DONE" in `debug-notes.md`.
+- Octane is **resolved**, clean through fix 21 (ReleaseFast). Ask for a ReleaseSafe Octane batch as the remaining UB sweep.
+- **Legacy discovery (saturated):** `./tests/difftest/run.sh` (C reference at `../mquickjs/mqjs`). Still the ReleaseFast regression gate.
+- Debug does **not** compile yet (`js_vprintf` `@cVaArg` / `auto does not support var args`). Do not block on it.
 - Compare only against `../mquickjs` (C). Do not search other workspace dirs.
-- Build `-Doptimize=ReleaseFast`. Fix one bug per turn. Performance last.
+- Build `-Doptimize=ReleaseFast` for shipping; `-Doptimize=ReleaseSafe` for UB checks. Do not revert `valueToPtr`'s `@setRuntimeSafety`.
 - C `JS_POP_VALUE` assigns the GC-updated pointer back. Never discard `popValue` when the local is used after a GC-capable call.
 - Do not revert fixes 1–21. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
 - `eval` global scope and `let`/`const` as `var` are **documented deviations** — not bugs.

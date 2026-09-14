@@ -24,7 +24,11 @@ fn classProtoBase(x: *mc.JSContextExt) [*]c.JSValue {
 }
 
 fn classObjBase(x: *mc.JSContextExt) [*]c.JSValue {
-    return @ptrCast(x.class_obj.?);
+    // class_obj is class_proto + class_count (C: mquickjs.c:239, 3571).
+    // Derive it from the FAM rather than loading the cached pointer: the
+    // optional `?*c.JSValue` field is 0-as-null, and `@ptrCast` of a null
+    // C pointer panics in ReleaseSafe even when C would index it as an array.
+    return classProtoBase(x) + @as(usize, @intCast(x.class_count));
 }
 
 fn ptrDiffValues(a: [*]c.JSValue, b: [*]c.JSValue) isize {
@@ -382,13 +386,17 @@ pub fn gc_thread_pointer(ctx: *c.JSContext, pval: *c.JSValue) void {
     ptr.* = js_value_from_pval(ctx, pval);
 }
 
-pub fn gc_update_threaded_pointers(ctx: *c.JSContext, ptr: *anyopaque, new_ptr: *anyopaque) void {
+pub fn gc_update_threaded_pointers(ctx: *c.JSContext, ptr: *anyopaque, new_addr: usize) void {
     var val = @as(*c.JSValue, @ptrCast(@alignCast(ptr))).*;
     if (mc.isPtr(val)) {
         while (true) {
             const pv = js_value_to_pval(ctx, val);
             val = pv.*;
-            pv.* = mc.valueFromPtr(new_ptr);
+            // C: *pv = JS_VALUE_FROM_PTR(new_ptr) i.e. (JSValue)addr + 1.
+            // 64to32 compaction passes the 32-bit heap offset, which is 0 for
+            // the first live block (mquickjs.c:12736). Do not materialize a
+            // pointer: @ptrFromInt(0) panics in ReleaseSafe.
+            pv.* = mc.valueFromAddr(new_addr);
             if (!mc.isPtr(val))
                 break;
         }
@@ -520,7 +528,7 @@ pub fn gc_compact_heap(ctx: *c.JSContext) void {
     var new_ptr: [*]u8 = x.heap_base;
     var ptr: [*]u8 = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
-        gc_update_threaded_pointers(ctx, ptr, new_ptr);
+        gc_update_threaded_pointers(ctx, ptr, @intFromPtr(new_ptr));
         const size = get_mblock_size(ptr);
         if (utils.js_get_mtag(ptr) != mc.JS_MTAG_FREE) {
             gc_thread_block(ctx, ptr);
@@ -532,7 +540,7 @@ pub fn gc_compact_heap(ctx: *c.JSContext) void {
     new_ptr = x.heap_base;
     ptr = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
-        gc_update_threaded_pointers(ctx, ptr, new_ptr);
+        gc_update_threaded_pointers(ctx, ptr, @intFromPtr(new_ptr));
         const size = get_mblock_size(ptr);
         if (utils.js_get_mtag(ptr) != mc.JS_MTAG_FREE) {
             if (@intFromPtr(new_ptr) != @intFromPtr(ptr)) {
@@ -732,7 +740,7 @@ fn gc_compact_heap_64to32(ctx: *c.JSContext) c_int {
     var new_offset: usize = 0;
     var ptr: [*]u8 = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
-        gc_update_threaded_pointers(ctx, ptr, @ptrFromInt(new_offset));
+        gc_update_threaded_pointers(ctx, ptr, new_offset);
         const size = get_mblock_size(ptr);
         if (utils.js_get_mtag(ptr) != mc.JS_MTAG_FREE) {
             gc_thread_block(ctx, ptr);
@@ -745,7 +753,7 @@ fn gc_compact_heap_64to32(ctx: *c.JSContext) c_int {
     new_offset = 0;
     ptr = x.heap_base;
     while (@intFromPtr(ptr) < @intFromPtr(x.heap_free)) {
-        gc_update_threaded_pointers(ctx, ptr, @ptrFromInt(new_offset));
+        gc_update_threaded_pointers(ctx, ptr, new_offset);
         const size = get_mblock_size(ptr);
         if (utils.js_get_mtag(ptr) != mc.JS_MTAG_FREE) {
             const size_32 = get_mblock_size_32(ptr);

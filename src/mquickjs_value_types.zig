@@ -139,7 +139,9 @@ pub fn utf8CharLen(byte: u8) c_int {
 
 pub fn hashProp(prop: c.JSValue) u32 {
     const jsw: c.JSValue = @intCast(c.JSW);
-    return @intCast((prop / jsw) ^ (prop % jsw));
+    // C returns uint32_t from a JSValue expression (mquickjs.c:2451-2454), so
+    // the high bits of a pointer key are discarded by definition there.
+    return @truncate((prop / jsw) ^ (prop % jsw));
 }
 
 pub fn jsIsRomPtr(ctx: *c.JSContext, ptr: *const anyopaque) bool {
@@ -154,7 +156,8 @@ pub fn classProto(x: *mc.JSContextExt, class_id: c_int) *c.JSValue {
 }
 
 pub fn classObj(x: *mc.JSContextExt, class_id: c_int) *c.JSValue {
-    const objs: [*]c.JSValue = @ptrCast(x.class_obj.?);
+    const proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
+    const objs = proto + @as(usize, @intCast(x.class_count));
     return &objs[@intCast(class_id)];
 }
 

@@ -454,11 +454,14 @@ fn remPio2Large(x: f64, y: []f64) c_int {
     r1 = libm_mul_u64(&r0, m, d[0]);
     c[0] = r1;
     r1 = libm_mul_u64(&r0, m, d[1]);
-    c[0] += r0;
+    // 128-bit accumulation (libm.c:865-872, 899-911). Every add here wraps in
+    // C by design: the `carry = <sum> < <addend>` lines below detect exactly
+    // that wrap, so these cannot be checked additions.
+    c[0] +%= r0;
     carry = @intFromBool(c[0] < r0);
-    c[1] = r1 + carry;
+    c[1] = r1 +% carry;
     _ = libm_mul_u64(&r0, m, d[2]);
-    c[1] += r0;
+    c[1] +%= r0;
     var n: c_int = @intCast(c[1] >> 62);
     const rnd: c_int = @intCast((c[1] >> 61) & 1);
     n += rnd;
@@ -475,17 +478,17 @@ fn remPio2Large(x: f64, y: []f64) c_int {
     r1 = libm_mul_u64(&r0, c[0], PIO4[1]);
     var dd: [3]u64 = .{ r0, r1, 0 };
     r1 = libm_mul_u64(&r0, c[1], PIO4[0]);
-    dd[0] += r0;
+    dd[0] +%= r0;
     carry = @intFromBool(dd[0] < r0);
-    dd[1] += r1;
+    dd[1] +%= r1;
     carry1 = @intFromBool(dd[1] < r1);
-    dd[1] += carry;
+    dd[1] +%= carry;
     carry1 |= @intFromBool(dd[1] < carry);
     dd[2] = carry1;
     r1 = libm_mul_u64(&r0, c[1], PIO4[1]);
-    dd[1] += r0;
+    dd[1] +%= r0;
     carry = @intFromBool(dd[1] < r0);
-    dd[2] += r1 + carry;
+    dd[2] +%= r1 +% carry;
     if (dd[2] == 0) {
         y[0] = 0;
         y[1] = 0;
@@ -607,7 +610,9 @@ fn jsSinCos(x: f64, flag: c_int) f64 {
     if (flag == 3 or (n & 1) == @as(u32, @intCast(flag))) {
         s = kernelSin(y[0], y[1], true);
         if (flag != 3) {
-            if ((n + @as(u32, @intCast(flag))) & 2 != 0) s = -s;
+            // n is the modular reinterpretation of a negative quadrant count,
+            // so this add wraps; C computes it on a uint32_t (libm.c:1138).
+            if ((n +% @as(u32, @intCast(flag))) & 2 != 0) s = -s;
             return s;
         }
     }
@@ -615,7 +620,7 @@ fn jsSinCos(x: f64, flag: c_int) f64 {
         c = kernelCos(y[0], y[1]);
         if (flag != 3) {
             s = c;
-            if ((n + @as(u32, @intCast(flag))) & 2 != 0) s = -s;
+            if ((n +% @as(u32, @intCast(flag))) & 2 != 0) s = -s;
             return s;
         }
     }
@@ -900,12 +905,16 @@ inline fn kernelExp(z: f64, w: f64, lo: f64, hi: f64, n: c_int) f64 {
     const t1 = z - t * evalPoly(t, P_tab[0..]);
     const r = (z * t1) / (t1 - two) - (w + z * w);
     var zz = one - ((lo + r) - hi);
-    var j: c_int = @intCast(getHighWord(zz));
+    // C reads the high word into an `int` and adds a possibly negative
+    // `n << 20` to an `unsigned` (libm.c:1865-1870): both conversions
+    // reinterpret bits and the addition wraps. n is negative for every
+    // exp(x) with x < 0, so this is reached on ordinary inputs.
+    var j: c_int = @bitCast(getHighWord(zz));
     j += n << 20;
     if ((j >> 20) <= 0) {
         zz = js_scalbn(zz, n);
     } else {
-        zz = setHighWord(zz, getHighWord(zz) + @as(u32, @intCast(n << 20)));
+        zz = setHighWord(zz, getHighWord(zz) +% @as(u32, @bitCast(n << 20)));
     }
     return zz;
 }
@@ -1224,7 +1233,10 @@ pub fn js_pow(x: f64, y: f64) f64 {
         n = j + @as(c_int, @intCast(@as(u32, 0x00100000) >> @intCast(k + 1)));
         k = ((n & 0x7fffffff) >> 20) - 0x3ff;
         t = zero;
-        t = setHighWord(t, @as(u32, @intCast(@as(c_int, @bitCast(n)) & ~(@as(c_int, 0x000fffff) >> @intCast(k)))));
+        // n is negative whenever z < 1. C passes the signed value straight into
+        // set_high_word's uint32_t parameter (libm.c:2247), which reinterprets
+        // the bits rather than range-checking them.
+        t = setHighWord(t, @as(u32, @bitCast(n & ~(@as(c_int, 0x000fffff) >> @intCast(k)))));
         n = ((n & 0x000fffff) | 0x00100000) >> @intCast(20 - k);
         if (j < 0) n = -n;
         p_h -= t;

@@ -8,6 +8,7 @@
 #   ./tests/difftest/run.sh                        # default limits
 #   LIMITS="256M 8M" ./tests/difftest/run.sh       # custom limits
 #   SLOW=1 ./tests/difftest/run.sh                 # include slow/ (~2 min/run)
+#   ./tests/difftest/run-safe.sh                   # ReleaseSafe panic gate (16M)
 #
 # Env overrides: C_MQJS, Z_MQJS, LIMITS, SLOW
 

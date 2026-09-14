@@ -54,7 +54,7 @@ fn boolVal(v: bool) c.JS_BOOL {
 
 pub fn js_get_short_float(v: c.JSValue) f64 {
     if (@sizeOf(c.JSWord) != 8) unreachable;
-    return uint64AsFloat64(vt.rotl64(v, 60) + vt.JS_FLOAT64_VALUE_ADDEND);
+    return uint64AsFloat64(vt.rotl64(v, 60) +% vt.JS_FLOAT64_VALUE_ADDEND);
 }
 
 pub fn js_to_short_float(d: f64) c.JSValue {

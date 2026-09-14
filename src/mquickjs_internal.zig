@@ -17,12 +17,32 @@ pub fn ctxExt(ctx: *c.JSContext) *JSContextExt {
     return @ptrCast(@alignCast(ctx));
 }
 
-pub fn valueToPtr(val: c.JSValue) *anyopaque {
-    return @ptrFromInt(@as(usize, @intCast(val - 1)));
+/// Materialize the pointer carried by a tagged JSValue (`value == ptr + 1`).
+///
+/// Runtime safety is disabled for this one expression because the tagged
+/// representation makes both checks Zig would insert false positives:
+///
+///   - `val - 1` underflows when `val` is 0. `JSWord` is `uint64_t`, so C
+///     wraps here by definition.
+///   - the result is only pointer-aligned when `val` actually holds a pointer
+///     (`JS_TAG_PTR` requires `(val & (JSW - 1)) == 0`). Callers all over the
+///     engine compute this pointer speculatively and then discard it after a
+///     tag or length test without ever dereferencing it, matching what C's
+///     `JS_VALUE_TO_PTR` does. Dereferencing a non-pointer still faults.
+///
+/// Returning an already-aligned pointer keeps every caller's `@alignCast` a
+/// no-op, so runtime safety stays on everywhere else in the engine.
+pub fn valueToPtr(val: c.JSValue) *align(@alignOf(c.JSWord)) anyopaque {
+    @setRuntimeSafety(false);
+    return @ptrFromInt(@as(usize, @truncate(val -% 1)));
+}
+
+pub fn valueFromAddr(addr: usize) c.JSValue {
+    return @as(c.JSWord, @intCast(addr)) + 1;
 }
 
 pub fn valueFromPtr(ptr: *anyopaque) c.JSValue {
-    return @as(c.JSWord, @intCast(@intFromPtr(ptr))) + 1;
+    return valueFromAddr(@intFromPtr(ptr));
 }
 
 pub fn valueGetInt(v: c.JSValue) c_int {

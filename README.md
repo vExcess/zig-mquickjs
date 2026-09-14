@@ -13,6 +13,7 @@ Build example: `zig build example -Doptimize=ReleaseFast`
 Run microbenchmark: `zig build microbench -Doptimize=ReleaseFast`  
 Run octane benchmark: `zig build octane -Doptimize=ReleaseFast`  
 Run tests: `zig build test -Doptimize=ReleaseFast`  
+UB-detector test mode: `zig build -Doptimize=ReleaseSafe && ./tests/difftest/run-safe.sh`  
 Soft-float libm (optional): add `-Dsoftfloat=true` to any of the above.  
 
 Build mqjs for wasm: `zig build wasm -Doptimize=ReleaseFast`  

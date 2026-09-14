@@ -171,6 +171,7 @@ pub const mbSetMtag = mi.mbSetMtag;
 pub const objectClassId = mi.objectClassId;
 pub const float64Value = mi.float64Value;
 pub const valueFromPtr = mi.valueFromPtr;
+pub const valueFromAddr = mi.valueFromAddr;
 pub const valueToPtr = mi.valueToPtr;
 pub const valueGetInt = mi.valueGetInt;
 pub const valueGetSpecialTag = mi.valueGetSpecialTag;
