@@ -10,22 +10,16 @@ pub fn longjmp(env: *anyopaque, val: c_int) noreturn {
     }
 }
 
-pub fn setjmp(env: *anyopaque) c_int {
-    return nativeSetjmp(env);
-}
+/// libc `setjmp`. Call this **directly** from the function that handles the
+/// second return (`JS_Parse2`). A Zig wrapper is not inlined in Debug, so
+/// `longjmp` would resume in a dead frame (ReleaseFast/Safe hid this).
+pub extern fn setjmp(env: *anyopaque) c_int;
 
 pub fn invokeParse(state_ptr: *anyopaque, eval_flags: c_int) c_int {
     if (is_wasm) {
         return wasmInvokeParse(state_ptr, @intCast(eval_flags));
     }
     return 0;
-}
-
-fn nativeSetjmp(env: *anyopaque) c_int {
-    const libc = struct {
-        extern fn setjmp(e: *anyopaque) c_int;
-    };
-    return libc.setjmp(env);
 }
 
 fn nativeLongjmp(env: *anyopaque, val: c_int) noreturn {

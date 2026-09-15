@@ -55,8 +55,12 @@ fixes 15 (`-m32` float64 blocks), 16 (`JSCFunctionDef` print stride), 17
 (`js_dump_object` `default:`), 18 (host `scriptArgs` argv), 19
 (`JS_DumpMemory` tag-line `\\n`), 20 (function-body first-token re-lex) and 21
 (Zig-only default-arg comma skip) and it **passes**. Fixes 1–21 are therefore
-all Octane-gated. Ask for a fresh batch after the *next* engine fix, not
-before discovery turns.
+all Octane-gated.
+
+**Post ReleaseSafe (2026-09-14 evening):** user confirmed Octane **passes
+under `-Doptimize=ReleaseSafe`**. The UB-detector gate is now the full
+difftest corpus + bytecode.sh + Octane. Ask for a fresh batch after the
+*next* engine fix, not before discovery turns.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -695,12 +699,15 @@ exit codes, and bytecode sizes still ALL MATCH vs C. ReleaseFast is unbroken.
 `./tests/difftest/run-safe.sh` is the panic gate (run.sh + bytecode.sh at 16M).
 
 `build.zig` no longer refuses Debug/ReleaseSafe; it prints a "test mode,
-slower" note. Debug mode is **not** gated yet (same checks, no optimization;
-do not block on it).
+slower" note. Debug **compiles**. `setjmp` must be a direct libc call from
+`JS_Parse2` (`callconv(.c)`): a Zig wrapper is not inlined in Debug, so
+`longjmp` from `js_parse_error` resumed a dead frame — that was the
+`14_hostile_args.js` `JSON.parse` SEGV at address 0x8. Dump/print and the
+full 16M difftest corpus now ALL MATCH vs C under Debug.
 
 **Payoff:** a ReleaseSafe panic from here on is a genuine bug. Keep
-ReleaseFast as shipping/perf; ReleaseSafe is a test mode. Ask the user to
-batch Octane under ReleaseSafe after this lands.
+ReleaseFast as shipping/perf; ReleaseSafe is a test mode. Octane under
+ReleaseSafe **passes** (user-confirmed 2026-09-14 evening).
 
 #### Site table (verdict: (a) real latent UB, (b) safe-but-unprovable pattern)
 
@@ -719,6 +726,8 @@ batch Octane under ReleaseSafe after this lands.
 | `js_get_short_float` `rotl64 + ADDEND` | tagged-float encoding wrap | **(a)** wrapping add |
 | `hashProp` `@intCast((prop/jsw)^(prop%jsw))` | pointer keys, C returns `uint32_t` | **(a)** `@truncate` (`mquickjs.c:2451-2454`) |
 | `dtoa` `udiv1norm` extra `- d` | unsigned borrow into `q` | **(a)** wrapping sub/add (`dtoa.c:127-129`) |
+| `js_vprintf` `@cVaArg` | Debug self-hosted backend: `auto does not support var args` | **(b)** `callconv(.c)` on the consumer of an already-started `va_list` (`mquickjs_utils_lib.zig`). LLVM (ReleaseSafe/Fast) already accepted `.auto`. |
+| `sjlj.setjmp` wrapper | Debug does not inline; `longjmp` resumed a dead frame | **(a)** `pub extern fn setjmp` called directly from `JS_Parse2` (`callconv(.c)`). ReleaseFast/Safe inlined the wrapper so JSON.parse errors looked fine. |
 
 Do not sprinkle more `@setRuntimeSafety(false)`. `valueToPtr` is the one
 tagged-pointer exception, with a comment naming the invariant.
@@ -1217,18 +1226,18 @@ Home is ecryptfs — the two cache vars are mandatory.
   valueToPtr's @setRuntimeSafety, wrapping arithmetic, classObj FAM derivation,
   or gc_update_threaded_pointers taking usize.
 - kernelExp latent @intCast spots are fixed (@bitCast / wrapping).
-- ./tests/difftest/run-safe.sh is the panic gate.
+- Debug **compiles** (`js_vprintf` `callconv(.c)`; `setjmp` is a direct libc
+  extern from `JS_Parse2`). 16M difftest ALL MATCH vs C.
 
 ## Highest-priority next work
-1. Ask the user to batch Octane under ReleaseSafe
-   (`zig build octane -Doptimize=ReleaseSafe`) — that is the remaining UB
-   detector. ReleaseFast Octane is still clean through fix 21.
-2. Debug does **not** compile: `js_vprintf` (`mquickjs_utils_lib.zig:261`)
-   `error: auto does not support var args` because `@cVaArg` lives in a
-   Zig-convention function. Do not block other work on it. Fixing that is
-   the Debug-mode gate.
+1. Octane under ReleaseSafe **passes** (user-confirmed 2026-09-14 evening).
+   Do not re-run it for discovery; it is a regression gate after the next fix.
+2. Debug **compiles** (`js_vprintf` `callconv(.c)`; `setjmp` is a direct
+   libc extern from `JS_Parse2`). `14_hostile_args.js` JSON.parse SEGV is
+   fixed; 16M difftest ALL MATCH vs C.
 3. Zig-only suite still missing: `tests/zigonly/` for fix 21 default args,
-   let/const-as-var, global eval.
+   let/const-as-var, global eval. Highest-yield remaining *test* work: C
+   cannot cover these.
 4. JSObjectExt union sizeof 40 vs 48 — not a heap bug; leave it.
 5. Do not sprinkle more @setRuntimeSafety(false). valueToPtr is the one
    tagged-pointer exception.

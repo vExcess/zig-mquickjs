@@ -7,10 +7,10 @@ alwaysApply: true
 
 Read `debug-notes.md` before diagnosing GC, parse, math, or correctness issues.
 
-- **Current phase (2026-09-14): ReleaseSafe is the UB detector.** Difftest + bytecode (`-o`/`-m32`) run with no panics. `./tests/difftest/run-safe.sh` after `-Doptimize=ReleaseSafe`. A panic is a genuine bug. C differential testing is saturated. See "ReleaseSafe phase — DONE" in `debug-notes.md`.
-- Octane is **resolved**, clean through fix 21 (ReleaseFast). Ask for a ReleaseSafe Octane batch as the remaining UB sweep.
+- **Current phase (2026-09-14): ReleaseSafe is the UB detector.** Difftest + bytecode (`-o`/`-m32`) + Octane run with no panics. `./tests/difftest/run-safe.sh` after `-Doptimize=ReleaseSafe`. A panic is a genuine bug. C differential testing is saturated. See "ReleaseSafe phase — DONE" in `debug-notes.md`.
+- Octane is **resolved**, clean through fix 21 on ReleaseFast **and** ReleaseSafe (user-confirmed 2026-09-14).
 - **Legacy discovery (saturated):** `./tests/difftest/run.sh` (C reference at `../mquickjs/mqjs`). Still the ReleaseFast regression gate.
-- Debug does **not** compile yet (`js_vprintf` `@cVaArg` / `auto does not support var args`). Do not block on it.
+- Debug **compiles**. `setjmp` is a direct libc extern (a Zig wrapper is not inlined in Debug, so `longjmp` resumed a dead frame — that was the `14_hostile_args.js` / `JSON.parse` SEGV). Difftest ALL MATCH vs C under Debug at 16M.
 - Compare only against `../mquickjs` (C). Do not search other workspace dirs.
 - Build `-Doptimize=ReleaseFast` for shipping; `-Doptimize=ReleaseSafe` for UB checks. Do not revert `valueToPtr`'s `@setRuntimeSafety`.
 - C `JS_POP_VALUE` assigns the GC-updated pointer back. Never discard `popValue` when the local is used after a GC-capable call.

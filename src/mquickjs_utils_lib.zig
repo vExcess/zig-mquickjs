@@ -258,7 +258,10 @@ const VaListPtr = switch (builtin.cpu.arch) {
     else => @compileError("js_vprintf: unsupported CPU arch"),
 };
 
-pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]const u8, ap: *anyopaque) void {
+/// Consume a C `va_list` already started by the caller. Must be `callconv(.c)`:
+/// Zig 0.16's self-hosted x86_64 backend (Debug) rejects `@cVaArg` in `.auto`
+/// (`error: auto does not support var args`). LLVM (ReleaseSafe/Fast) did not.
+pub fn js_vprintf(write_func: mc.JSWriteFn, opaque_val: ?*anyopaque, fmt: [*:0]const u8, ap: *anyopaque) callconv(.c) void {
     const vap: VaListPtr = @ptrCast(@alignCast(ap));
     var fmt_ptr: [*c]const u8 = fmt;
     var tmp_buf: [32]u8 = undefined;

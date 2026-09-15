@@ -922,7 +922,7 @@ fn handleParseError(
     return val;
 }
 
-pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) c.JSValue {
+pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8, input_len: usize, filename: [*:0]const u8, eval_flags: c_int) callconv(.c) c.JSValue {
     var parse_state: JSParseState = undefined;
     var str_buf: [5]u8 = undefined;
     const s: *JSParseState = if (is_wasm) blk: {
@@ -965,6 +965,8 @@ pub fn JS_Parse2(ctx: *c.JSContext, source_str: c.JSValue, input: ?[*:0]const u8
         return wasm_parse_result;
     }
 
+    // Direct libc setjmp (not a Zig wrapper): Debug does not inline, and
+    // longjmp must resume this C-ABI frame. callconv(.c) matches SysV regs.
     if (sjlj.setjmp(@ptrCast(&s.jmp_env)) != 0) {
         return handleParseError(ctx, s, saved_top_gc_ref, saved_sp, filename, eval_flags);
     }

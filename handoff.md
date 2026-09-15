@@ -31,8 +31,8 @@ export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig   # if zig not on PATH
 ### Required optimize mode
 
 **ReleaseFast / ReleaseSmall** are shipping. **ReleaseSafe** is the UB-detector
-test mode (`./tests/difftest/run-safe.sh`). Debug does not compile yet
-(`js_vprintf` `@cVaArg` / `auto does not support var args`).
+test mode (`./tests/difftest/run-safe.sh`). Debug compiles; `setjmp` is a
+direct libc call from `JS_Parse2` (a wrapper is not inlined in Debug).
 
 Tagged-pointer JSValues (`value = ptr + 1`) are handled in `valueToPtr`
 (`@setRuntimeSafety(false)` + wrapping sub). Do not restore the old
