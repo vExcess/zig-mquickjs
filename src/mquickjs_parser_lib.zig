@@ -354,6 +354,11 @@ fn js_parse_function(s: *JSParseState) void {
                 lexer.js_parse_error(s, "too many default parameters");
             lexer.next_token(s);
             lexer.js_parse_get_pos(s, &default_pos[@intCast(default_count)]);
+            // After `=`, `/` starts a regexp. js_parse_get_pos infers
+            // regexp_allowed from the *current* token, so a default that
+            // is itself a regexp (TOK_REGEXP) would seek with allowed=0
+            // and re-lex `/` as division.
+            default_pos[@intCast(default_count)].regexp_allowed = 1;
             lexer.js_skip_assign_expr(s);
             default_arg_idx[@intCast(default_count)] = arg_idx;
             default_count += 1;
@@ -373,6 +378,9 @@ fn js_parse_function(s: *JSParseState) void {
     if (default_count > 0) {
         var body_pos: JSParsePos = undefined;
         lexer.js_parse_get_pos(s, &body_pos);
+        // Previous token is `{`, which allows regexp. Same seek trap as
+        // default args if the body starts with a regexp literal.
+        body_pos.regexp_allowed = 1;
         var i: c_int = 0;
         while (i < default_count) : (i += 1) {
             emit_arg_default(s, default_arg_idx[@intCast(i)], &default_pos[@intCast(i)]);

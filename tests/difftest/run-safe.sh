@@ -6,11 +6,11 @@
 # then:
 #   ./tests/difftest/run-safe.sh
 #
-# This is run.sh + bytecode.sh + zigonly/run.sh against the current Zig
-# binary. Default memory limit is 16M (enough to catch panics without the
-# full 4-limit sweep). Any abort, panic, stdout/exit-code diff vs C,
-# bytecode size drift, or zigonly expected-output mismatch is a fail.
-# After this phase, a ReleaseSafe panic is a genuine bug.
+# This is run.sh + bytecode.sh + zigonly/run.sh + oracle/run.sh against the
+# current Zig binary. Default memory limit is 16M (enough to catch panics
+# without the full 4-limit sweep). Any abort, panic, stdout/exit-code diff
+# vs C, bytecode size drift, zigonly/oracle expected-output mismatch is a
+# fail. After this phase, a ReleaseSafe panic is a genuine bug.
 
 set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -21,6 +21,8 @@ status=$?
 bstatus=$?
 "$HERE/../zigonly/run.sh"
 zstatus=$?
-if [ "$status" != "0" ] || [ "$bstatus" != "0" ] || [ "$zstatus" != "0" ]; then
+"$HERE/../oracle/run.sh"
+ostatus=$?
+if [ "$status" != "0" ] || [ "$bstatus" != "0" ] || [ "$zstatus" != "0" ] || [ "$ostatus" != "0" ]; then
   exit 1
 fi

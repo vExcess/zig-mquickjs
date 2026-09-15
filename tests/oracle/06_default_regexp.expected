@@ -1,0 +1,7 @@
+ok re default
+ok re passed
+ok body re
+ok method re
+ok Function re
+ok mix
+DONE 06_default_regexp.js

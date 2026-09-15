@@ -589,6 +589,25 @@ No C-compared difftest: C cannot parse the repro. Zig-only checks live in
 `Math.max(1,2)`, `f(undefined)` uses the default. `for (i=0,j=10; i<3;
 i++, j--)` still matches C.
 
+### 22. Default-arg re-lex treated `/` as division
+
+Zig-only. After fix 21, `function f(a = /x/g)` and `function f(a = 1) { /z/; }`
+threw `SyntaxError: unexpected character in expression`.
+
+Default-arg emission seeks back with `js_parse_get_pos` / `js_parse_seek_token`
+(C never does this). `get_pos` stores `regexp_allowed =
+is_regexp_allowed(current token)`. A default or body that *starts* with a
+regexp is already `TOK_REGEXP`, so `is_regexp_allowed` is false; seek fakes a
+previous `)` and re-lexes `/` as division.
+
+Fix: after saving `default_pos` (token follows `=`) and `body_pos` (token
+follows `{`), set `regexp_allowed = 1`. Do not change `js_parse_get_pos`
+itself (C for-loop skip uses it).
+
+Regression: `tests/oracle/06_default_regexp.js` (declaration, method,
+`Function()`, mixed params, body starting with `/z/`). Independent oracle
+suite lives in `tests/oracle/` — no C reference; self-checking + `.expected`.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -656,6 +675,7 @@ regression gate.
 | Grok (2026-09-14) | ReleaseSafe phase: relax build guard; `valueToPtr` tagged-pointer safety; wrapping arithmetic (kernelExp/pow/sincos/dtoa/ToInt32/hashProp/short-float); `classObj` from FAM; 64to32 offset-0 as usize | difftest + bytecode.sh ALL MATCH in ReleaseSafe and ReleaseFast |
 | Grok (2026-09-14) | Debug: `js_vprintf` `callconv(.c)` (`@cVaArg`); `setjmp` as direct libc extern from `JS_Parse2` (`callconv(.c)`) — wrapper was not inlined, JSON.parse longjmp SEGVd `14_hostile_args.js` | Debug 16M `run.sh` ALL MATCH vs C; user: Fast `-o` exact, Safe padding-only (expected) |
 | Grok (2026-09-14 night) | `tests/zigonly/` expected-output suite (fix 21 defaults, let/const-as-var, global eval); Debug `bytecode.sh` | zigonly ALL MATCH Fast/Safe/Debug + `-o`/`-b` roundtrip; Debug bytecode ALL MATCH (28× 64-bit padding notes, no SIZE/EXEC DIFF); `run-safe.sh` now includes zigonly |
+| Grok (2026-09-14 night) | Independent `tests/oracle/` (no C); fix 22 (default-arg `/` re-lexed as division) | oracle ALL MATCH Fast/Safe; zigonly ALL MATCH |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 

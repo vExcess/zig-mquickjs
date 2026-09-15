@@ -1,0 +1,9 @@
+ok fobj
+ok fstr
+ok closure
+ok fexpr
+ok method
+ok nested
+ok Function
+ok side
+DONE 02_default_gc.js

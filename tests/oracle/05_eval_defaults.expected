@@ -1,0 +1,5 @@
+ok from_eval
+ok eval-global default
+ok Function single
+ok Function nest
+DONE 05_eval_defaults.js

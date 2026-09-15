@@ -1,0 +1,5 @@
+ok define 200
+ok getter
+ok dynkey
+ok in
+DONE 03_defineprop_gc.js
