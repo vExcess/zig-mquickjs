@@ -32,7 +32,7 @@ pub inline fn ctxExt(ctx: *c.JSContext) *JSContextExt {
 ///
 /// Returning an already-aligned pointer keeps every caller's `@alignCast` a
 /// no-op, so runtime safety stays on everywhere else in the engine.
-pub fn valueToPtr(val: c.JSValue) *align(@alignOf(c.JSWord)) anyopaque {
+pub inline fn valueToPtr(val: c.JSValue) *align(@alignOf(c.JSWord)) anyopaque {
     @setRuntimeSafety(false);
     return @ptrFromInt(@as(usize, @truncate(val -% 1)));
 }
@@ -45,28 +45,28 @@ pub fn valueFromPtr(ptr: *anyopaque) c.JSValue {
     return valueFromAddr(@intFromPtr(ptr));
 }
 
-pub fn valueGetInt(v: c.JSValue) c_int {
+pub inline fn valueGetInt(v: c.JSValue) c_int {
     const as_int: i32 = @bitCast(@as(u32, @truncate(v)));
     return as_int >> 1;
 }
 
-pub fn valueGetSpecialTag(v: c.JSValue) c.JSWord {
+pub inline fn valueGetSpecialTag(v: c.JSValue) c.JSWord {
     return v & ((@as(c.JSWord, 1) << c.JS_TAG_SPECIAL_BITS) - 1);
 }
 
-pub fn valueGetSpecialValue(v: c.JSValue) c_int {
+pub inline fn valueGetSpecialValue(v: c.JSValue) c_int {
     return @as(c_int, @intCast(v >> c.JS_TAG_SPECIAL_BITS));
 }
 
-pub fn isInt(v: c.JSValue) bool {
+pub inline fn isInt(v: c.JSValue) bool {
     return (v & 1) == c.JS_TAG_INT;
 }
 
-pub fn isPtr(v: c.JSValue) bool {
+pub inline fn isPtr(v: c.JSValue) bool {
     return (v & (c.JSW - 1)) == c.JS_TAG_PTR;
 }
 
-pub fn isShortFloat(v: c.JSValue) bool {
+pub inline fn isShortFloat(v: c.JSValue) bool {
     if (@sizeOf(c.JSWord) != 8) return false;
     return (v & (c.JSW - 1)) == c.JS_TAG_SHORT_FLOAT;
 }
@@ -79,16 +79,16 @@ pub fn isException(v: c.JSValue) bool {
     return valueGetSpecialTag(v) == c.JS_TAG_EXCEPTION;
 }
 
-pub fn alignUp(size: c_uint, alignment: c_uint) c_uint {
+pub inline fn alignUp(size: c_uint, alignment: c_uint) c_uint {
     return (size + alignment - 1) & ~@as(c_uint, alignment - 1);
 }
 
-pub fn mbInit(ptr: *anyopaque, mtag: c_int) void {
+pub inline fn mbInit(ptr: *anyopaque, mtag: c_int) void {
     const w: *c.JSWord = @ptrCast(@alignCast(ptr));
     w.* = @as(c.JSWord, @intCast(mtag)) << 1;
 }
 
-pub fn mbGetMtag(ptr: *anyopaque) c_int {
+pub inline fn mbGetMtag(ptr: *anyopaque) c_int {
     const w: *const c.JSWord = @ptrCast(@alignCast(ptr));
     return @intCast((w.* >> 1) & 0x7);
 }
@@ -104,7 +104,7 @@ pub fn mbSetFreeBlock(ptr: *anyopaque, size: c_uint) void {
     w.* = (@as(c.JSWord, @intCast(ut.JS_MTAG_FREE)) << 1) | (@as(c.JSWord, payload_words) << 4);
 }
 
-pub fn objectClassId(p: *const JSObjectExt) c_int {
+pub inline fn objectClassId(p: *const JSObjectExt) c_int {
     return @intCast((p.header >> 4) & 0xff);
 }
 
@@ -222,11 +222,11 @@ pub fn get_u8(p: [*]const u8) u8 {
     return p[0];
 }
 
-pub fn get_u16(p: [*]const u8) u32 {
+pub inline fn get_u16(p: [*]const u8) u32 {
     return @as(*align(1) const u16, @ptrCast(p)).*;
 }
 
-pub fn get_u32(p: [*]const u8) u32 {
+pub inline fn get_u32(p: [*]const u8) u32 {
     return @as(*align(1) const u32, @ptrCast(p)).*;
 }
 

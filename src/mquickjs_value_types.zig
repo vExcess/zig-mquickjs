@@ -137,20 +137,21 @@ pub fn utf8CharLen(byte: u8) c_int {
     return 1;
 }
 
-pub fn hashProp(prop: c.JSValue) u32 {
-    const jsw: c.JSValue = @intCast(c.JSW);
+pub inline fn hashProp(prop: c.JSValue) u32 {
     // C returns uint32_t from a JSValue expression (mquickjs.c:2451-2454), so
     // the high bits of a pointer key are discarded by definition there.
+    // `@sizeOf` is comptime, so `/` and `%` become shifts for JSW=8.
+    const jsw: c.JSValue = @sizeOf(c.JSWord);
     return @truncate((prop / jsw) ^ (prop % jsw));
 }
 
-pub fn jsIsRomPtr(ctx: *c.JSContext, ptr: *const anyopaque) bool {
+pub inline fn jsIsRomPtr(ctx: *c.JSContext, ptr: *const anyopaque) bool {
     const x = mc.ctxExt(ctx);
     const p = @intFromPtr(ptr);
     return p < @intFromPtr(ctx) or p >= @intFromPtr(x.stack_top);
 }
 
-pub fn classProto(x: *mc.JSContextExt, class_id: c_int) *c.JSValue {
+pub inline fn classProto(x: *mc.JSContextExt, class_id: c_int) *c.JSValue {
     const proto: [*]c.JSValue = @ptrCast(@alignCast(&x.class_proto));
     return &proto[@intCast(class_id)];
 }
@@ -215,7 +216,7 @@ pub inline fn findOwnPropertyInlined(p: *mc.JSObjectExt, prop: c.JSValue) ?*JSPr
     return null;
 }
 
-pub fn objectOffsetOfU() c_uint {
+pub inline fn objectOffsetOfU() c_uint {
     return @intCast(@offsetOf(mc.JSObjectExt, "u"));
 }
 

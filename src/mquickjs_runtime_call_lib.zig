@@ -219,6 +219,70 @@ inline fn runBinaryLogicSlow(
     sp.* += 1;
     return false;
 }
+
+const AfterReturn = enum { dispatch, done, exception };
+
+inline fn doGenericReturn(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: *[*]c.JSValue,
+    b: *rt.JSFunctionBytecodeExt,
+    val: *c.JSValue,
+) void {
+    var val2 = rt.slot(fp, rt.FRAME_OFFSET_FIRST_VARREF).*;
+    while (val2 != c.JS_NULL) {
+        const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(val2)));
+        val2 = pv.u.live.next;
+        std.debug.assert(!rt.varRefIsDetached(pv));
+        pv.u.value = pv.u.live.pvalue.*;
+        vt.varRefSetDetached(pv, true);
+        utils.set_free_block(
+            @ptrFromInt(@intFromPtr(pv) + @sizeOf(vt.JSVarRefExt) - @sizeOf(c.JSValue)),
+            @intCast(@sizeOf(c.JSValue)),
+        );
+    }
+    const call_flags = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CALL_FLAGS).*);
+    if ((call_flags & rt.FRAME_CF_CTOR) != 0) {
+        if (!vt.isExactException(val.*) and value.JS_IsObject(ctx, val.*) == 0) {
+            val.* = rt.slot(fp, rt.FRAME_OFFSET_THIS_OBJ).*;
+        }
+    }
+    const argc = max_int(call_flags & rt.FRAME_CF_ARGC_MASK, rt.bytecodeArgCount(b));
+    sp.* = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0 + argc));
+}
+
+inline fn doReturnCall(
+    ctx: *c.JSContext,
+    initial_fp: [*]c.JSValue,
+    fp: *[*]c.JSValue,
+    sp: *[*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    has_pc: *bool,
+    val: c.JSValue,
+) AfterReturn {
+    const call_flags = vt.valueGetInt(rt.slot(fp.*, rt.FRAME_OFFSET_CALL_FLAGS).*);
+    fp.* = rt.valueToSp(ctx, rt.slot(fp.*, rt.FRAME_OFFSET_SAVED_FP).*);
+    if (@intFromPtr(fp.*) == @intFromPtr(initial_fp))
+        return .done;
+    const pc_offset = vt.valueGetInt(rt.slot(fp.*, rt.FRAME_OFFSET_CUR_PC).*);
+    const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp.*, rt.FRAME_OFFSET_FUNC_OBJ).*)));
+    b.* = @ptrCast(@alignCast(mc.valueToPtr(po.u.closure.func_bytecode)));
+    const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.*.?.byte_code)));
+    pc.* = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(pc_offset));
+    has_pc.* = true;
+    if (vt.isExactException(val))
+        return .exception;
+    if ((call_flags & rt.FRAME_CF_POP_RET) == 0) {
+        sp.* -= 1;
+        sp.*[0] = val;
+    }
+    if ((call_flags & rt.FRAME_CF_PC_ADD1) == 0)
+        pc.* += 2;
+    return .dispatch;
+}
+
+
 pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
     const x = mc.ctxExt(ctx);
     var call_flags = call_flags_in;
@@ -247,27 +311,25 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
     outer: while (true) {
         switch (state) {
             .done => break :outer,
-            .generic_function_call => {
-                x.interrupt_counter -= 1;
-                if (x.interrupt_counter <= 0) {
-                    @branchHint(.unlikely);
-                    saveFrame(ctx, fp, sp, pc, b.?);
-                    val = coerce.__js_poll_interrupt(ctx);
-                    const restored = restorePc(fp);
-                    b = restored.b;
-                    pc = restored.pc;
-                    if (vt.isExactException(val)) {
-                        state = .exception;
-                        continue :outer;
+            .generic_function_call, .function_call => {
+                if (state == .generic_function_call) {
+                    x.interrupt_counter -= 1;
+                    if (x.interrupt_counter <= 0) {
+                        @branchHint(.unlikely);
+                        saveFrame(ctx, fp, sp, pc, b.?);
+                        val = coerce.__js_poll_interrupt(ctx);
+                        const restored = restorePc(fp);
+                        b = restored.b;
+                        pc = restored.pc;
+                        if (vt.isExactException(val)) {
+                            state = .exception;
+                            continue :outer;
+                        }
                     }
+                    const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
+                    const off: i32 = @intCast(@intFromPtr(pc) - @intFromPtr(vt.byteArrayBuf(byte_code)));
+                    rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).* = vt.newShortInt(off);
                 }
-                const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
-                const off: i32 = @intCast(@intFromPtr(pc) - @intFromPtr(vt.byteArrayBuf(byte_code)));
-                rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).* = vt.newShortInt(off);
-                state = .function_call;
-                continue :outer;
-            },
-            .function_call => {
                 sp -= 1;
                 sp[0] = vt.newShortInt(call_flags);
                 sp -= 1;
@@ -513,54 +575,16 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 continue :outer;
             },
             .generic_return => {
-                var val2 = rt.slot(fp, rt.FRAME_OFFSET_FIRST_VARREF).*;
-                while (val2 != c.JS_NULL) {
-                    const pv: *vt.JSVarRefExt = @ptrCast(@alignCast(mc.valueToPtr(val2)));
-                    val2 = pv.u.live.next;
-                    std.debug.assert(!rt.varRefIsDetached(pv));
-                    pv.u.value = pv.u.live.pvalue.*;
-                    vt.varRefSetDetached(pv, true);
-                    utils.set_free_block(
-                        @ptrFromInt(@intFromPtr(pv) + @sizeOf(vt.JSVarRefExt) - @sizeOf(c.JSValue)),
-                        @intCast(@sizeOf(c.JSValue)),
-                    );
-                }
-                call_flags = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CALL_FLAGS).*);
-                if ((call_flags & rt.FRAME_CF_CTOR) != 0) {
-                    if (!vt.isExactException(val) and value.JS_IsObject(ctx, val) == 0) {
-                        val = rt.slot(fp, rt.FRAME_OFFSET_THIS_OBJ).*;
-                    }
-                }
-                argc = call_flags & rt.FRAME_CF_ARGC_MASK;
-                argc = max_int(argc, rt.bytecodeArgCount(b.?));
-                sp = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0 + argc));
+                doGenericReturn(ctx, fp, &sp, b.?, &val);
                 state = .return_call;
                 continue :outer;
             },
             .return_call => {
-                call_flags = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CALL_FLAGS).*);
-                fp = rt.valueToSp(ctx, rt.slot(fp, rt.FRAME_OFFSET_SAVED_FP).*);
-                if (@intFromPtr(fp) == @intFromPtr(initial_fp)) {
-                    state = .done;
-                    continue :outer;
+                switch (doReturnCall(ctx, initial_fp, &fp, &sp, &pc, &b, &has_pc, val)) {
+                    .done => state = .done,
+                    .exception => state = .exception,
+                    .dispatch => state = .dispatch,
                 }
-                const pc_offset = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).*);
-                const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp, rt.FRAME_OFFSET_FUNC_OBJ).*)));
-                b = @ptrCast(@alignCast(mc.valueToPtr(po.u.closure.func_bytecode)));
-                const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
-                pc = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(pc_offset));
-                has_pc = true;
-                if (vt.isExactException(val)) {
-                    state = .exception;
-                    continue :outer;
-                }
-                if ((call_flags & rt.FRAME_CF_POP_RET) == 0) {
-                    sp -= 1;
-                    sp[0] = val;
-                }
-                if ((call_flags & rt.FRAME_CF_PC_ADD1) == 0)
-                    pc += 2;
-                state = .dispatch;
                 continue :outer;
             },
             .dispatch => {
@@ -1714,6 +1738,19 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             };
                             sp[1] = rt.newBool(cmp);
                             sp += 1;
+                        } else if (rt.isBothShortFloat(op1, op2)) {
+                            const a = jsGetShortFloat(op1);
+                            const bbv = jsGetShortFloat(op2);
+                            const cmp: bool = switch (opcode) {
+                                OP.lt => a < bbv,
+                                OP.lte => a <= bbv,
+                                OP.gt => a > bbv,
+                                OP.gte => a >= bbv,
+                                OP.eq, OP.strict_eq => a == bbv,
+                                else => a != bbv,
+                            };
+                            sp[1] = rt.newBool(cmp);
+                            sp += 1;
                         } else {
                             saveFrame(ctx, fp, sp, pc, b.?);
                             val = switch (opcode) {
@@ -1811,13 +1848,33 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     },
                     OP.@"return" => {
                         val = sp[0];
-                        state = .generic_return;
-                        continue :outer;
+                        doGenericReturn(ctx, fp, &sp, b.?, &val);
+                        switch (doReturnCall(ctx, initial_fp, &fp, &sp, &pc, &b, &has_pc, val)) {
+                            .dispatch => continue,
+                            .done => {
+                                state = .done;
+                                continue :outer;
+                            },
+                            .exception => {
+                                state = .exception;
+                                continue :outer;
+                            },
+                        }
                     },
                     OP.return_undef => {
                         val = c.JS_UNDEFINED;
-                        state = .generic_return;
-                        continue :outer;
+                        doGenericReturn(ctx, fp, &sp, b.?, &val);
+                        switch (doReturnCall(ctx, initial_fp, &fp, &sp, &pc, &b, &has_pc, val)) {
+                            .dispatch => continue,
+                            .done => {
+                                state = .done;
+                                continue :outer;
+                            },
+                            .exception => {
+                                state = .exception;
+                                continue :outer;
+                            },
+                        }
                     },
                     else => {
                         const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));

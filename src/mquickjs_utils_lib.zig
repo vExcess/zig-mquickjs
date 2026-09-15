@@ -171,7 +171,7 @@ pub fn js_malloc(ctx: *c.JSContext, size: c_uint, mtag: c_int) ?*anyopaque {
     if (size == 0)
         return null;
 
-    const aligned_size = mc.alignUp(size, c.JSW);
+    const aligned_size = mc.alignUp(size, @sizeOf(c.JSWord));
     const x = mc.ctxExt(ctx);
     if (check_free_mem(ctx, x.stack_bottom, aligned_size) != 0)
         return null;

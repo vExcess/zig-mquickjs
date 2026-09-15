@@ -1020,7 +1020,7 @@ pub fn JS_ToBool(ctx: *c.JSContext, val: c.JSValue) c_int {
         }
     } else {
         const h = mc.valueToPtr(val);
-        switch (utils.js_get_mtag(h)) {
+        switch (mc.mbGetMtag(h)) {
             mc.JS_MTAG_STRING => {
                 const p: *vt.JSStringExt = @ptrCast(@alignCast(h));
                 return @intFromBool(vt.stringLen(p) != 0);
@@ -1253,7 +1253,7 @@ pub fn js_shrink_byte_array(ctx: *c.JSContext, pval: *c.JSValue, new_size: c_int
 }
 
 pub fn JS_NewObjectProtoClass1(ctx: *c.JSContext, proto: c.JSValue, class_id: c_int, extra_size_in: c_int) ?*mc.JSObjectExt {
-    const jsw: c_uint = @intCast(c.JSW);
+    const jsw: c_uint = @sizeOf(c.JSWord);
     const extra_size: c.JSWord = @intCast((@as(c_uint, @bitCast(extra_size_in)) + jsw - 1) / jsw);
     var proto_ref: c.JSGCRef = undefined;
     var proto_mut = proto;
