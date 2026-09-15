@@ -37,6 +37,14 @@ handling, `return -1` vs `JS_EXCEPTION`, seek/`regexp_allowed` — the class tha
 produced fix 25. Do not chase Safe/Debug bytecode padding bytes. Size diffs
 are bugs. A Safe/Debug panic is still a bug.
 
+**Probe before every fix (mandatory).** A static C-vs-Zig mismatch is a
+hypothesis, not a bug. Run the same snippet on `../mquickjs/mqjs` and
+`./zig-out/bin/mqjs` (or a ReleaseSafe panic) and show they differ **before**
+editing engine source. False "fix 29" (2026-09-15): Zig unlabeled `break`
+inside a `switch` in a `while` already exits the loop; C `break` only leaves
+the switch. User ran `[1,2,3].every(() => { n++; return false })` on an old
+wasm build and got `n=1`. The labeled-loop change was reverted. Do not repeat.
+
 ---
 
 ## Octane status — RESOLVED (2026-08-15 evening)
@@ -70,8 +78,9 @@ difftest corpus + bytecode.sh + Octane. Ask for a fresh batch after the
 *next* engine fix, not before discovery turns.
 
 **Post fix 22–24:** user confirmed Octane after each (2026-09-14 night).
-**Post fix 25–26:** Octane batch **pending** (asked; not yet user-confirmed).
-**Post fix 28:** include in the same Octane batch.
+**Post fix 25–26 and 28:** user confirmed Octane **runs without error** (2026-09-15).
+Zig is slower than C and has gotten slower across fixes; it was slower to
+begin with. Leave performance for last.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -737,12 +746,17 @@ defaults, regexp after `~`/`!`/`typeof` in defaults, `eval` of non-strings
   SyntaxError
 - `function.length` with defaults is the param count, not ES6 length
 - Hoisted inner `function g` is visible during default eval (var-hoist)
+- Zig unlabeled `break` inside `switch` in a `while` exits the **loop**
+  (C `break` only leaves the switch). False "fix 29" (reverted). Probe:
+  `var n=0; [1,2,3].every(function(){ n++; return false; }); print(n);`
+  → both print `1`. Keep `everyStop`/`someStop` in `08_arrays_json.js`.
 
-How fix 25 was found (reuse this *method*, not more probes): C
+How fix 25 was found (reuse this *method*, not more unprobed sweeps): C
 `js_function_call` does `argc = max_int(argc, 1)`; Zig omitted it. The VM
 passes **original** argc (0 for `fn.call()`), while `fd.arg_count` only
 **pads** argv. `newTailCall(-1)` is `JS_EXCEPTION` (EX_NORMAL), not a tail
-call.
+call. **Still probe C vs Zig before editing** — static mismatch alone is
+not enough (see false fix 29).
 
 ---
 
@@ -819,6 +833,29 @@ regression gate.
 | Grok (2026-09-14 night) | Notes + cursor rule: regression mode DONE as discovery; CURRENT handoff is static analysis vs C | — |
 | Grok (2026-09-14 night) | Fix 27 applied then reverted: C `JS_CFUNC_f_f` dead-stores EXCEPTION → NaN; Zig/Node throw | oracle 09; do not match C |
 | Grok (2026-09-15) | Fix 28: array literal missing comma parsed as implicit comma (`[1 2]` → `[1, 2]`) | difftest 28; C `goto done` |
+| Grok (2026-09-15) | **False fix 29 (reverted):** treated Zig `break` in `js_array_every` switch as C switch-break. User wasm probe: `every` short-circuit `n=1`. Unlabeled Zig `break` already exits the `while`. | `08_arrays_json.js` `everyStop`/`someStop` kept as C-diff coverage |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_string_split`/`replace`/`concat_subst`; `js_array_concat`/`indexOf`/`slice`/`splice`; JS_Call slow paths (`js_add_slow` / binary+unary arith / logic / relational / `js_eq_slow` / `js_for_of_start`/`next`). No omitted clamp, argc, or continue-after-goto. `captures_len-1` only runs when `capture_buf` is set; regexp `capture_count` starts at 1. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: parser unary/postfix/logical + cond/assign/comma (direct-eval skip is documented); `get_lvalue`/`put_lvalue`; `js_error_toString`; Date ctor/now; `JS_DefinePropertyInternal`/`js_create_property`; `JS_DeleteProperty`; `JS_ToUint8Clamp`; `define_var`/`js_parse_var`; OP_put_field/put_array_el/define_field; `js_operator_in`/`instanceof`/`typeof`; JSON parse/quote/stringify; `js_string_indexOf`; `js_parse_function_decl` C path; array ctor/push/pop/shift/reverse; FRAME_CF_CTOR sites; typed-array ctor/subarray/`JS_ToIndex`; apply/bind/bound; `js_math_clz32`; `JS_ToPropertyKey`; `compute_stack_size`; `js_fmod` wrapper. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_object_keys`/`hasOwnProperty`; `JS_ToBool` + OP_if_false/if_true/lnot; `js_parse_string`/`js_parse_escape`; postfix `new`/object/array/`./[`/`++` (minus documented direct eval); `js_parse_property_name`; statement try/switch remaining states; `js_exp`/`kernelLog2`/`js_log`/`log2`/`log10`; `js_math_min_max`/`sign`/`fround`/`imul`; `js_string_fromCharCode`/`concat`. hypot/cbrt/hyperbolic are **not in this engine**. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_object_defineProperty`/`getPrototypeOf`/`setPrototypeOf`/`create`; `js_string_slice`/`substring`/`charAt`; `js_regexp_exec`/`match`/`search`; `js_scalbn`; `js_fmin`/`fmax`; `js_get_array`/`js_array_resize`; `string_getcp`/`js_sub_string`/`js_sub_string_utf8`; `js_string_convert_pos`; `jsSinCos`/`js_asin`; floor/ceil/trunc wrappers. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_acos`/`js_atan`/`js_pow`/`js_round_inf`/`rintSf64`; `js_array_join`/`reduce`/`sort`/`rqsort_idx`; `js_string_toLowerCase`/`trim`/`constructor`; `js_typed_array_set`; `js_global_eval`/`isNaN`/`isFinite`; parser statement if/while/do/for/return/throw (let/const-as-var documented); unary `TOK_POW`; remaining JS_Call CFUNC types; `JS_ToPrimitive`/`ToString`/`ToNumber`/`js_atod1`; `js_get_object_class`; `js_function_get_length_name1`; coerce add/arith/logic/relational/`js_eq_slow`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `jsSqrtSoft` vs `__ieee754_sqrt` (dead on this arch; live `js_sqrt` is hw `@sqrt` vs C `sqrt`); `js_rem_pio2`/`remPio2Large`/`kernelSin`/`kernelCos`; Get/SetProperty typed-array elements; `JS_IsNumericProperty`; `js_for_of_start`/`next`; Date host ctor; regexp flags/parse/constructor; `JS_HasProperty`; `findOwnPropertyInlined`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: OP_throw/catch/gosub/ret + exception unwind + `JS_Throw`; `lre_exec` (poll/stack/save/split/lookahead/range/backref); `js_atod` prefix/digits/exp/`build_float`; `js_dtoa_max_len`; OP_drop/nip/dup. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: remaining `js_dtoa` output + `output_digits`/`mul_pow`/`mul_pow_round`/`round_to_d`/`insert_dot`; OP insert/perm/swap + get/put loc/arg/var_ref; `js_function_get/set_prototype`/`toString`; `js_number_toString`/`toFixed`; `js_object_toString`; `js_math_atan2`/`pow`/`random`; `js_tan` (`USE_TAN_SHORTCUT`); `js_error_get_message`; `js_array_get_length`/`isArray`; `js_typed_array_constructor`; parser break/continue/labels; `js_dtoa2`; `JS_ToInt32Sat`/`ToUint32`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `mpb_shr_round`/`mpb_cmp`/`mpb_get_bit`; `JS_ToInt32Internal`; JSON stringify recursion; `js_atan2` internals; OP_get_field/get_length/put_field/get_array_el (+ *2 fallthroughs); parser `put_var`/`emit_var`; `js_parse_json_value`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: GetProperty string/char/`STRING_CHAR`; Date `valueOf`; `skip_spaces`; `js_operator_typeof`/`js_eq_get_type`; OP plus/neg/inc/dec/post_inc/not/shl/shr/sar; `js_pow` libm internals; `js_string_get/set_length`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: OP add/sub/mul/div/mod/pow fast paths; `js_not_slow`; `kernelExp`/`js_exp`; `next_token`/`parseNumber`; `is_regexp_allowed`; `js_parse_ident`; `js_parse_get/seek_pos`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_skip_parens`/`js_skip_expr`/`js_parse_skip_parens_token`; `get_special_prop`/`js_update_props`; SetPropertyInternal leftover (proto lookup / ROM convert / getter-setter); `js_add_slow` + `JS_ConcatString`/`string_buffer_*`; OP delete/for_in/for_of; `JS_DeleteProperty`; `js_typed_array_get_length`/`subarray`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: OP arguments/fclosure/call/call_method/call_constructor/array_from/regexp/object/this_func/new_target; `js_closure`/`js_reverse_val`/`get_var_ref`/`add_global_var`; generic_function_call + CFUNC dispatch; `js_compact_props`/`js_rehash_props`/`get_prop_hash_size_log2`/`js_shrink_value_array`; `js_json_parse`/`js_parse_json`; `js_call_constructor_start`; `__js_poll_interrupt`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: JS_Call generic_return/return_call (varref detach + ctor this + POP_RET/PC_ADD1); `js_parse_program`/`js_parse_source_element`/`js_parse_local_functions`; `convert_ext_vars*`; `resolve_var_refs`/`reset_parse_state`; `find_func_var`/`find_func_ext_var`/`add_func_ext_var`; `JS_NewDate`/`js_date_valueOf`; host Date ctor/now. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `compute_stack_size`/`compute_stack_size_push` (return/throw skip-push ≡ C `goto done`); `add_var`/`js_resize_value_array2`; `js_parse_push_val`/`pop_val`/`parse_stack_alloc`; opcode_info call/array_from vs `mquickjs_opcode.h`; mqjs `js_load`/`load_file`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `JS_Parse2`/`jsParseBody`/`handleParseError`; mqjs `js_print`/`dump_error`; emit leftover (`emit_op_pos`/`param`/`insert`/`label*`/`goto`/`cpool_add`/`js_emit_push_const`/`emit_var`); `js_alloc_function_bytecode`; `js_object_constructor`; ArrayBuffer leftover; `JS_NewObject*`; `js_new_c_function_proto`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `js_parse_statement` leftover (`push/pop_break_entry`/`emit_return`/`emit_break`/`js_parse_block`/`js_parse_var`); `JS_MakeUniqueString`/`find_atom`; `get_mblock_size`/`gc_mark`/`flush`/`mark_all`; `gc_thread_block`/`gc_compact_heap`; `JS_GC`/`JS_GC2`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `JS_NewContext2`/`JS_FreeContext`; `stdlib_init`/`stdlib_init_class` (no `JS_SetPropertyFunctionList` in C); `JS_PrepareBytecode`/`JS_PrepareBytecode64to32`; `JS_StackCheck`/`js_malloc`/`js_mallocz`/`check_free_mem`; `js_number_constructor`/`js_boolean_constructor`; regexp lastIndex/source/flags. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `JS_DumpMemory`/`JS_DumpUniqueStrings`; `JS_PrintValueF` leftover + `js_dump_object`/`dump_string`; mqjs `eval_file`/`eval_buf`/`compile_file`; `JS_ToString` leftover + `JS_ToStringCheckObject`/`JS_ToPrimitive`/`js_dtoa2`; `JS_IsPrimitive`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `reloc_c_func_name` (identity); `JS_Throw`/`ThrowError`/`ThrowOutOfMemory`/`ThrowTypeErrorNotAnObject`; `build_backtrace`/`get_func_name`; `get_short_string`; `js_vprintf`; mqjs `main`/`setTimeout`/`runTimers`/`repl_run`; `JS_NewStringLen`; `JS_ToCStringLen`; `js_get_length32`; number `toExponential`/`toPrecision`/`parseInt`/`parseFloat`; `JS_Get/SetPropertyUint32`; `js_parse_call`; `JS_NewCFunctionParams`; `js_is_live_code`; array `set_length`/`toString`; `JS_NewArray`; typed-array `constructor_obj`; `JS_IsBytecode`/`RelocateBytecode*`/`LoadBytecode`; `js_function_constructor`. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: remaining `string_buffer_*` + `js_alloc/resize/shrink_byte_array`/`js_byte_array_to_string`; `JS_SetPropertyStr`/`JS_ToPropertyKey`; `JS_GetGlobalObject`; intern leftover (`js_is_numeric_string`/`find_atom`); `get_u8`/`get_u16`/`get_i8`/`get_i16`; `js_parse_expect*`/`js_parse_error*`; `JS_SetInterruptHandler`/`JS_GetClassID`. `dump_byte_code` is C-only (`__maybe_unused`); Zig has no port; `DUMP_FUNC_BYTECODE`/`DUMP_EXEC` off in both shipping trees. | **no Zig-only bug**; no engine edit |
+| Grok (2026-09-15) | Static C-vs-Zig: `JS_SetOpaque`/`JS_GetOpaque`; `js_emit_push_number`/`JS_NewFloat64`/`__JS_NewFloat64`/`js_to_short_float`; `js_emit_delete` + unary delete/`TOK_POW`; `js_emit_push_const`; `JS_ConcatString` + `js_function_toString`; `JS_NewObjectClassUser`/`JS_NewObjectPrealloc`; `js_set_prototype_internal` + OP_set_proto; `js_error_constructor`; `JS_Parse`/`JS_Run`/`JS_Eval`. | **no Zig-only bug**; no engine edit |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 
@@ -955,16 +992,35 @@ New yield is the **fix 25 class**: a C line omitted or mis-translated in Zig
 that C-diff never hits because the corpus does not exercise the rare branch
 (`fn.call()` argc 0, Zig-only defaults, `@intCast` of 0, etc.).
 
-**Method:** open the C function and the Zig function side by side. Confirm
-with a *minimal* probe only after a static mismatch. Do not invent more
-ad-hoc runtime sweeps.
+**Method:** open the C function and the Zig function side by side. A line
+that *looks* omitted is not enough. **Do not edit engine code until a
+runtime probe disagrees with C** (or Zig panics in ReleaseSafe/Debug). Do
+not invent more ad-hoc runtime sweeps. Probe recipe:
+
+```sh
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
+export ZIG_LOCAL_CACHE_DIR=/tmp/zig-mquickjs-cache
+export ZIG_GLOBAL_CACHE_DIR=/tmp/zig-global-cache
+# C-parseable snippet (no Zig-only defaults):
+printf '%s\n' 'PROBE_JS_HERE' > /tmp/probe.js
+../mquickjs/mqjs --memory-limit 16M /tmp/probe.js
+./zig-out/bin/mqjs --memory-limit 16M /tmp/probe.js
+```
+
+If both print the same, it is **not** a Zig-only bug. Log it under
+"Not bugs" / last-compared and keep hunting. If the snippet needs
+Zig-only syntax, use `tests/zigonly/` or `tests/oracle/` **and** still
+run it on the current `mqjs` *before* changing the engine (old wasm /
+pre-change binary is the baseline).
 
 Hunt:
 - omitted `max_int` / argc clamps; C `argc &= ~FRAME_CF_CTOR` vs Zig
   `_ = argc & ~…` (the latter does not clear the flag)
 - `return -1` as a `JSValue` where C uses `JS_EXCEPTION` (C-shared
   `js_string_repeat` at `mquickjs.c:13704` is **not** a Zig-only bug)
-- `goto done` vs Zig `break` then fallthrough / continue
+- `goto done` vs Zig `break` then fallthrough / continue. Zig unlabeled
+  `break` inside a `switch` in a `while` **exits the loop** (not C
+  switch-break). Probe C vs Zig before treating that as a bug.
 - `@intCast` / u32 underflow on values JS can make 0 or negative
   (ReleaseSafe panic class), e.g. `captures_len - 1` if count were 0
 - discarded `_ = popValue` after a GC-capable call if the local is used
@@ -978,6 +1034,88 @@ Do **not** redo: Phase 1A popValue table, 1B–1D layout/intern, leftover-ident,
 instrumented `DUMP_*` traces, post-fix-25 runtime sweep, padding-byte chasing.
 
 `src/wasm_host.zig` is untested by the harness — optional, ask first.
+
+**Last compared (2026-09-15, no new Zig-only bug):** `js_atod`; 64to32
+convert+compact+expand; `emit_u*`+cpool; `JS_Run`+`JS_Eval`;
+parseInt+toPrecision+toExponential; mqjs print/load/timers/`evalBuf`;
+`JS_PrintValueF`; regexp compile+`lre_exec`; `JS_Call` opcode dispatch
+(incl. put_field / put_array_el / define_field / set_proto);
+`JS_GetPropertyInternal`+Str/Uint32/`HasProperty`;
+`JS_SetPropertyInternal`; `JS_DefinePropertyInternal`/`js_create_property`;
+`JS_DeleteProperty`; `JS_ToPropertyKey`; `JS_ToUint8Clamp`/`JS_ToInt32Clamp`;
+`bc_reloc`/`JS_LoadBytecode`; `js_array_every`/`some` (false 29);
+`js_string_split` / replace / `concat_subst` / `indexOf`;
+`js_array_concat` / indexOf / slice / splice / ctor / push / pop / shift /
+reverse; JS_Call slow paths; parser unary/postfix/logical (minus documented
+direct eval) + cond/assign/comma; `get_lvalue`/`put_lvalue`; `define_var`/
+`js_parse_var`; `js_parse_function_decl` C path + `define_hoisted_functions`;
+`compute_stack_size`; `js_error_toString`; Date ctor/now; JSON parse/quote/
+stringify; `js_operator_in`/`instanceof`/`typeof`; typed-array ctor/
+subarray/`JS_ToIndex`; apply/bind/bound; FRAME_CF_CTOR sites; `js_math_clz32`;
+`js_fmod` wrapper; `js_object_keys`/`hasOwnProperty`; `JS_ToBool` +
+OP_if_false/if_true/lnot; `js_parse_string`/`js_parse_escape`; postfix
+`new`/object/array/`./[`/`++`; `js_parse_property_name`; statement
+try/switch remaining states; `js_exp`/`kernelLog2`/`js_log`/`log2`/`log10`;
+`js_math_min_max`/`sign`/`fround`/`imul`; `js_string_fromCharCode`/`concat`;
+`js_object_defineProperty`/`getPrototypeOf`/`setPrototypeOf`/`create`;
+`js_string_slice`/`substring`/`charAt`; `js_regexp_exec`/`match`/`search`;
+`js_scalbn`; `js_fmin`/`fmax`; `js_get_array`/`js_array_resize`;
+`string_getcp`/`js_sub_string`/`js_sub_string_utf8`; `js_string_convert_pos`;
+`jsSinCos`/`js_asin`; floor/ceil/trunc wrappers;
+`js_acos`/`js_atan`/`js_pow`/`js_round_inf`; `js_array_join`/`reduce`/`sort`;
+`js_string_toLowerCase`/`trim`; `js_typed_array_set`; `js_global_eval`;
+parser if/while/do/for; `JS_ToPrimitive`/`ToString`/`ToNumber`;
+`js_get_object_class`; coerce add/eq;
+`jsSqrtSoft` (hw `@sqrt` live here); `js_rem_pio2`/`remPio2Large`/
+`kernelSin`/`kernelCos`; Get/SetProperty typed-array elements;
+`JS_IsNumericProperty`; `js_for_of_start`/`next`; Date host ctor;
+regexp flags/parse/constructor; `JS_HasProperty`;
+`findOwnPropertyInlined`; OP_throw/catch/gosub/ret + exception unwind;
+`lre_exec` poll/stack/save/split/lookahead/range/backref; `js_atod`
+prefix/digits/exp; `js_dtoa_max_len`; OP_drop/nip/dup;
+remaining `js_dtoa` output + `output_digits`/`mul_pow`/`round_to_d`;
+OP insert/perm/swap + get/put loc/arg/var_ref;
+`js_function_get/set_prototype`/`toString`; `js_number_toString`/`toFixed`;
+`js_object_toString`; `js_math_atan2`/`pow`/`random`; `js_tan`;
+`js_error_get_message`; `js_array_get_length`/`isArray`;
+`js_typed_array_constructor`; parser break/continue/labels; `js_dtoa2`;
+`JS_ToInt32Sat`/`ToUint32`; `mpb_shr_round`/`JS_ToInt32Internal`;
+JSON stringify recursion; `js_atan2` internals; OP_get_field/put_field/
+get_length/get_array_el; parser `put_var`/`emit_var`; `js_parse_json_value`;
+GetProperty string/char/`STRING_CHAR`; Date `valueOf`; `skip_spaces`;
+`js_operator_typeof`/`js_eq_get_type`; OP plus/neg/inc/dec/post_inc/not/
+shl/shr/sar; `js_pow` libm internals; `js_string_get/set_length`;
+OP add/sub/mul/div/mod/pow; `js_not_slow`; `kernelExp`/`js_exp`;
+`next_token`/`parseNumber`; `is_regexp_allowed`; `js_parse_ident`;
+`js_skip_parens`/`js_skip_expr`; `get_special_prop`/`js_update_props`;
+SetPropertyInternal leftover; `js_add_slow` + `JS_ConcatString`;
+OP delete/for_in/for_of; `JS_DeleteProperty`; typed-array get_length/subarray;
+OP arguments/fclosure/call/array_from; `js_closure`/`js_reverse_val`;
+`js_compact_props`/`js_rehash_props`; `js_json_parse`/`js_parse_json`;
+JS_Call generic_return/return_call; `js_parse_program`/`js_parse_local_functions`;
+`convert_ext_vars*`; `resolve_var_refs`; `JS_NewDate`/`js_date_valueOf`;
+`compute_stack_size`; `add_var`; mqjs `js_load`;
+`JS_Parse2`/`jsParseBody`; mqjs `js_print`; emit leftover (`label*`/`cpool`/`emit_var`);
+`js_object_constructor`; ArrayBuffer leftover; `JS_NewObject*`;
+`js_parse_statement` leftover; `JS_MakeUniqueString`; `get_mblock_size`/
+`gc_mark`/`compact_heap`; `JS_NewContext2`; `stdlib_init`; `JS_PrepareBytecode`;
+`js_malloc`/`JS_StackCheck`; `JS_DumpMemory`;
+mqjs `eval_file`; `JS_ToString` leftover; `JS_ToPrimitive`;
+`reloc_c_func_name`; `JS_Throw` leftover; mqjs `main` leftover;
+`JS_NewStringLen`; `JS_ToCStringLen`; number parseInt/toExponential;
+`JS_Get/SetPropertyUint32`; `js_parse_call`; `JS_LoadBytecode`;
+`js_function_constructor`; remaining `string_buffer_*`;
+`JS_SetPropertyStr`; intern leftover; `js_parse_expect*`;
+`JS_GetClassID`. `dump_byte_code` is C-only (DUMP off in both);
+`JS_SetOpaque`; `js_emit_push_number`/`delete`; `JS_ConcatString`;
+`JS_NewFloat64`; `js_error_constructor`; `JS_Eval`.
+
+**Next hunt:** remaining `js_error_toString` leftover; remaining
+`JS_DefinePropertyGetSet`; remaining leftover of remaining OP
+`define_field` callers.
+C-diff of return values misses side-effect / short-circuit /
+throw-order bugs — probe those by printing counts or exception
+identity **on both engines first**.
 
 ### Deterministic Octane differential — clean
 
@@ -1106,7 +1244,9 @@ Two **kernelExp** spots that were latent are now **fixed** (ReleaseSafe phase):
 
 **Git state:** fixes 1–21 committed; ReleaseSafe + Debug setjmp committed
 (`b66e1d8` safe/debug builds, `7f62eac` setjmp). zigonly, oracle, and fixes
-22–25 are in the working tree. Do not commit/push unless asked.
+22–26, 28 are in the working tree. False "fix 29" was reverted; keep
+`everyStop`/`someStop` in `tests/difftest/08_arrays_json.js`. Do not
+commit/push unless asked.
 
 ---
 
@@ -1670,24 +1810,70 @@ commit/push unless asked.
 ## Handoff prompt — static analysis vs C (CURRENT; paste to new agent)
 
 ```
-Only edit zig-mquickjs. Compare only against ../mquickjs (C).
+Only edit zig-mquickjs. Compare only against ../mquickjs (C). Do not
+search other workspace dirs. Do not touch src/wasm_host.zig unless asked.
+Do not commit unless asked. One real correctness fix per turn. Leave
+performance for last. Do not rewrite GC.
 
 Read debug-notes.md and .cursor/rules/debug-notes.mdc first, especially
-"Next phase: static analysis vs C" and "Post-fix-25 runtime sweep".
+"Next phase: static analysis vs C", "Probe before every fix", and
+"Post-fix-25 runtime sweep". Vincent prefers working directly in code.
+
+## HARD RULE — probe before any engine edit
+A static C-vs-Zig mismatch is a hypothesis, not a bug. Do not edit
+src/*.zig until you have run the SAME snippet on BOTH engines and shown
+they disagree (or Zig panics in ReleaseSafe/Debug).
+
+Recipe (C-parseable JS; no Zig-only default-arg syntax):
+
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
+export ZIG_LOCAL_CACHE_DIR=/tmp/zig-mquickjs-cache
+export ZIG_GLOBAL_CACHE_DIR=/tmp/zig-global-cache
+# build Zig mqjs if zig-out/bin/mqjs is stale
+$ZIG build -Doptimize=ReleaseFast
+printf '%s\n' 'PROBE_JS_HERE' > /tmp/probe.js
+../mquickjs/mqjs --memory-limit 16M /tmp/probe.js
+./zig-out/bin/mqjs --memory-limit 16M /tmp/probe.js
+
+Paste both outputs in your notes. If they MATCH, it is not a Zig-only
+bug — log under last-compared / Not bugs and keep hunting. C-diff of
+return values misses side-effect / short-circuit / throw-order bugs;
+probe those by printing counts or exception identity. Zig-only syntax
+goes in tests/zigonly/ or tests/oracle/, but still run the CURRENT mqjs
+BEFORE changing the engine (old wasm / pre-change binary is the
+baseline). Context going stale is not an excuse to skip this.
+
+## False "fix 29" (reverted 2026-09-15) — do not repeat
+Claim: js_array_every/some Zig `break` inside switch only left the
+switch, so callbacks kept running (C goto done at mquickjs.c:14648).
+Reality: Zig unlabeled `break` exits the enclosing loop, not the
+switch (opposite of C). Original code already short-circuited.
+User-confirmed on an old wasm build:
+  var n=0; [1,2,3].every(function(){ n++; return false; }); print(n);
+both engines print 1. The labeled-loop change was reverted. Keep
+everyStop/someStop in tests/difftest/08_arrays_json.js. Do not treat
+Zig switch-in-while `break` as a C-style switch-break bug.
 
 ## Mission
-Runtime discovery is saturated (C-diff, ReleaseSafe, Octane through fix 24,
-zigonly, oracle, Debug bytecode.sh, post-fix-25 ad-hoc probes). Find the
-next correctness bug by **static C-vs-Zig function diffs**, the class that
-produced fix 25. One fix per turn. Do not rewrite the GC. Do not commit
-unless asked.
+Runtime discovery is saturated (C-diff, ReleaseSafe, Octane through
+fix 28, zigonly, oracle, Debug bytecode.sh, post-fix-25 ad-hoc probes).
+Find the next correctness bug by static C-vs-Zig function diffs, the
+class that produced fix 25.
 
 Fix 25 archetype: C js_function_call does argc = max_int(argc, 1)
 (mquickjs.c:13129); Zig omitted it. fn.call() arrived with argc 0;
-newTailCall(-1) is a plain JS_EXCEPTION (EX_NORMAL), so the engine threw
-nameless "?" instead of invoking with this === undefined. fd.arg_count
-only pads argv — the VM still passes original argc. apply/bind already
-matched C (bind uses if (argc > 1) argc - 1 else 0).
+newTailCall(-1) is a plain JS_EXCEPTION (EX_NORMAL), so the engine
+threw nameless "?" instead of invoking with this === undefined.
+fd.arg_count only pads argv — the VM still passes original argc.
+apply/bind already matched C. Still: that class was proven with a
+C-vs-Zig probe before the edit. Do the same.
+
+C is the tie-breaker EXCEPT C JS_CFUNC_f_f (mquickjs.c:5465)
+dead-stores JS_EXCEPTION then JS_NewFloat64(NAN). Zig/Node/ES throw.
+Do not copy that (oracle 09_math_ff_throw.js). Direct-eval parse is
+a documented deviation (C SyntaxError via get_ext_var_name; Zig
+allows eval() as global) — do not add C's check. eval always global
+and let/const as var are documented deviations — not bugs.
 
 ## Build
 export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
@@ -1699,96 +1885,220 @@ $ZIG build -Doptimize=Debug && LIMITS=16M ./tests/difftest/run.sh && ./tests/dif
 Home is ecryptfs — the two cache vars are mandatory. Zig 0.16.
 
 ## Method
-1. Pick a C builtin/parser/runtime function not recently compared. Open it
-   next to the Zig port. Read every branch, return, argc mutation, and
-   error path. C is the tie-breaker: if C does the same wrong thing, it is
-   not a Zig bug — except C `JS_CFUNC_f_f` (mquickjs.c:5465) dead-stores
-   JS_EXCEPTION and returns NaN; Zig/Node throw (oracle 09). Do not copy that.
-2. When you find a static mismatch, write a *minimal* probe (C-parseable →
-   tests/difftest/; Zig-only → tests/zigonly/ or tests/oracle/). Confirm
-   before fixing.
-3. Fix one bug. Do not batch "while I'm here" cleanups.
+1. Pick a C builtin/parser/runtime function not in Last compared.
+   Open it next to the Zig port. Read every branch, return, argc
+   mutation, and error path.
+2. If you see a mismatch, write a MINIMAL probe and run the HARD RULE
+   recipe. Show C and Zig outputs in the chat. If they match, STOP —
+   do not edit engine code.
+3. Only then fix one proven bug. Do not batch "while I'm here"
+   cleanups. Do not invent more ad-hoc runtime sweeps.
 
 Hunt (highest yield):
 - omitted max_int / argc clamps; C argc &= ~FRAME_CF_CTOR vs Zig
   `_ = argc & ~…` (the latter does not clear the flag — grep that)
 - return -1 as JSValue where C uses JS_EXCEPTION (C-shared
-  js_string_repeat at mquickjs.c:13704 is NOT a Zig-only bug; it is the
-  only @bitCast(-1) JSValue site)
-- goto done vs Zig break then fallthrough / continue
+  js_string_repeat at mquickjs.c:13704 is NOT a Zig-only bug; it is
+  the only @bitCast(-1) JSValue site)
+- goto done vs Zig that CONTINUES AFTER the switch, or uses
+  `continue` wrongly. Unlabeled Zig `break` in switch-in-while
+  already exits the loop — see false 29.
 - @intCast / u32 underflow on values JS can make 0 or negative
   (ReleaseSafe panic), e.g. captures_len - 1 if count were 0
-- discarded `_ = popValue` after a GC-capable call if the local is used
-  after — NEW sites only; Phase 1A table is complete for listed files.
-  C JS_POP_VALUE assigns the GC-updated pointer back.
+- discarded `_ = popValue` after a GC-capable call if the local is
+  used after — NEW sites only; Phase 1A table is complete for listed
+  files. C JS_POP_VALUE assigns the GC-updated pointer back.
 - parser: js_parse_function default emission vs
   define_hoisted_functions emit_insert(0, …). Do NOT OR first-pass
-  param-list skip bits globally (function foo(foo) {} would grow -o vs C).
-  Do not change js_skip_expr / js_parse_get_pos (breaks for-loop third
-  expr / regexp-after-')' ).
+  param-list skip bits globally (function foo(foo) {} would grow -o
+  vs C). Do not change js_skip_expr / js_parse_get_pos (breaks
+  for-loop third expr / regexp-after-')' ).
 
-Start with remaining JSCFunctions in src/mquickjs_builtins_lib.zig and
-siblings (array/string/regexp/std) that were not the last compared
-functions (last: array literal missing comma / C `goto done`). Then
-remaining JSCFunctions, parser default/hoist, VM CFUNC / call-frame argc.
+## Last compared (matched; no Zig-only bug) — skip these
+js_atod; convert_mblock_64to32 / get_mblock_size_32 /
+gc_compact_heap_64to32 / expand_short_floats /
+JS_PrepareBytecode64to32; emit_u8/u16/u32 / emit_claim_size /
+cpool_add (and emit_op/pc2line earlier); mqjs evalBuf / print /
+load / timers; JS_PrintValueF; js_thisNumberValue / toExponential;
+parseInt / parseFloat / toPrecision; js_atod done/fail/overflow/
+underflow; get_class_atom / re_parse_char_class /
+re_parse_quantifier / re_parse_alternative (incl. capture resume) /
+re_parse_disjunction / re_compute_register_count / js_parse_regexp /
+re_range_optimize / add_interval_intersect / lre_exec /
+js_parse_regexp_flags / js_compile_regexp; JS_Call opcode dispatch
+(call/return/exception, get_field2/get_length2/get_array_el2
+fallthroughs, put_field / put_array_el / define_field / set_proto);
+JS_Run is only the closure+call wrapper;
+JS_GetPropertyInternal + Str/Uint32/HasProperty;
+JS_SetPropertyInternal (array grow, typed-array write, proto
+getter/setter, ROM convert); JS_DefinePropertyInternal /
+js_create_property; JS_DeleteProperty; JS_ToPropertyKey;
+JS_ToUint8Clamp / JS_ToInt32Clamp; bc_reloc_value /
+JS_RelocateBytecode2 / JS_RelocateBytecode / JS_LoadBytecode;
+js_array_every / some; js_string_split / replace / concat_subst /
+indexOf; js_array_concat / indexOf / slice / splice / ctor / push /
+pop / shift / reverse; JS_Call slow paths (js_add_slow, binary/unary
+arith, logic, relational, js_eq_slow, js_for_of_start / next);
+parser unary / postfix / logical_and_or (minus documented direct
+eval) / cond_expr / assign_expr / expr_comma; get_lvalue / put_lvalue;
+define_var / js_parse_var; js_parse_function_decl C path /
+define_hoisted_functions; compute_stack_size; js_error_toString;
+Date ctor / now; JSON parse / quote / stringify; js_operator_in /
+instanceof / typeof; typed-array ctor / subarray / JS_ToIndex;
+js_function_apply / bind / bound; FRAME_CF_CTOR sites;
+js_math_clz32; js_fmod wrapper; js_object_keys / hasOwnProperty;
+JS_ToBool + OP_if_false / if_true / lnot; js_parse_string /
+js_parse_escape; postfix new / object / array / . / [ / ++ (minus
+documented direct eval); js_parse_property_name; statement try /
+switch remaining states; js_exp / kernelLog2 / js_log / log2 / log10;
+js_math_min_max / sign / fround / imul; js_string_fromCharCode /
+concat; js_object_defineProperty / getPrototypeOf / setPrototypeOf /
+create; js_string_slice / substring / charAt; js_regexp_exec / match /
+search; js_scalbn; js_fmin / js_fmax; js_get_array / js_array_resize;
+string_getcp / js_sub_string / js_sub_string_utf8; js_string_convert_pos;
+jsSinCos / js_asin; floor / ceil / trunc wrappers;
+`js_acos` / `js_atan` / `js_pow` / `js_round_inf` / `rintSf64`;
+`js_array_join` / `reduce` / `sort` / `rqsort_idx`;
+`js_string_toLowerCase` / `trim` / constructor;
+`js_typed_array_set`; `js_global_eval` / `isNaN` / `isFinite`;
+parser statement if / while / do / for / return / throw (let/const
+as var is documented); unary `TOK_POW`; remaining JS_Call CFUNC
+types; `JS_ToPrimitive` / `ToString` / `ToNumber` / `js_atod1`;
+`js_get_object_class`; `js_function_get_length_name1`; coerce
+add / arith / logic / relational / `js_eq_slow`;
+`jsSqrtSoft` (hw `@sqrt` live here) / `js_rem_pio2` / `remPio2Large` /
+`kernelSin` / `kernelCos`; Get/SetProperty typed-array elements;
+`JS_IsNumericProperty`; `js_for_of_start` / `next`; Date host ctor;
+regexp flags / parse / constructor; `JS_HasProperty`;
+`findOwnPropertyInlined`; OP_throw / catch / gosub / ret + exception
+unwind; `lre_exec` poll / stack / save / split / lookahead / range /
+backref; `js_atod` prefix / digits / exp; `js_dtoa_max_len`;
+OP_drop / nip / dup; remaining `js_dtoa` output + helpers;
+OP insert / perm / swap + get/put loc/arg/var_ref;
+`js_function_get/set_prototype` / `toString`; `js_number_toString` /
+`toFixed`; `js_object_toString`; `js_math_atan2` / `pow` / `random`;
+`js_tan`; `js_error_get_message`; `js_array_get_length` / `isArray`;
+`js_typed_array_constructor`; parser break / continue / labels;
+`js_dtoa2`; `JS_ToInt32Sat` / `ToUint32`; `mpb_shr_round` /
+`JS_ToInt32Internal`; JSON stringify recursion; `js_atan2` internals;
+OP_get_field / put_field / get_length / get_array_el; parser `put_var`
+/ `emit_var`; `js_parse_json_value`; GetProperty string/char/`STRING_CHAR`;
+Date `valueOf`; `skip_spaces`; `js_operator_typeof` / `js_eq_get_type`;
+OP plus/neg/inc/dec/post_inc/not/shl/shr/sar; `js_pow` libm internals;
+`js_string_get/set_length`; OP add/sub/mul/div/mod/pow; `js_not_slow`;
+`kernelExp` / `js_exp`; `next_token` / `parseNumber`; `is_regexp_allowed`;
+`js_parse_ident`; `js_skip_parens` / `js_skip_expr`; `get_special_prop` /
+`js_update_props`; SetPropertyInternal leftover; `js_add_slow` +
+`JS_ConcatString`; OP delete / for_in / for_of; `JS_DeleteProperty`;
+typed-array get_length / subarray; OP arguments / fclosure / call /
+array_from; `js_closure` / `js_reverse_val`; `js_compact_props` /
+`js_rehash_props`; `js_json_parse` / `js_parse_json`; JS_Call generic_return /
+return_call; `js_parse_program` / `js_parse_local_functions`;
+`convert_ext_vars*`; `resolve_var_refs`; `JS_NewDate` / `js_date_valueOf`;
+`compute_stack_size`; `add_var`; mqjs `js_load`; `JS_Parse2` /
+`jsParseBody`; mqjs `js_print`; emit leftover (`label*` / `cpool` /
+`emit_var`); `js_object_constructor`; ArrayBuffer leftover; `JS_NewObject*`;
+`js_parse_statement` leftover; `JS_MakeUniqueString`; `get_mblock_size` /
+`gc_mark` / `gc_compact_heap`; `JS_NewContext2`; `stdlib_init`;
+`JS_PrepareBytecode`; `js_malloc` / `JS_StackCheck`; `JS_DumpMemory`;
+mqjs `eval_file`; `JS_ToString` leftover; `JS_ToPrimitive`;
+`reloc_c_func_name`; `JS_Throw` leftover; mqjs `main` leftover;
+`JS_NewStringLen`; `JS_ToCStringLen`; number parseInt/toExponential;
+`JS_Get/SetPropertyUint32`; `js_parse_call`; `JS_LoadBytecode`;
+`js_function_constructor`; remaining `string_buffer_*`;
+`JS_SetPropertyStr`; intern leftover; `js_parse_expect*`;
+`JS_GetClassID`. `dump_byte_code` is C-only (DUMP off in both);
+`JS_SetOpaque`; `js_emit_push_number`/`delete`; `JS_ConcatString`;
+`JS_NewFloat64`; `js_error_constructor`; `JS_Eval`.
+
+C-shared (do not "fix"): OP_get_length leftover val for STRING_CHAR;
+REOP_range idx_max = idx - 1 unsigned wrap; js_error_constructor
+argc &= ~FRAME_CF_CTOR unused after mask; array-literal second loop
+(idx >= 32) missing-comma (C same); **= not in TOK_MUL_ASSIGN..
+TOK_OR_ASSIGN in either engine; `js_vprintf` space flag unused
+(C sets `PF_MARK_POS`, Zig `PF_PAD_POS`); C `%*` does not increment
+`fmt` — unused in this tree; `parseInt` always reads `argv[1]`
+(call pads); `Array.prototype.toString` passes `argv=NULL` in C /
+dummy in Zig with `argc=0`; `dump_byte_code` is C-only under
+`DUMP_BYTECODE` (`__maybe_unused`); Zig has no port; both shipping
+trees leave `DUMP_FUNC_BYTECODE`/`DUMP_EXEC` off.
+
+## Next hunt (uncompared)
+- remaining `js_error_toString` leftover
+- remaining `JS_DefinePropertyGetSet`
+- remaining leftover of remaining OP `define_field` callers
+- hypot / cbrt / hyperbolic / expm1 / log1p are not in this engine
 
 ## What's done (do not redo)
-- Fixes 1–26 and 28. Octane-gated through 24 (user). Fixes 25–26, 28 Fast/Safe
-  gates green in-agent; Octane batch pending — ask the user, do not run Octane
-  yourself unless asked. Debug Octane is optional/slow — ask first.
-- C script/bytecode/trace differentials, leftover-ident, struct-layout,
-  instrumented DUMP_* traces, Phase 1A–1D popValue/layout/intern audits.
-- Post-fix-25 runtime sweep (call/apply/bind leftovers, default-arg edges,
-  JSON, typed arrays, Function() GC) — no bug. See that section for the
-  false-positive list.
-- ReleaseSafe: run-safe.sh = run.sh + bytecode.sh + zigonly + oracle, no
-  panics. Do not revert valueToPtr @setRuntimeSafety, wrapping arithmetic,
-  classObj FAM, gc_update_threaded_pointers usize, kernelExp @bitCast.
-- Debug: js_vprintf callconv(.c); setjmp is a *direct* libc extern from
-  JS_Parse2. Do not wrap setjmp.
+- Fixes 1–26 and 28. Octane-gated through 28 (user, 2026-09-15).
+  Debug Octane is optional/slow — ask first. Zig is slower than C;
+  leave perf last. Do not revert fixes 1–26 or 28.
+- C script/bytecode/trace differentials, leftover-ident,
+  struct-layout, instrumented DUMP_* traces, Phase 1A–1D
+  popValue/layout/intern audits.
+- Post-fix-25 runtime sweep (call/apply/bind leftovers, default-arg
+  edges, JSON, typed arrays, Function() GC) — no bug.
+- ReleaseSafe: run-safe.sh = run.sh + bytecode.sh + zigonly + oracle,
+  no panics. Do not revert valueToPtr @setRuntimeSafety, wrapping
+  arithmetic, classObj FAM, gc_update_threaded_pointers usize,
+  kernelExp @bitCast.
+- Debug: js_vprintf callconv(.c); setjmp is a *direct* libc extern
+  from JS_Parse2. Do not wrap setjmp.
 - tests/zigonly/: fix 21 defaults, let/const-as-var, global eval.
-- tests/oracle/: JSON/gc, defaults+gc, defineProperty+gc, math, eval+
-  defaults, regexp defaults (22), scope (23–24), call() (25), f_f throw (09).
-- User: Fast -o can be byte-identical to C; Safe/Debug padding-byte notes
-  when sizes match are expected. Size diffs ARE bugs.
+- tests/oracle/: JSON/gc, defaults+gc, defineProperty+gc, math,
+  eval+defaults, regexp defaults (22), scope (23–24), call() (25),
+  f_f throw (09).
+- User: Fast -o can be byte-identical to C; Safe/Debug padding-byte
+  notes when sizes match are expected. Size diffs ARE bugs.
 
 ## Not bugs (do not "fix")
 - eval always global; let/const as var; array holes / write-past-end;
-  unsupported ES6+; with is SyntaxError
+  unsupported ES6+; with is SyntaxError; direct-eval parse
 - for (;; /x/.exec()) SyntaxError — is_regexp_allowed(')') is false in C
 - "x".repeat({valueOf: throw}) → "?" — C js_string_repeat return -1
-- C Math.sin({valueOf: throw}) → NaN is a C dead-store bug; Zig/Node throw.
-  Do not copy C. oracle 09.
+- C Math.sin({valueOf: throw}) → NaN is a C dead-store bug; Zig/Node
+  throw. Do not copy C. oracle 09.
 - sort comparator throw swallowed (C same)
 - "Array loo long" typo (C mquickjs.c:14394)
-- JSON.parse('"\\u{41}"') → "A"; JSON.parse("01") → 1; JSON.parse("1.") → 1
+- JSON.parse('"\\u{41}"') → "A"; JSON.parse("01") → 1;
+  JSON.parse("1.") → 1
 - function.length with defaults is the param count, not ES6 length
 - arguments is JS_CLASS_ARRAY here (Array.isArray(arguments) is true)
 - reused catch bindings; Octane score noise; -dd hash-bucket ASLR
 - JSObjectExt union sizeof 40 vs 48 — not a heap bug
+- Zig unlabeled `break` inside `switch` in a `while` exits the loop
+  (false 29). Keep everyStop/someStop in 08_arrays_json.js.
+- `js_vprintf` space/`*` flags unused in both engines (C space sets
+  `PF_MARK_POS`; C `%*` does not increment `fmt`). No `%*` in this tree.
 
 ## Do NOT do
 - Revert fixes 1–26 or 28, or ReleaseSafe/Debug site-table changes
 - Re-apply JS_CFUNC_f_f unconditional NewFloat64 (C throw-to-NaN)
-- Re-apply compact-by-len / MakeUniqueString extras / global resize memcpy
+- Re-apply compact-by-len / MakeUniqueString extras / global resize
+  memcpy
 - Rewrite GC or intern
-- Sprinkle more @setRuntimeSafety(false); valueToPtr is the one exception
-- Re-run saturated C traces / leftover-ident / struct-layout / DUMP_* /
-  post-25 runtime probing
+- Sprinkle more @setRuntimeSafety(false); valueToPtr is the one
+  exception
+- Re-run saturated C traces / leftover-ident / struct-layout /
+  DUMP_* / post-25 runtime probing
 - Zero-fill padding to make Safe byte-identical to Fast
 - Wrap setjmp in a Zig function
-- Touch src/wasm_host.zig unless the user says so (untested by harness)
+- Touch src/wasm_host.zig unless the user says so
+- Edit engine code on a static mismatch whose C-vs-Zig probe matches
 
-## After each fix
+## After each REAL (probed) fix
 1. zig build -Doptimize=ReleaseFast && ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh && ./tests/zigonly/run.sh && ./tests/oracle/run.sh
 2. zig build -Doptimize=ReleaseSafe && ./tests/difftest/run-safe.sh
-3. If parse/JSON/longjmp or bytecode emit: LIMITS=16M Debug run.sh (include
-   14_hostile_args.js) && bytecode.sh
-4. Update debug-notes.md (audit log + this prompt if the phase changes)
-5. Ask user to batch Octane after substantive engine fixes
+3. If parse/JSON/longjmp or bytecode emit: LIMITS=16M Debug run.sh
+   (include 14_hostile_args.js) && bytecode.sh
+4. Update debug-notes.md (audit log + this prompt if the phase
+   changes)
+5. Ask user to batch Octane after substantive engine fixes — do not
+   run Debug Octane unless asked
+
 ## Git state
-Fixes 1–21, ReleaseSafe, and Debug setjmp are committed (b66e1d8, 7f62eac).
-zigonly, oracle, and fixes 22–26, 28 are in the working tree. Do not
-commit/push unless asked.
+Fixes 1–21, ReleaseSafe, and Debug setjmp are committed (b66e1d8,
+7f62eac). zigonly, oracle, and fixes 22–26, 28 are in the working
+tree. False 29 reverted. Do not commit/push unless asked.
 ```
 

@@ -24,6 +24,8 @@ p("reduce", a.reduce(function (x, y) { return x + y; }, 0));
 p("reduceRight", ["a", "b", "c"].reduceRight(function (x, y) { return x + y; }));
 p("some", a.some(function (v) { return v > 8; }));
 p("every", a.every(function (v) { return v > 0; }));
+p("everyStop", (function () { var n = 0; [1, 2, 3].every(function () { n++; return false; }); return n; })());
+p("someStop", (function () { var n = 0; [1, 2, 3].some(function () { n++; return true; }); return n; })());
 p("forEach", (function () { var s = 0; a.forEach(function (v) { s += v; }); return s; })());
 
 // sparse / holes / length (no elisions: unsupported by mquickjs)
