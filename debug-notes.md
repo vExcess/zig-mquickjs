@@ -640,6 +640,18 @@ Do not OR first-pass param-list bits.
 
 Regression: `tests/oracle/07_default_scope.js` (named-only / method / shorthand / eval).
 
+### 25. `Function.prototype.call()` with no thisArg threw `?`
+
+`fn.call()` (argc 0) omitted C's `argc = max_int(argc, 1)` (`mquickjs.c:13129`).
+`newTailCall(-1)` is a plain `JS_EXCEPTION` (not a tail call), so the call
+threw a nameless `?` instead of invoking with `this === undefined`.
+`fn.call(undefined)` already worked because argc was 1.
+
+Fix: clamp `argc` to at least 1 in `js_function_call`. argv[0] is already
+padded to `undefined` (`fd.arg_count` is 1).
+
+Regression: `tests/difftest/25_function_call.js`, `tests/oracle/08_function_call.js`.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -710,6 +722,7 @@ regression gate.
 | Grok (2026-09-14 night) | Independent `tests/oracle/` (no C); fix 22 (default-arg `/` re-lexed as division) | oracle ALL MATCH Fast/Safe; zigonly ALL MATCH |
 | Grok (2026-09-14 night) | Fix 23: bind `arguments` / inner name before default-arg emission; skip-assign bits for `arguments` | oracle 07; Fast/Safe |
 | Grok (2026-09-14 night) | Fix 24: `js_skip_assign_expr` also sets `HAS_FUNC_NAME` when a default mentions the inner name | oracle 07 named-only/method/shorthand/eval |
+| Grok (2026-09-14 night) | Fix 25: `fn.call()` argc 0 omitted C `max_int(argc, 1)`; `newTailCall(-1)` threw `?` | difftest 25; oracle 08 |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 

@@ -33,5 +33,6 @@ on supported stricter-mode JS **are** bugs.
 | `05_eval_defaults` | global eval defining default-arg functions |
 | `06_default_regexp` | fix 22: default/body starting with `/` re-lexed as division |
 | `07_default_scope` | fix 23–24: `arguments` / inner name bound before defaults; name seen only in the default |
+| `08_function_call` | fix 25: `fn.call()` with no thisArg; default args + `call` |
 
 Env overrides: `Z_MQJS`, `LIMITS` (default `16M`).

@@ -281,7 +281,13 @@ pub fn js_function_toString(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int
     return value.JS_ConcatString(ctx, str, val2);
 }
 
-pub fn js_function_call(ctx: *c.JSContext, this_val: *c.JSValue, argc: c_int, argv: [*]c.JSValue) c.JSValue {
+pub fn js_function_call(ctx: *c.JSContext, this_val: *c.JSValue, argc_in: c_int, argv: [*]c.JSValue) c.JSValue {
+    // C (mquickjs.c:13129) does argc = max_int(argc, 1). `fn.call()` arrives
+    // with argc 0 (argv[0] is still the padded undefined). Without this,
+    // newTailCall(-1) is a plain JS_EXCEPTION and the call throws `?`.
+    var argc = argc_in;
+    if (argc < 1)
+        argc = 1;
     if (utils.JS_StackCheck(ctx, @intCast(argc + 1)) != 0)
         return c.JS_EXCEPTION;
     var i: c_int = 0;

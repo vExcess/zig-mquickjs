@@ -1,0 +1,8 @@
+ok call0
+ok callU
+ok callN
+ok callObj
+ok default call0
+ok default this
+ok default override
+DONE 08_function_call.js
