@@ -608,6 +608,25 @@ Regression: `tests/oracle/06_default_regexp.js` (declaration, method,
 `Function()`, mixed params, body starting with `/z/`). Independent oracle
 suite lives in `tests/oracle/` — no C reference; self-checking + `.expected`.
 
+### 23. Default args ran before `arguments` / inner name were bound
+
+Zig-only. `function f(a = arguments.length) { return a + ":" + arguments.length; }; f()`
+threw `TypeError: cannot read property 'length' of undefined`. Named
+`function foo(a = foo) { return foo; }` was a `ReferenceError`.
+
+`js_parse_function` emitted default-arg bytecode *before* `OP.arguments` and
+`OP.this_func`. The first pass's param-list skip also discarded skip bits, so
+a default that mentioned `arguments` without the body doing so never set
+`HAS_ARGUMENTS`.
+
+Fix: bind `arguments` and the inner function name before default emission
+(no-default path is the same order as before). `js_skip_assign_expr` now
+returns skip bits so `function f(a = arguments.length) { return a; }` still
+creates the arguments object. Do not OR first-pass param-list bits globally
+(`function foo(foo) {}` would grow `-o` images vs C).
+
+Regression: `tests/oracle/07_default_scope.js`.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -676,6 +695,7 @@ regression gate.
 | Grok (2026-09-14) | Debug: `js_vprintf` `callconv(.c)` (`@cVaArg`); `setjmp` as direct libc extern from `JS_Parse2` (`callconv(.c)`) — wrapper was not inlined, JSON.parse longjmp SEGVd `14_hostile_args.js` | Debug 16M `run.sh` ALL MATCH vs C; user: Fast `-o` exact, Safe padding-only (expected) |
 | Grok (2026-09-14 night) | `tests/zigonly/` expected-output suite (fix 21 defaults, let/const-as-var, global eval); Debug `bytecode.sh` | zigonly ALL MATCH Fast/Safe/Debug + `-o`/`-b` roundtrip; Debug bytecode ALL MATCH (28× 64-bit padding notes, no SIZE/EXEC DIFF); `run-safe.sh` now includes zigonly |
 | Grok (2026-09-14 night) | Independent `tests/oracle/` (no C); fix 22 (default-arg `/` re-lexed as division) | oracle ALL MATCH Fast/Safe; zigonly ALL MATCH |
+| Grok (2026-09-14 night) | Fix 23: bind `arguments` / inner name before default-arg emission; skip-assign bits for `arguments` | oracle 07; Fast/Safe |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 

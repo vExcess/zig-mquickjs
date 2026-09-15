@@ -359,7 +359,10 @@ fn js_parse_function(s: *JSParseState) void {
             // is itself a regexp (TOK_REGEXP) would seek with allowed=0
             // and re-lex `/` as division.
             default_pos[@intCast(default_count)].regexp_allowed = 1;
-            lexer.js_skip_assign_expr(s);
+            const dbits = lexer.js_skip_assign_expr(s);
+            if ((dbits & lt.SKIP_HAS_ARGUMENTS) != 0) {
+                pt.bytecodeSetHasArguments(funcBc(s.cur_func), true);
+            }
             default_arg_idx[@intCast(default_count)] = arg_idx;
             default_count += 1;
         }
@@ -372,6 +375,23 @@ fn js_parse_function(s: *JSParseState) void {
     pt.bytecodeSetArgCount(b, @intCast(arg_count));
     lexer.next_token(s);
     lexer.js_parse_expect(s, '{');
+
+    // Bind `arguments` and the inner function name before default-arg
+    // emission so `function f(a = arguments.length) { return arguments; }`
+    // and `function foo(a = foo) { return foo; }` see those locals. C has
+    // no defaults; this only reorders vs the default-count==0 path.
+    b = funcBc(s.cur_func);
+    if (pt.bytecodeHasArguments(b)) {
+        const var_idx = add_var(s, utils.js_get_atom(s.ctx, c.JS_ATOM_arguments));
+        emit_op(s, @intCast(OP.arguments));
+        stmt.put_var(s, rt.JS_VARREF_KIND_VAR, var_idx - @as(c_int, @intCast(arg_count)), s.pc2line_source_pos);
+    }
+    b = funcBc(s.cur_func);
+    if (pt.bytecodeHasLocalFuncName(b)) {
+        const var_idx = add_var(s, b.func_name);
+        emit_op(s, @intCast(OP.this_func));
+        stmt.put_var(s, rt.JS_VARREF_KIND_VAR, var_idx - @as(c_int, @intCast(arg_count)), s.pc2line_source_pos);
+    }
 
     // C (mquickjs.c:11113-11119) does not rewind after `{`. Only seek back
     // when default-arg emission (Zig-only) moved the cursor.
@@ -388,18 +408,6 @@ fn js_parse_function(s: *JSParseState) void {
         lexer.js_parse_seek_token(s, &body_pos);
     }
 
-    b = funcBc(s.cur_func);
-    if (pt.bytecodeHasArguments(b)) {
-        const var_idx = add_var(s, utils.js_get_atom(s.ctx, c.JS_ATOM_arguments));
-        emit_op(s, @intCast(OP.arguments));
-        stmt.put_var(s, rt.JS_VARREF_KIND_VAR, var_idx - @as(c_int, @intCast(arg_count)), s.pc2line_source_pos);
-    }
-    b = funcBc(s.cur_func);
-    if (pt.bytecodeHasLocalFuncName(b)) {
-        const var_idx = add_var(s, b.func_name);
-        emit_op(s, @intCast(OP.this_func));
-        stmt.put_var(s, rt.JS_VARREF_KIND_VAR, var_idx - @as(c_int, @intCast(arg_count)), s.pc2line_source_pos);
-    }
     while (s.token.val != '}') {
         stmt.js_parse_source_element(s);
     }

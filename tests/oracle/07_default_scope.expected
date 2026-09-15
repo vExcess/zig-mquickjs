@@ -1,0 +1,8 @@
+ok args none
+ok args two
+ok args undef
+ok args index
+ok args index one
+ok named expr
+ok nested
+DONE 07_default_scope.js
