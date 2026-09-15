@@ -1,0 +1,8 @@
+read_global=10
+write_global_local=20
+write_global_g=30
+leaked=99
+no_local=undefined
+eval_val=3
+from_eval=8
+DONE 03_eval_global.js

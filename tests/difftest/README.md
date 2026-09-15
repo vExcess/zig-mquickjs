@@ -10,7 +10,10 @@ SLOW=1 ./tests/difftest/run.sh       # also run slow/ (~2 min per engine/limit)
 ./tests/difftest/bytecode.sh         # -> "ALL BYTECODE MATCH"
 
 # UB detector (after `zig build -Doptimize=ReleaseSafe`):
-./tests/difftest/run-safe.sh         # run.sh + bytecode.sh at 16M; any panic is a bug
+./tests/difftest/run-safe.sh         # run.sh + bytecode.sh + zigonly at 16M; any panic is a bug
+
+# Zig-only features C cannot parse (default args, let/const, global eval):
+./tests/zigonly/run.sh
 ```
 
 `run.sh` compares what the engines **print**. `bytecode.sh` compares what they

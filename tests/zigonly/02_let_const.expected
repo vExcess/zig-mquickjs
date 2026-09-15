@@ -1,0 +1,9 @@
+typeof_before=undefined
+hoisted=1
+redecl=2
+const_reassign=2
+block_leak=3
+mixed=5
+func_scope=7
+for_let=3,3,3
+DONE 02_let_const.js
