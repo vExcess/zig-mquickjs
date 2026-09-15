@@ -193,19 +193,26 @@ pub fn js_function_constructor(ctx: *c.JSContext, this_val: *c.JSValue, argc_in:
     _ = value.string_buffer_push(ctx, @ptrCast(&b), 0);
     _ = value.string_buffer_puts(ctx, @ptrCast(&b), "(function anonymous(");
     const n = argc - 1;
-    var i: c_int = 0;
-    while (i < n) : (i += 1) {
-        if (i != 0) {
-            _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
+    // C (mquickjs.c:13029-13037) goto done on concat failure so later
+    // argv entries are not ToString'd. Zig `break` then still concatenated
+    // the body, so Function({toString: throw "A"}, {toString: throw "B"})
+    // threw B instead of A.
+    concat: {
+        var i: c_int = 0;
+        while (i < n) : (i += 1) {
+            if (i != 0) {
+                _ = value.string_buffer_putc(ctx, @ptrCast(&b), ',');
+            }
+            if (value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
+                break :concat;
         }
-        if (value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(i)]) != 0)
-            break;
+        _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n) {\n");
+        if (n >= 0) {
+            if (value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(n)]) != 0)
+                break :concat;
+        }
+        _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n})");
     }
-    _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n) {\n");
-    if (n >= 0) {
-        _ = value.string_buffer_concat(ctx, @ptrCast(&b), argv[@intCast(n)]);
-    }
-    _ = value.string_buffer_puts(ctx, @ptrCast(&b), "\n})");
     var val = value.string_buffer_pop(ctx, @ptrCast(&b));
     if (vt.isExactException(val))
         return val;

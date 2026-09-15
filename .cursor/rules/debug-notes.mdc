@@ -7,16 +7,16 @@ alwaysApply: true
 
 Read `debug-notes.md` before diagnosing GC, parse, math, or correctness issues.
 
-- **Current phase (2026-09-14 night): regression mode.** C-diff, ReleaseSafe, Octane, Zig-only core coverage, and Debug `bytecode.sh` are saturated as discovery. See "Next phase: Zig-only coverage + finish the Debug gate — DONE".
-- Octane is **resolved**, clean through fix 21 on ReleaseFast **and** ReleaseSafe (user-confirmed 2026-09-14).
+- **Current phase (2026-09-14 night): static analysis vs C.** Runtime probing (C-diff, ReleaseSafe, Octane, zigonly, oracle, Debug `bytecode.sh`, post-fix-25 sweep) is saturated as discovery. See "Next phase: static analysis vs C".
+- Octane is **resolved**, clean through fix 24 on ReleaseFast **and** ReleaseSafe (user-confirmed 2026-09-14). Fixes 25–26 Octane batch is pending.
 - **Legacy discovery (saturated):** `./tests/difftest/run.sh` (C reference at `../mquickjs/mqjs`). Still the ReleaseFast regression gate.
 - Debug **compiles**; 16M `run.sh` ALL MATCH; `bytecode.sh` ALL MATCH (padding notes only). `setjmp` must stay a direct libc extern from `JS_Parse2` (do not wrap). Debug Octane is optional/slow — ask first.
 - `./tests/zigonly/run.sh` covers default args (fix 21), let/const-as-var, and global eval. `run-safe.sh` includes it.
-- `./tests/oracle/run.sh` is the no-C correctness suite (JSON/gc, default-arg+gc, math identities, fixes 22–25). `run-safe.sh` includes it.
+- `./tests/oracle/run.sh` is the no-C correctness suite (JSON/gc, default-arg+gc, math identities, fixes 22–26). `run-safe.sh` includes it.
 - ReleaseSafe/Debug `-o` padding-byte notes vs C are **expected**; Fast may be exact. Size diffs are bugs.
 - Compare only against `../mquickjs` (C). Do not search other workspace dirs.
 - Build `-Doptimize=ReleaseFast` for shipping; `-Doptimize=ReleaseSafe` for UB checks (`./tests/difftest/run-safe.sh`). Do not revert `valueToPtr`'s `@setRuntimeSafety`.
 - C `JS_POP_VALUE` assigns the GC-updated pointer back. Never discard `popValue` when the local is used after a GC-capable call.
-- Do not revert fixes 1–25. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
+- Do not revert fixes 1–26. Do not re-apply compact-by-len, MakeUniqueString post-resize extras, or global resize memcpy changes.
 - `eval` global scope and `let`/`const` as `var` are **documented deviations** — not bugs.
 - `mqjs tests/octane/run.js <suite>` argv SEGV is **fixed** (fix 18). Prefer `tests/difftest/` for discovery and `zig build octane` as the regression gate.

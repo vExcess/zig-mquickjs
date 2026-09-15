@@ -20,8 +20,9 @@ $ZIG build -Doptimize=ReleaseSafe      # runtime safety checks
 $ZIG build -Doptimize=Debug            # self-hosted backend; slower
 ./zig-out/bin/mqjs --memory-limit 256M path/to/repro.js
 ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh   # after ReleaseFast
-./tests/difftest/run-safe.sh                               # after ReleaseSafe (includes zigonly)
+./tests/difftest/run-safe.sh                               # after ReleaseSafe (includes zigonly + oracle)
 ./tests/zigonly/run.sh                                    # Zig-only expected output
+./tests/oracle/run.sh                                     # no-C correctness (JSON/gc, defaults, call, math)
 # Debug: LIMITS=16M ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh
 ```
 
@@ -29,11 +30,12 @@ Fix **one** correctness bug per turn, then stop for manual verify. Leave
 performance for last. Do not rewrite subsystems. Keep the fixes listed below;
 they are real.
 
-**Discovery order (current):** C differential, ReleaseSafe/Octane, Zig-only
-core coverage, and Debug `bytecode.sh` are saturated as *discovery*. Do not
-chase Safe/Debug bytecode padding bytes — Fast being exact is LLVM zeros;
-size diffs are bugs. New yield is a Safe/Debug panic, a zigonly expected-output
-mismatch, or a real-workload crash — not more C traces.
+**Discovery order (current):** runtime probing is saturated (C-diff, ReleaseSafe,
+Octane, zigonly, oracle, Debug `bytecode.sh`, plus the post-fix-25 ad-hoc
+sweep). New yield is **static analysis vs C** — omitted clamps, `argc`/`FRAME_CF_CTOR`
+handling, `return -1` vs `JS_EXCEPTION`, seek/`regexp_allowed` — the class that
+produced fix 25. Do not chase Safe/Debug bytecode padding bytes. Size diffs
+are bugs. A Safe/Debug panic is still a bug.
 
 ---
 
@@ -66,6 +68,9 @@ all Octane-gated.
 under `-Doptimize=ReleaseSafe`**. The UB-detector gate is now the full
 difftest corpus + bytecode.sh + Octane. Ask for a fresh batch after the
 *next* engine fix, not before discovery turns.
+
+**Post fix 22–24:** user confirmed Octane after each (2026-09-14 night).
+**Post fix 25–26:** Octane batch **pending** (asked; not yet user-confirmed).
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -224,18 +229,19 @@ Safe byte-identical. A *size* mismatch still is a bug.
 
 ### Execution order (current)
 
-1. `$ZIG build -Doptimize=ReleaseFast && ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh && ./tests/zigonly/run.sh`
+1. `$ZIG build -Doptimize=ReleaseFast && ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh && ./tests/zigonly/run.sh && ./tests/oracle/run.sh`
 2. `$ZIG build -Doptimize=ReleaseSafe && ./tests/difftest/run-safe.sh` — any panic is a bug
-   (`run-safe.sh` is run.sh + bytecode.sh + zigonly at 16M)
+   (`run-safe.sh` is run.sh + bytecode.sh + zigonly + oracle at 16M)
 3. Debug (if parse/JSON/longjmp or bytecode emit): `$ZIG build -Doptimize=Debug` then
    `LIMITS=16M ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh` — both ALL MATCH
    (2026-09-14). Padding-byte notes expected; SIZE or EXEC DIFF is a bug.
-4. Fix one panic or C-verified bug; add a difftest/`tests/zigonly/` script if new
+4. Fix one C-verified or Zig-only panic/bug; add a difftest / zigonly / oracle script
 5. User batch Octane after substantive engine fixes (ReleaseFast; ReleaseSafe
    if it was a safety fix). Debug Octane is optional and slow — ask first.
 
-C script-level differential is saturated. Prefer Zig-only tests, ReleaseSafe
-panics, and image *sizes* over padding-byte chasing.
+C script-level differential and post-fix-25 runtime probing are saturated.
+Prefer static C-vs-Zig function diffs (the fix 25 class), ReleaseSafe panics,
+and image *sizes* over padding-byte chasing or more ad-hoc probe scripts.
 
 ### Success criteria
 
@@ -244,8 +250,9 @@ panics, and image *sizes* over padding-byte chasing.
 | 1A complete | Every `_ = popValue` has C-verified verdict | **done** |
 | 1B–1D static | No new must-fix vs C in parser/GC/layout | **done** |
 | C differential | `./tests/difftest/run.sh` → ALL MATCH | **done** |
-| Octane regression | Full runs pass after latest fix | **done** through fix 21; ReleaseSafe Octane **done** (2026-09-14) |
-| ReleaseSafe runnable | difftest + bytecode.sh + zigonly, no panics | **done** (2026-09-14); `./tests/difftest/run-safe.sh` |
+| Octane regression | Full runs pass after latest fix | **done** through fix 24 (user); fixes 25–26 **pending** batch |
+| Independent oracle | `./tests/oracle/run.sh` → ALL ORACLE MATCH | **done** (fixes 22–25 + JSON/math/gc); Fast/Safe; in `run-safe.sh` |
+| ReleaseSafe runnable | difftest + bytecode.sh + zigonly + oracle, no panics | **done** (2026-09-14); `./tests/difftest/run-safe.sh` |
 | Debug runnable | compiles; 16M `run.sh` ALL MATCH | **done** (setjmp + `js_vprintf`); `bytecode.sh` ALL MATCH (padding notes only, 2026-09-14 night); Octane under Debug **not gated** (optional, slow) |
 | Zig-only suite | `./tests/zigonly/run.sh` → ALL ZIGONLY MATCH | **done** (fix 21 defaults, let/const-as-var, global eval); Fast/Safe/Debug |
 
@@ -652,6 +659,59 @@ padded to `undefined` (`fd.arg_count` is 1).
 
 Regression: `tests/difftest/25_function_call.js`, `tests/oracle/08_function_call.js`.
 
+Verified Fast `run.sh` / `bytecode.sh` / zigonly / oracle ALL MATCH; ReleaseSafe
+`run-safe.sh` ALL MATCH (padding notes only, including the new script).
+
+### 26. `Function(param, body)` ToString error order
+
+C `js_function_constructor` `goto done` on `string_buffer_concat` failure
+(`mquickjs.c:13029-13037`) so later argv entries are never `ToString`'d.
+Zig `break` from the param loop then still concatenated `argv[n]` (the body).
+`Function({toString: throw "A"}, {toString: throw "B"})` threw `B` instead of `A`.
+
+Fix: labeled `concat` block matching C's `goto done`.
+
+Regression: `tests/difftest/26_function_ctor.js`.
+
+Verified Fast `run.sh` / `bytecode.sh` / zigonly / oracle ALL MATCH; ReleaseSafe
+`run-safe.sh` ALL MATCH; Debug 16M `run.sh` / `bytecode.sh` ALL MATCH (padding
+notes only, including the new script).
+
+The post-fix-25 sweep's `Function()` toString probe used a single argument
+(the body), which does not hit this path.
+
+### Post-fix-25 runtime sweep — no new bug (2026-09-14 night)
+
+Ad-hoc probes vs C (C-parseable) and Zig-only default-arg paths. **No confirmed
+next bug.** Do not redo this sweep as discovery.
+
+Probed clean (matches C where C can parse; Zig-only cases did not crash):
+`apply`/`bind` (already had C's `max_int(argc-1, 0)`), `fn.call(undefined)` /
+`fn.call(null)` / extra args, `Function("a = anonymous")`, `new.target` in
+defaults, nested named-expr defaults, getter defaults, `Function()` `toString`
+throw/gc, JSON unicode/`-0`/`1e400`/`\u{41}`/circular, typed-array `set`/
+`subarray`/clamp, `Object.create(null)`, closures over defaults, `**` in
+defaults, regexp after `~`/`!`/`typeof` in defaults, `eval` of non-strings
+(ES5: return the value).
+
+**Not bugs** (C-shared or documented; do not "fix"):
+- `for (;; /x/.exec())` — `is_regexp_allowed(')')` is false; C SyntaxError
+- `"x".repeat({valueOf: function(){ throw "boom"; }})` → nameless `?` —
+  C `js_string_repeat` also `return -1` (`mquickjs.c:13704`), not `JS_EXCEPTION`
+- sort comparator throw swallowed (`return JS_EXCEPTION` as cmp int, C same)
+- `"Array loo long"` typo (C `mquickjs.c:14394`)
+- `JSON.parse('"\\u{41}"')` → `"A"` (JSON path uses the JS string lexer)
+- `eval` global / `let`/`const` as `var` / array holes SyntaxError / `with`
+  SyntaxError
+- `function.length` with defaults is the param count, not ES6 length
+- Hoisted inner `function g` is visible during default eval (var-hoist)
+
+How fix 25 was found (reuse this *method*, not more probes): C
+`js_function_call` does `argc = max_int(argc, 1)`; Zig omitted it. The VM
+passes **original** argc (0 for `fn.call()`), while `fd.arg_count` only
+**pads** argv. `newTailCall(-1)` is `JS_EXCEPTION` (EX_NORMAL), not a tail
+call.
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -722,7 +782,9 @@ regression gate.
 | Grok (2026-09-14 night) | Independent `tests/oracle/` (no C); fix 22 (default-arg `/` re-lexed as division) | oracle ALL MATCH Fast/Safe; zigonly ALL MATCH |
 | Grok (2026-09-14 night) | Fix 23: bind `arguments` / inner name before default-arg emission; skip-assign bits for `arguments` | oracle 07; Fast/Safe |
 | Grok (2026-09-14 night) | Fix 24: `js_skip_assign_expr` also sets `HAS_FUNC_NAME` when a default mentions the inner name | oracle 07 named-only/method/shorthand/eval |
-| Grok (2026-09-14 night) | Fix 25: `fn.call()` argc 0 omitted C `max_int(argc, 1)`; `newTailCall(-1)` threw `?` | difftest 25; oracle 08 |
+| Grok (2026-09-14 night) | Fix 25: `fn.call()` argc 0 omitted C `max_int(argc, 1)`; `newTailCall(-1)` threw `?` | difftest 25; oracle 08; Fast/Safe gates; Octane pending |
+| Grok (2026-09-14 night) | Post-25 runtime sweep (call/apply/bind leftovers, default-arg edges, JSON, typed arrays, Function() GC) | **no bug**; that probe class is saturated — next is static C-vs-Zig |
+| Grok (2026-09-14 night) | Notes + cursor rule: regression mode DONE as discovery; CURRENT handoff is static analysis vs C | — |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 
@@ -779,7 +841,7 @@ differencing **by construction**:
 corpus, `tests/test_{builtin,closure,language,loop}.js`, and
 `tests/difftest/bytecode.sh` (`-o` and `-m32 -o`) with **no panics**. stdout,
 exit codes, and bytecode sizes still ALL MATCH vs C. ReleaseFast is unbroken.
-`./tests/difftest/run-safe.sh` is the panic gate (run.sh + bytecode.sh + zigonly at 16M).
+`./tests/difftest/run-safe.sh` is the panic gate (run.sh + bytecode.sh + zigonly + oracle at 16M).
 
 `build.zig` no longer refuses Debug/ReleaseSafe; it prints a "test mode,
 slower" note. Debug **compiles**. `setjmp` must be a direct libc call from
@@ -846,13 +908,42 @@ sweeps, or "fix" Safe/Debug padding to match Fast. JSObjectExt union 40 vs 48
 is not a heap bug.
 
 ReleaseSafe remains the UB detector (`run-safe.sh` = run.sh + bytecode.sh +
-zigonly). A panic there is a genuine bug.
+zigonly + oracle). A panic there is a genuine bug.
 
-**What's next (regression mode):** there is no remaining high-yield discovery
-surface of the old kind. Further engine work is: a Safe/Debug panic, a
-zigonly mismatch, or a crash on a new workload. Optional leftover gates
-(`SLOW=1`, Debug Octane) need a user go-ahead. Add a `tests/zigonly/` script
+**What's next (regression mode) — DONE as discovery.** Runtime probing of
+the old kind is saturated. Optional leftover gates (`SLOW=1`, Debug Octane)
+still need a user go-ahead. Add a `tests/zigonly/` or `tests/oracle/` script
 when landing a new Zig-only path.
+
+### Next phase: static analysis vs C (CURRENT — 2026-09-14 night)
+
+New yield is the **fix 25 class**: a C line omitted or mis-translated in Zig
+that C-diff never hits because the corpus does not exercise the rare branch
+(`fn.call()` argc 0, Zig-only defaults, `@intCast` of 0, etc.).
+
+**Method:** open the C function and the Zig function side by side. Confirm
+with a *minimal* probe only after a static mismatch. Do not invent more
+ad-hoc runtime sweeps.
+
+Hunt:
+- omitted `max_int` / argc clamps; C `argc &= ~FRAME_CF_CTOR` vs Zig
+  `_ = argc & ~…` (the latter does not clear the flag)
+- `return -1` as a `JSValue` where C uses `JS_EXCEPTION` (C-shared
+  `js_string_repeat` at `mquickjs.c:13704` is **not** a Zig-only bug)
+- `goto done` vs Zig `break` then fallthrough / continue
+- `@intCast` / u32 underflow on values JS can make 0 or negative
+  (ReleaseSafe panic class), e.g. `captures_len - 1` if count were 0
+- discarded `_ = popValue` after a GC-capable call if the local is used
+  after — **new sites only**; Phase 1A table is complete for listed files
+- parser: `js_parse_function` default emission vs
+  `define_hoisted_functions` `emit_insert(0, …)`; do **not** OR first-pass
+  param-list skip bits globally (`function foo(foo) {}` would grow `-o`
+  vs C)
+
+Do **not** redo: Phase 1A popValue table, 1B–1D layout/intern, leftover-ident,
+instrumented `DUMP_*` traces, post-fix-25 runtime sweep, padding-byte chasing.
+
+`src/wasm_host.zig` is untested by the harness — optional, ask first.
 
 ### Deterministic Octane differential — clean
 
@@ -980,16 +1071,16 @@ Two **kernelExp** spots that were latent are now **fixed** (ReleaseSafe phase):
 `libm.c:1865-1870`. See the ReleaseSafe site table.
 
 **Git state:** fixes 1–21 committed; ReleaseSafe + Debug setjmp committed
-(`b66e1d8` safe/debug builds, `7f62eac` setjmp). Do not commit/push unless
-asked.
+(`b66e1d8` safe/debug builds, `7f62eac` setjmp). zigonly, oracle, and fixes
+22–25 are in the working tree. Do not commit/push unless asked.
 
 ---
 
 ## Handoff prompt (paste to a new agent)
 
-See bottom of file. The **current** prompt is *Handoff prompt — regression
-mode*; Zig-only + Debug gate / post-ReleaseSafe / ReleaseSafe-phase prompts
-above it are historical.
+See bottom of file. The **current** prompt is *Handoff prompt — static
+analysis vs C*; regression-mode / Zig-only + Debug gate / post-ReleaseSafe /
+ReleaseSafe-phase prompts above it are historical.
 
 ---
 
@@ -1463,7 +1554,7 @@ Do not commit/push unless asked.
 
 ---
 
-## Handoff prompt — regression mode (CURRENT; paste to new agent)
+## Handoff prompt — regression mode (DONE 2026-09-14 night; kept for reference)
 
 ```
 Only edit zig-mquickjs.
@@ -1537,6 +1628,129 @@ Home is ecryptfs — the two cache vars are mandatory. Zig 0.16.
 ## Git state
 Fixes 1–21, ReleaseSafe, and Debug setjmp are committed (b66e1d8, 7f62eac).
 tests/zigonly/ and Debug bytecode gating are in the working tree. Do not
+commit/push unless asked.
+```
+
+---
+
+## Handoff prompt — static analysis vs C (CURRENT; paste to new agent)
+
+```
+Only edit zig-mquickjs. Compare only against ../mquickjs (C).
+
+Read debug-notes.md and .cursor/rules/debug-notes.mdc first, especially
+"Next phase: static analysis vs C" and "Post-fix-25 runtime sweep".
+
+## Mission
+Runtime discovery is saturated (C-diff, ReleaseSafe, Octane through fix 24,
+zigonly, oracle, Debug bytecode.sh, post-fix-25 ad-hoc probes). Find the
+next correctness bug by **static C-vs-Zig function diffs**, the class that
+produced fix 25. One fix per turn. Do not rewrite the GC. Do not commit
+unless asked.
+
+Fix 25 archetype: C js_function_call does argc = max_int(argc, 1)
+(mquickjs.c:13129); Zig omitted it. fn.call() arrived with argc 0;
+newTailCall(-1) is a plain JS_EXCEPTION (EX_NORMAL), so the engine threw
+nameless "?" instead of invoking with this === undefined. fd.arg_count
+only pads argv — the VM still passes original argc. apply/bind already
+matched C (bind uses if (argc > 1) argc - 1 else 0).
+
+## Build
+export ZIG=/home/vexcess/zig-x86_64-linux-0.16.0/zig
+export ZIG_LOCAL_CACHE_DIR=/tmp/zig-mquickjs-cache
+export ZIG_GLOBAL_CACHE_DIR=/tmp/zig-global-cache
+$ZIG build -Doptimize=ReleaseFast && ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh && ./tests/zigonly/run.sh && ./tests/oracle/run.sh
+$ZIG build -Doptimize=ReleaseSafe && ./tests/difftest/run-safe.sh
+$ZIG build -Doptimize=Debug && LIMITS=16M ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh
+Home is ecryptfs — the two cache vars are mandatory. Zig 0.16.
+
+## Method
+1. Pick a C builtin/parser/runtime function not recently compared. Open it
+   next to the Zig port. Read every branch, return, argc mutation, and
+   error path. C is the tie-breaker: if C does the same wrong thing, it is
+   not a Zig bug.
+2. When you find a static mismatch, write a *minimal* probe (C-parseable →
+   tests/difftest/; Zig-only → tests/zigonly/ or tests/oracle/). Confirm
+   before fixing.
+3. Fix one bug. Do not batch "while I'm here" cleanups.
+
+Hunt (highest yield):
+- omitted max_int / argc clamps; C argc &= ~FRAME_CF_CTOR vs Zig
+  `_ = argc & ~…` (the latter does not clear the flag — grep that)
+- return -1 as JSValue where C uses JS_EXCEPTION (C-shared
+  js_string_repeat at mquickjs.c:13704 is NOT a Zig-only bug; it is the
+  only @bitCast(-1) JSValue site)
+- goto done vs Zig break then fallthrough / continue
+- @intCast / u32 underflow on values JS can make 0 or negative
+  (ReleaseSafe panic), e.g. captures_len - 1 if count were 0
+- discarded `_ = popValue` after a GC-capable call if the local is used
+  after — NEW sites only; Phase 1A table is complete for listed files.
+  C JS_POP_VALUE assigns the GC-updated pointer back.
+- parser: js_parse_function default emission vs
+  define_hoisted_functions emit_insert(0, …). Do NOT OR first-pass
+  param-list skip bits globally (function foo(foo) {} would grow -o vs C).
+  Do not change js_skip_expr / js_parse_get_pos (breaks for-loop third
+  expr / regexp-after-')' ).
+
+Start with remaining JSCFunctions in src/mquickjs_builtins_lib.zig and
+siblings (array/string/regexp/std) that were not the last compared
+functions (last: js_function_constructor concat `goto done`). Then parser
+default/hoist, then VM call-frame argc flags.
+
+## What's done (do not redo)
+- Fixes 1–26. Octane-gated through 24 (user). Fixes 25–26 Fast/Safe gates
+  green in-agent; Octane batch pending — ask the user, do not run Octane
+  yourself unless asked. Debug Octane is optional/slow — ask first.
+- C script/bytecode/trace differentials, leftover-ident, struct-layout,
+  instrumented DUMP_* traces, Phase 1A–1D popValue/layout/intern audits.
+- Post-fix-25 runtime sweep (call/apply/bind leftovers, default-arg edges,
+  JSON, typed arrays, Function() GC) — no bug. See that section for the
+  false-positive list.
+- ReleaseSafe: run-safe.sh = run.sh + bytecode.sh + zigonly + oracle, no
+  panics. Do not revert valueToPtr @setRuntimeSafety, wrapping arithmetic,
+  classObj FAM, gc_update_threaded_pointers usize, kernelExp @bitCast.
+- Debug: js_vprintf callconv(.c); setjmp is a *direct* libc extern from
+  JS_Parse2. Do not wrap setjmp.
+- tests/zigonly/: fix 21 defaults, let/const-as-var, global eval.
+- tests/oracle/: JSON/gc, defaults+gc, defineProperty+gc, math, eval+
+  defaults, regexp defaults (22), scope (23–24), call() (25).
+- User: Fast -o can be byte-identical to C; Safe/Debug padding-byte notes
+  when sizes match are expected. Size diffs ARE bugs.
+
+## Not bugs (do not "fix")
+- eval always global; let/const as var; array holes / write-past-end;
+  unsupported ES6+; with is SyntaxError
+- for (;; /x/.exec()) SyntaxError — is_regexp_allowed(')') is false in C
+- "x".repeat({valueOf: throw}) → "?" — C js_string_repeat return -1
+- sort comparator throw swallowed (C same)
+- "Array loo long" typo (C mquickjs.c:14394)
+- JSON.parse('"\\u{41}"') → "A"; JSON.parse("01") → 1; JSON.parse("1.") → 1
+- function.length with defaults is the param count, not ES6 length
+- arguments is JS_CLASS_ARRAY here (Array.isArray(arguments) is true)
+- reused catch bindings; Octane score noise; -dd hash-bucket ASLR
+- JSObjectExt union sizeof 40 vs 48 — not a heap bug
+
+## Do NOT do
+- Revert fixes 1–26 or ReleaseSafe/Debug site-table changes
+- Re-apply compact-by-len / MakeUniqueString extras / global resize memcpy
+- Rewrite GC or intern
+- Sprinkle more @setRuntimeSafety(false); valueToPtr is the one exception
+- Re-run saturated C traces / leftover-ident / struct-layout / DUMP_* /
+  post-25 runtime probing
+- Zero-fill padding to make Safe byte-identical to Fast
+- Wrap setjmp in a Zig function
+- Touch src/wasm_host.zig unless the user says so (untested by harness)
+
+## After each fix
+1. zig build -Doptimize=ReleaseFast && ./tests/difftest/run.sh && ./tests/difftest/bytecode.sh && ./tests/zigonly/run.sh && ./tests/oracle/run.sh
+2. zig build -Doptimize=ReleaseSafe && ./tests/difftest/run-safe.sh
+3. If parse/JSON/longjmp or bytecode emit: LIMITS=16M Debug run.sh (include
+   14_hostile_args.js) && bytecode.sh
+4. Update debug-notes.md (audit log + this prompt if the phase changes)
+5. Ask user to batch Octane after substantive engine fixes
+## Git state
+Fixes 1–21, ReleaseSafe, and Debug setjmp are committed (b66e1d8, 7f62eac).
+zigonly, oracle, and fixes 22–26 are in the working tree. Do not
 commit/push unless asked.
 ```
 
