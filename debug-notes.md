@@ -627,6 +627,19 @@ creates the arguments object. Do not OR first-pass param-list bits globally
 
 Regression: `tests/oracle/07_default_scope.js`.
 
+### 24. Named function expr default did not bind the inner name
+
+Zig-only leftover of fix 23. `var f = function foo(a = foo) { return typeof a; }; f()`
+threw `ReferenceError` when the *body* never mentioned `foo` (same for
+`{ m: function m(a = m) {} }` and method shorthand). Declarations already
+worked via hoisting.
+
+`js_skip_assign_expr` only returned `SKIP_HAS_ARGUMENTS`. It now takes the
+rooted inner name (like body `js_skip_parens`) and sets `HAS_FUNC_NAME`.
+Do not OR first-pass param-list bits.
+
+Regression: `tests/oracle/07_default_scope.js` (named-only / method / shorthand / eval).
+
 ---
 
 ## Historical: Typescript `Parse errors.` (Octane — fixed)
@@ -696,6 +709,7 @@ regression gate.
 | Grok (2026-09-14 night) | `tests/zigonly/` expected-output suite (fix 21 defaults, let/const-as-var, global eval); Debug `bytecode.sh` | zigonly ALL MATCH Fast/Safe/Debug + `-o`/`-b` roundtrip; Debug bytecode ALL MATCH (28× 64-bit padding notes, no SIZE/EXEC DIFF); `run-safe.sh` now includes zigonly |
 | Grok (2026-09-14 night) | Independent `tests/oracle/` (no C); fix 22 (default-arg `/` re-lexed as division) | oracle ALL MATCH Fast/Safe; zigonly ALL MATCH |
 | Grok (2026-09-14 night) | Fix 23: bind `arguments` / inner name before default-arg emission; skip-assign bits for `arguments` | oracle 07; Fast/Safe |
+| Grok (2026-09-14 night) | Fix 24: `js_skip_assign_expr` also sets `HAS_FUNC_NAME` when a default mentions the inner name | oracle 07 named-only/method/shorthand/eval |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 

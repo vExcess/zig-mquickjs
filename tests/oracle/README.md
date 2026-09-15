@@ -32,6 +32,6 @@ on supported stricter-mode JS **are** bugs.
 | `04_math_identities` | sin²+cos², sign of `sin(-0)`, `acos(-1)` |
 | `05_eval_defaults` | global eval defining default-arg functions |
 | `06_default_regexp` | fix 22: default/body starting with `/` re-lexed as division |
-| `07_default_scope` | fix 23: `arguments` / inner name bound before default-arg emission |
+| `07_default_scope` | fix 23–24: `arguments` / inner name bound before defaults; name seen only in the default |
 
 Env overrides: `Z_MQJS`, `LIMITS` (default `16M`).

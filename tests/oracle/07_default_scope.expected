@@ -4,5 +4,10 @@ ok args undef
 ok args index
 ok args index one
 ok named expr
+ok named default only
+ok decl default
+ok method name
+ok shorthand name
+ok eval named
 ok nested
 DONE 07_default_scope.js

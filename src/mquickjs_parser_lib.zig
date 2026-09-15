@@ -359,10 +359,18 @@ fn js_parse_function(s: *JSParseState) void {
             // is itself a regexp (TOK_REGEXP) would seek with allowed=0
             // and re-lex `/` as division.
             default_pos[@intCast(default_count)].regexp_allowed = 1;
-            const dbits = lexer.js_skip_assign_expr(s);
-            if ((dbits & lt.SKIP_HAS_ARGUMENTS) != 0) {
+            var fname_ref: c.JSGCRef = undefined;
+            const fname = funcBc(s.cur_func).func_name;
+            const root_name = fname != c.JS_NULL;
+            if (root_name)
+                utils.pushValue(s.ctx, &fname_ref, fname);
+            const dbits = lexer.js_skip_assign_expr(s, if (root_name) &fname_ref.val else null);
+            if (root_name)
+                _ = utils.popValue(s.ctx, &fname_ref);
+            if ((dbits & lt.SKIP_HAS_ARGUMENTS) != 0)
                 pt.bytecodeSetHasArguments(funcBc(s.cur_func), true);
-            }
+            if ((dbits & lt.SKIP_HAS_FUNC_NAME) != 0)
+                pt.bytecodeSetHasLocalFuncName(funcBc(s.cur_func), true);
             default_arg_idx[@intCast(default_count)] = arg_idx;
             default_count += 1;
         }

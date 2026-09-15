@@ -32,6 +32,31 @@ var nf = function foo(a = foo) {
 if (nf() !== true) fail("named=" + nf());
 else print("ok named expr");
 
+var nf2 = function baz(a = baz) {
+    gc();
+    return typeof a;
+};
+if (nf2() !== "function") fail("named-only=" + nf2());
+else print("ok named default only");
+
+function bar(a = bar) {
+    return typeof a;
+}
+if (bar() !== "function") fail("decl=" + bar());
+else print("ok decl default");
+
+var om = { m: function m(a = m) { return typeof a; } };
+if (om.m() !== "function") fail("method=" + om.m());
+else print("ok method name");
+
+var os = eval("({ m(a = m) { return typeof a; } })");
+if (os.m() !== "function") fail("shorthand=" + os.m());
+else print("ok shorthand name");
+
+if (eval("(function qux(a = qux) { return typeof a; })()") !== "function")
+    fail("eval named");
+else print("ok eval named");
+
 function outer() {
     function inner(a = arguments[0]) {
         return a + ":" + arguments.length;

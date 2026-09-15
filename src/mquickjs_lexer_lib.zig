@@ -164,8 +164,9 @@ pub fn js_skip_expr(s: *lt.JSParseState) void {
 // AssignmentExpression terminator: ',' or ')' at depth 0. C js_skip_expr
 // only stops at ')' (for-loop third expr). Default-arg lists need comma.
 // Returns skip bits so `function f(a = arguments.length) { return a; }`
-// still binds `arguments` (body skip never sees the default).
-pub fn js_skip_assign_expr(s: *lt.JSParseState) c_int {
+// still binds `arguments`, and `function foo(a = foo) { return a; }` still
+// binds the inner name (body skip never sees the default).
+pub fn js_skip_assign_expr(s: *lt.JSParseState, pfunc_name: ?*c.JSValue) c_int {
     var bits: c_int = 0;
     while (true) {
         switch (s.token.val) {
@@ -174,11 +175,15 @@ pub fn js_skip_assign_expr(s: *lt.JSParseState) c_int {
                 js_parse_error(s, "expecting '%c'", @as(c_int, ')'));
             },
             '(', '[', '{' => {
-                bits |= js_skip_parens(s, null);
+                bits |= js_skip_parens(s, pfunc_name);
             },
             lt.TOK_IDENT => {
                 if (s.token.value == utils.js_get_atom(s.ctx, c.JS_ATOM_arguments))
                     bits |= lt.SKIP_HAS_ARGUMENTS;
+                if (pfunc_name) |pname| {
+                    if (s.token.value == pname.*)
+                        bits |= lt.SKIP_HAS_FUNC_NAME;
+                }
                 next_token(s);
             },
             else => {
