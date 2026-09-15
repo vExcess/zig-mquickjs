@@ -71,6 +71,7 @@ difftest corpus + bytecode.sh + Octane. Ask for a fresh batch after the
 
 **Post fix 22–24:** user confirmed Octane after each (2026-09-14 night).
 **Post fix 25–26:** Octane batch **pending** (asked; not yet user-confirmed).
+**Post fix 28:** include in the same Octane batch.
 
 ### What broke Octane (bug classes — still hunt these elsewhere)
 
@@ -250,7 +251,7 @@ and image *sizes* over padding-byte chasing or more ad-hoc probe scripts.
 | 1A complete | Every `_ = popValue` has C-verified verdict | **done** |
 | 1B–1D static | No new must-fix vs C in parser/GC/layout | **done** |
 | C differential | `./tests/difftest/run.sh` → ALL MATCH | **done** |
-| Octane regression | Full runs pass after latest fix | **done** through fix 24 (user); fixes 25–26 **pending** batch |
+| Octane regression | Full runs pass after latest fix | **done** through fix 24 (user); fixes 25–26, 28 **pending** batch |
 | Independent oracle | `./tests/oracle/run.sh` → ALL ORACLE MATCH | **done** (fixes 22–25 + JSON/math/gc); Fast/Safe; in `run-safe.sh` |
 | ReleaseSafe runnable | difftest + bytecode.sh + zigonly + oracle, no panics | **done** (2026-09-14); `./tests/difftest/run-safe.sh` |
 | Debug runnable | compiles; 16M `run.sh` ALL MATCH | **done** (setjmp + `js_vprintf`); `bytecode.sh` ALL MATCH (padding notes only, 2026-09-14 night); Octane under Debug **not gated** (optional, slow) |
@@ -680,6 +681,37 @@ notes only, including the new script).
 The post-fix-25 sweep's `Function()` toString probe used a single argument
 (the body), which does not hit this path.
 
+### 27. (reverted) Do not copy C `JS_CFUNC_f_f` throw-to-NaN
+
+C `JS_CFUNC_f_f` (`mquickjs.c:5457-5466`) sets `val = JS_EXCEPTION` on
+ToNumber failure, then unconditionally `val = JS_NewFloat64(ctx, d)`.
+ToNumber already wrote `d = NAN`, so the exception is a dead store:
+`Math.sin({valueOf: throw "X"})` returns NaN. Node and the spec propagate.
+`Number()` / `Math.min` on C still throw — only the compact f_f wrappers
+hit this.
+
+Zig's original if/else only `JS_NewFloat64` on success (throws). A
+match-C change was applied, then reverted: C is wrong here.
+
+Do not re-apply the unconditional `JS_NewFloat64`. Not a difftest — C
+prints `sin=NaN`. Regression: `tests/oracle/09_math_ff_throw.js`.
+
+### 28. Array literal `[1 2]` parsed as `[1, 2]`
+
+C array-literal parse (`mquickjs.c:9503-9506`) `goto done` when the token
+after an element is neither `,` nor `]`, then `js_parse_expect(']')`.
+Zig continued into the `put_array_el` loop, so `Function("return [1 2]")`
+returned `1,2` instead of SyntaxError.
+
+Fix: missing comma → `js_parse_expect(']')` (C `goto done`). Trailing
+comma and `[1, 2]` unchanged.
+
+Regression: `tests/difftest/28_array_comma.js`.
+
+Verified Fast `run.sh` / `bytecode.sh` / zigonly / oracle ALL MATCH; ReleaseSafe
+`run-safe.sh` ALL MATCH; Debug 16M `run.sh` / `bytecode.sh` ALL MATCH (padding
+notes only, including the new script).
+
 ### Post-fix-25 runtime sweep — no new bug (2026-09-14 night)
 
 Ad-hoc probes vs C (C-parseable) and Zig-only default-arg paths. **No confirmed
@@ -785,6 +817,8 @@ regression gate.
 | Grok (2026-09-14 night) | Fix 25: `fn.call()` argc 0 omitted C `max_int(argc, 1)`; `newTailCall(-1)` threw `?` | difftest 25; oracle 08; Fast/Safe gates; Octane pending |
 | Grok (2026-09-14 night) | Post-25 runtime sweep (call/apply/bind leftovers, default-arg edges, JSON, typed arrays, Function() GC) | **no bug**; that probe class is saturated — next is static C-vs-Zig |
 | Grok (2026-09-14 night) | Notes + cursor rule: regression mode DONE as discovery; CURRENT handoff is static analysis vs C | — |
+| Grok (2026-09-14 night) | Fix 27 applied then reverted: C `JS_CFUNC_f_f` dead-stores EXCEPTION → NaN; Zig/Node throw | oracle 09; do not match C |
+| Grok (2026-09-15) | Fix 28: array literal missing comma parsed as implicit comma (`[1 2]` → `[1, 2]`) | difftest 28; C `goto done` |
 
 ### Instrumented trace differentials — clean (2026-09-14)
 
@@ -1668,7 +1702,8 @@ Home is ecryptfs — the two cache vars are mandatory. Zig 0.16.
 1. Pick a C builtin/parser/runtime function not recently compared. Open it
    next to the Zig port. Read every branch, return, argc mutation, and
    error path. C is the tie-breaker: if C does the same wrong thing, it is
-   not a Zig bug.
+   not a Zig bug — except C `JS_CFUNC_f_f` (mquickjs.c:5465) dead-stores
+   JS_EXCEPTION and returns NaN; Zig/Node throw (oracle 09). Do not copy that.
 2. When you find a static mismatch, write a *minimal* probe (C-parseable →
    tests/difftest/; Zig-only → tests/zigonly/ or tests/oracle/). Confirm
    before fixing.
@@ -1694,12 +1729,12 @@ Hunt (highest yield):
 
 Start with remaining JSCFunctions in src/mquickjs_builtins_lib.zig and
 siblings (array/string/regexp/std) that were not the last compared
-functions (last: js_function_constructor concat `goto done`). Then parser
-default/hoist, then VM call-frame argc flags.
+functions (last: array literal missing comma / C `goto done`). Then
+remaining JSCFunctions, parser default/hoist, VM CFUNC / call-frame argc.
 
 ## What's done (do not redo)
-- Fixes 1–26. Octane-gated through 24 (user). Fixes 25–26 Fast/Safe gates
-  green in-agent; Octane batch pending — ask the user, do not run Octane
+- Fixes 1–26 and 28. Octane-gated through 24 (user). Fixes 25–26, 28 Fast/Safe
+  gates green in-agent; Octane batch pending — ask the user, do not run Octane
   yourself unless asked. Debug Octane is optional/slow — ask first.
 - C script/bytecode/trace differentials, leftover-ident, struct-layout,
   instrumented DUMP_* traces, Phase 1A–1D popValue/layout/intern audits.
@@ -1713,7 +1748,7 @@ default/hoist, then VM call-frame argc flags.
   JS_Parse2. Do not wrap setjmp.
 - tests/zigonly/: fix 21 defaults, let/const-as-var, global eval.
 - tests/oracle/: JSON/gc, defaults+gc, defineProperty+gc, math, eval+
-  defaults, regexp defaults (22), scope (23–24), call() (25).
+  defaults, regexp defaults (22), scope (23–24), call() (25), f_f throw (09).
 - User: Fast -o can be byte-identical to C; Safe/Debug padding-byte notes
   when sizes match are expected. Size diffs ARE bugs.
 
@@ -1722,6 +1757,8 @@ default/hoist, then VM call-frame argc flags.
   unsupported ES6+; with is SyntaxError
 - for (;; /x/.exec()) SyntaxError — is_regexp_allowed(')') is false in C
 - "x".repeat({valueOf: throw}) → "?" — C js_string_repeat return -1
+- C Math.sin({valueOf: throw}) → NaN is a C dead-store bug; Zig/Node throw.
+  Do not copy C. oracle 09.
 - sort comparator throw swallowed (C same)
 - "Array loo long" typo (C mquickjs.c:14394)
 - JSON.parse('"\\u{41}"') → "A"; JSON.parse("01") → 1; JSON.parse("1.") → 1
@@ -1731,7 +1768,8 @@ default/hoist, then VM call-frame argc flags.
 - JSObjectExt union sizeof 40 vs 48 — not a heap bug
 
 ## Do NOT do
-- Revert fixes 1–26 or ReleaseSafe/Debug site-table changes
+- Revert fixes 1–26 or 28, or ReleaseSafe/Debug site-table changes
+- Re-apply JS_CFUNC_f_f unconditional NewFloat64 (C throw-to-NaN)
 - Re-apply compact-by-len / MakeUniqueString extras / global resize memcpy
 - Rewrite GC or intern
 - Sprinkle more @setRuntimeSafety(false); valueToPtr is the one exception
@@ -1750,7 +1788,7 @@ default/hoist, then VM call-frame argc flags.
 5. Ask user to batch Octane after substantive engine fixes
 ## Git state
 Fixes 1–21, ReleaseSafe, and Debug setjmp are committed (b66e1d8, 7f62eac).
-zigonly, oracle, and fixes 22–26 are in the working tree. Do not
+zigonly, oracle, and fixes 22–26, 28 are in the working tree. Do not
 commit/push unless asked.
 ```
 

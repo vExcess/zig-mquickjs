@@ -331,6 +331,10 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             val = fn_ptr(ctx, this_ptr, argc_flags, argv, po.u.cfunc.params);
                         },
                         c.JS_CFUNC_f_f => {
+                            // C (mquickjs.c:5460-5465) always JS_NewFloat64(d)
+                            // after ToNumber, which dead-stores JS_EXCEPTION and
+                            // returns NaN. That is a C bug (Node/ES throw). Do
+                            // not copy it.
                             var d: f64 = undefined;
                             if (coerce.JS_ToNumber(ctx, &d, rt.slot(fp, rt.FRAME_OFFSET_ARG0).*) != 0) {
                                 val = c.JS_EXCEPTION;

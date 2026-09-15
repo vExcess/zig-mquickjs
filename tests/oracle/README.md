@@ -34,5 +34,6 @@ on supported stricter-mode JS **are** bugs.
 | `06_default_regexp` | fix 22: default/body starting with `/` re-lexed as division |
 | `07_default_scope` | fix 23–24: `arguments` / inner name bound before defaults; name seen only in the default |
 | `08_function_call` | fix 25: `fn.call()` with no thisArg; default args + `call` |
+| `09_math_ff_throw` | `JS_CFUNC_f_f`: ToPrimitive throw must propagate (C dead-stores EXCEPTION → NaN) |
 
 Env overrides: `Z_MQJS`, `LIMITS` (default `16M`).

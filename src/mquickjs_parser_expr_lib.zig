@@ -231,7 +231,10 @@ pub fn js_parse_postfix_expr(s: *JSParseState, state: c_int, parse_flags_in: c_i
             if (s.token.val == ',') {
                 lexer.next_token(s);
             } else if (s.token.val != ']') {
-                continue :sw 103;
+                // C (mquickjs.c:9506) goto done: do not treat a following
+                // expression as another element. `[1 2]` is SyntaxError.
+                lexer.js_parse_expect(s, ']');
+                continue :sw 100;
             }
             continue :sw 102;
         },
