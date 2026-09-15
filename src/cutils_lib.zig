@@ -89,12 +89,19 @@ pub fn strstart(str: [*c]const u8, val: [*c]const u8, ptr: ?*[*c]const u8) c_int
     std.debug.assert(str != null);
     std.debug.assert(val != null);
 
-    const haystack = cStringSlice(str);
-    const prefix = cStringSlice(val);
-    if (!mem.startsWith(u8, haystack, prefix)) return FALSE;
-
+    // Compare prefix bytes only. `mem.span`/`startsWith` would strlen the
+    // haystack first; js_atod calls this on every non-`0` number inside the
+    // source buffer, which is O(remaining file) per literal.
+    var p = str;
+    var q = val;
+    while (q[0] != 0) {
+        if (p[0] != q[0])
+            return FALSE;
+        p += 1;
+        q += 1;
+    }
     if (ptr) |out| {
-        out.* = str + prefix.len;
+        out.* = p;
     }
     return TRUE;
 }

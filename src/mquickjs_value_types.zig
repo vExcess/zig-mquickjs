@@ -197,7 +197,7 @@ pub const propSetHashNext = mi.propSetHashNext;
 pub const propType = mi.propType;
 pub const propSetType = mi.propSetType;
 
-pub fn findOwnPropertyInlined(p: *mc.JSObjectExt, prop: c.JSValue) ?*JSPropertyExt {
+pub inline fn findOwnPropertyInlined(p: *mc.JSObjectExt, prop: c.JSValue) ?*JSPropertyExt {
     const arr: *JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(p.props)));
     const items = valueArrayItems(arr);
     const hash_mask: u32 = @intCast(mi.valueGetInt(items[1]));

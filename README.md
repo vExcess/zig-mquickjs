@@ -42,15 +42,15 @@ The code is relatively C-style. Future work will convert the Zig code to be more
 
 
 ### Benchmarks
-Dissapointingly, the Zig port is roughly 78% the performance of the C version.
+Octane is in the same range as C mquickjs. Scores move around with Octane’s `Date.now()` time budget; these are one same-machine pair:
 
 #### mquickjs
-octane: 2445  
-microbench: 4222  
+octane: 2418
 
 #### zig-mquickjs
-octane: 1927  
-microbench: 4182  
+octane: 2536
+
+Microbench totals are also close test-by-test (property, array, regexp, sort). The remaining outlier is incremental `string +=` (`string_build*`), which is still about 2× C. Large-file parse (Octane Mandreel/PdfJS) previously took minutes in Zig because `strstart` scanned the rest of the source on every number literal; that now matches C.  
 
 ### Test262
 Results:

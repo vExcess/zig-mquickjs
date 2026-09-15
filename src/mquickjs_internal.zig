@@ -13,7 +13,7 @@ pub const JSByteArrayExt = ut.JSByteArrayExt;
 pub const JSVarRefExt = ut.JSVarRefExt;
 pub const JSPropertyExt = ut.JSPropertyExt;
 
-pub fn ctxExt(ctx: *c.JSContext) *JSContextExt {
+pub inline fn ctxExt(ctx: *c.JSContext) *JSContextExt {
     return @ptrCast(@alignCast(ctx));
 }
 

@@ -21,8 +21,8 @@ const coerce = @import("mquickjs_runtime_coerce_lib.zig");
 
 const OP = rt.OP;
 
-fn jsGetShortFloat(v: c.JSValue) f64 {
-    return @call(.never_inline, value.js_get_short_float, .{v});
+inline fn jsGetShortFloat(v: c.JSValue) f64 {
+    return value.js_get_short_float(v);
 }
 
 fn max_int(a: c_int, b: c_int) c_int {
@@ -37,11 +37,11 @@ fn throwInternalError(ctx: *c.JSContext, msg: [*:0]const u8) c.JSValue {
     return utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, msg);
 }
 
-fn get_i16(pc: [*]const u8) i32 {
+inline fn get_i16(pc: [*]const u8) i32 {
     return @as(*align(1) const i16, @ptrCast(pc)).*;
 }
 
-fn get_i8(pc: [*]const u8) i32 {
+inline fn get_i8(pc: [*]const u8) i32 {
     return @as(*const i8, @ptrCast(pc)).*;
 }
 
@@ -57,15 +57,7 @@ const Resume = enum {
     generic_return,
     return_call,
     call_exception,
-    binary_arith_slow,
-    unary_arith_slow,
-    binary_logic_slow,
-    add_slow,
-    float_result,
     done,
-    get_field,
-    get_length,
-    get_array_el,
 };
 
 fn memmoveValues(dest: [*]c.JSValue, src: [*]c.JSValue, n: usize) void {
@@ -86,25 +78,152 @@ fn ptrAddI32(p: [*]u8, diff: i32) [*]u8 {
     return @ptrFromInt(@as(usize, @bitCast(@as(isize, @bitCast(@intFromPtr(p))) + @as(isize, diff))));
 }
 
-fn saveFrame(ctx: *c.JSContext, fp: [*]c.JSValue, sp: [*]c.JSValue, pc: [*]u8, b: *rt.JSFunctionBytecodeExt) void {
+inline fn saveFrame(ctx: *c.JSContext, fp: [*]c.JSValue, sp: [*]c.JSValue, pc: [*]u8, b: *rt.JSFunctionBytecodeExt) void {
     const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.byte_code)));
     const off: i32 = @intCast(@intFromPtr(pc) - @intFromPtr(vt.byteArrayBuf(byte_code)));
     rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).* = vt.newShortInt(off);
-    mc.ctxExt(ctx).sp = @ptrCast(sp);
-    mc.ctxExt(ctx).fp = @ptrCast(fp);
+    const x = mc.ctxExt(ctx);
+    x.sp = @ptrCast(sp);
+    x.fp = @ptrCast(fp);
 }
 
-fn restorePc(fp: [*]c.JSValue) struct { b: *rt.JSFunctionBytecodeExt, pc: [*]u8 } {
+inline fn restorePc(fp: [*]c.JSValue) struct { b: *rt.JSFunctionBytecodeExt, pc: [*]u8 } {
     const p: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(rt.slot(fp, rt.FRAME_OFFSET_FUNC_OBJ).*)));
     const b: *rt.JSFunctionBytecodeExt = @ptrCast(@alignCast(mc.valueToPtr(p.u.closure.func_bytecode)));
     const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.byte_code)));
     const off = vt.valueGetInt(rt.slot(fp, rt.FRAME_OFFSET_CUR_PC).*);
     return .{ .b = b, .pc = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(off)) };
 }
+
+/// Apply C `float_result:` after a fast-path float op. Returns true if `val` is an exception.
+inline fn storeFloatResult(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: [*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    dr: f64,
+    val: *c.JSValue,
+) bool {
+    if (@abs(dr) >= 0x1p-127 and @abs(dr) <= 0x1p+128) {
+        @branchHint(.likely);
+        val.* = value.js_to_short_float(dr);
+    } else if (dr == 0.0) {
+        const bits: u64 = @bitCast(dr);
+        if (bits != 0) {
+            val.* = mc.ctxExt(ctx).minus_zero;
+        } else {
+            val.* = vt.newShortInt(0);
+        }
+    } else {
+        saveFrame(ctx, fp, sp, pc.*, b.*.?);
+        val.* = value.js_alloc_float64(ctx, dr);
+        const restored = restorePc(fp);
+        b.* = restored.b;
+        pc.* = restored.pc;
+        if (vt.isExactException(val.*)) {
+            @branchHint(.unlikely);
+            return true;
+        }
+    }
+    sp[0] = val.*;
+    return false;
+}
+
+inline fn runAddSlow(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: *[*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    val: *c.JSValue,
+) bool {
+    saveFrame(ctx, fp, sp.*, pc.*, b.*.?);
+    val.* = coerce.js_add_slow(ctx);
+    const restored = restorePc(fp);
+    b.* = restored.b;
+    pc.* = restored.pc;
+    if (vt.isExactException(val.*)) {
+        @branchHint(.unlikely);
+        return true;
+    }
+    sp.*[1] = val.*;
+    sp.* += 1;
+    return false;
+}
+
+inline fn runBinaryArithSlow(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: *[*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    opcode: c_int,
+    val: *c.JSValue,
+) bool {
+    saveFrame(ctx, fp, sp.*, pc.*, b.*.?);
+    val.* = coerce.js_binary_arith_slow(ctx, opcode);
+    const restored = restorePc(fp);
+    b.* = restored.b;
+    pc.* = restored.pc;
+    if (vt.isExactException(val.*)) {
+        @branchHint(.unlikely);
+        return true;
+    }
+    sp.*[1] = val.*;
+    sp.* += 1;
+    return false;
+}
+
+inline fn runUnaryArithSlow(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: [*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    opcode: c_int,
+    val: *c.JSValue,
+) bool {
+    saveFrame(ctx, fp, sp, pc.*, b.*.?);
+    val.* = coerce.js_unary_arith_slow(ctx, opcode);
+    const restored = restorePc(fp);
+    b.* = restored.b;
+    pc.* = restored.pc;
+    if (vt.isExactException(val.*)) {
+        @branchHint(.unlikely);
+        return true;
+    }
+    sp[0] = val.*;
+    return false;
+}
+
+inline fn runBinaryLogicSlow(
+    ctx: *c.JSContext,
+    fp: [*]c.JSValue,
+    sp: *[*]c.JSValue,
+    pc: *[*]u8,
+    b: *?*rt.JSFunctionBytecodeExt,
+    opcode: c_int,
+    val: *c.JSValue,
+) bool {
+    saveFrame(ctx, fp, sp.*, pc.*, b.*.?);
+    val.* = coerce.js_binary_logic_slow(ctx, opcode);
+    const restored = restorePc(fp);
+    b.* = restored.b;
+    pc.* = restored.pc;
+    if (vt.isExactException(val.*)) {
+        @branchHint(.unlikely);
+        return true;
+    }
+    sp.*[1] = val.*;
+    sp.* += 1;
+    return false;
+}
 pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
+    const x = mc.ctxExt(ctx);
     var call_flags = call_flags_in;
-    var fp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).fp);
-    var sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+    var fp: [*]c.JSValue = @ptrCast(x.fp);
+    var sp: [*]c.JSValue = @ptrCast(x.sp);
     var val: c.JSValue = c.JS_UNDEFINED;
     const initial_fp: [*]c.JSValue = fp;
     var pc: [*]u8 = undefined;
@@ -121,101 +240,17 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
     var func_obj: c.JSValue = c.JS_UNDEFINED;
     var state: Resume = .function_call;
 
-    if (mc.ctxExt(ctx).js_call_rec_count >= rt.JS_MAX_CALL_RECURSE)
+    if (x.js_call_rec_count >= rt.JS_MAX_CALL_RECURSE)
         return throwInternalError(ctx, "C stack overflow");
-    mc.ctxExt(ctx).js_call_rec_count += 1;
+    x.js_call_rec_count += 1;
 
     outer: while (true) {
         switch (state) {
             .done => break :outer,
-            .get_field, .get_length, .get_array_el => unreachable,
-            .float_result => {
-                if (@abs(dr) >= 0x1p-127 and @abs(dr) <= 0x1p+128) {
-                    val = value.js_to_short_float(dr);
-                } else if (dr == 0.0) {
-                    const bits: u64 = @bitCast(dr);
-                    if (bits != 0) {
-                        val = mc.ctxExt(ctx).minus_zero;
-                    } else {
-                        val = vt.newShortInt(0);
-                    }
-                } else {
-                    saveFrame(ctx, fp, sp, pc, b.?);
-                    val = value.js_alloc_float64(ctx, dr);
-                    const restored = restorePc(fp);
-                    b = restored.b;
-                    pc = restored.pc;
-                    if (vt.isExactException(val)) {
-                        state = .exception;
-                        continue :outer;
-                    }
-                }
-                sp[0] = val;
-                state = .dispatch;
-                continue :outer;
-            },
-            .add_slow => {
-                saveFrame(ctx, fp, sp, pc, b.?);
-                val = coerce.js_add_slow(ctx);
-                const restored = restorePc(fp);
-                b = restored.b;
-                pc = restored.pc;
-                if (vt.isExactException(val)) {
-                    state = .exception;
-                    continue :outer;
-                }
-                sp[1] = val;
-                sp += 1;
-                state = .dispatch;
-                continue :outer;
-            },
-            .binary_arith_slow => {
-                saveFrame(ctx, fp, sp, pc, b.?);
-                val = coerce.js_binary_arith_slow(ctx, opcode);
-                const restored = restorePc(fp);
-                b = restored.b;
-                pc = restored.pc;
-                if (vt.isExactException(val)) {
-                    state = .exception;
-                    continue :outer;
-                }
-                sp[1] = val;
-                sp += 1;
-                state = .dispatch;
-                continue :outer;
-            },
-            .unary_arith_slow => {
-                saveFrame(ctx, fp, sp, pc, b.?);
-                val = coerce.js_unary_arith_slow(ctx, opcode);
-                const restored = restorePc(fp);
-                b = restored.b;
-                pc = restored.pc;
-                if (vt.isExactException(val)) {
-                    state = .exception;
-                    continue :outer;
-                }
-                sp[0] = val;
-                state = .dispatch;
-                continue :outer;
-            },
-            .binary_logic_slow => {
-                saveFrame(ctx, fp, sp, pc, b.?);
-                val = coerce.js_binary_logic_slow(ctx, opcode);
-                const restored = restorePc(fp);
-                b = restored.b;
-                pc = restored.pc;
-                if (vt.isExactException(val)) {
-                    state = .exception;
-                    continue :outer;
-                }
-                sp[1] = val;
-                sp += 1;
-                state = .dispatch;
-                continue :outer;
-            },
             .generic_function_call => {
-                mc.ctxExt(ctx).interrupt_counter -= 1;
-                if (mc.ctxExt(ctx).interrupt_counter <= 0) {
+                x.interrupt_counter -= 1;
+                if (x.interrupt_counter <= 0) {
+                    @branchHint(.unlikely);
                     saveFrame(ctx, fp, sp, pc, b.?);
                     val = coerce.__js_poll_interrupt(ctx);
                     const restored = restorePc(fp);
@@ -242,8 +277,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 if (!mc.isPtr(func_obj)) {
                     if (rt.valueGetSpecialTag(func_obj) != c.JS_TAG_SHORT_FUNC) {
                         sp += 2;
-                        mc.ctxExt(ctx).sp = @ptrCast(sp);
-                        mc.ctxExt(ctx).fp = @ptrCast(fp);
+                        x.sp = @ptrCast(sp);
+                        x.fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
@@ -254,16 +289,16 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     p = @ptrCast(@alignCast(mc.valueToPtr(func_obj)));
                     if (mc.mbGetMtag(p.?) != mc.JS_MTAG_OBJECT) {
                         sp += 2;
-                        mc.ctxExt(ctx).sp = @ptrCast(sp);
-                        mc.ctxExt(ctx).fp = @ptrCast(fp);
+                        x.sp = @ptrCast(sp);
+                        x.fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
                     }
                     if (mc.objectClassId(p.?) != c.JS_CLASS_C_FUNCTION and mc.objectClassId(p.?) != c.JS_CLASS_CLOSURE) {
                         sp += 2;
-                        mc.ctxExt(ctx).sp = @ptrCast(sp);
-                        mc.ctxExt(ctx).fp = @ptrCast(fp);
+                        x.sp = @ptrCast(sp);
+                        x.fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a function");
                         state = .call_exception;
                         continue :outer;
@@ -273,22 +308,22 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 }
 
                 if (p == null or mc.objectClassId(p.?) == c.JS_CLASS_C_FUNCTION) {
-                    const fd = &vt.cFunctionTable(mc.ctxExt(ctx))[@intCast(short_func_idx)];
+                    const fd = &vt.cFunctionTable(x)[@intCast(short_func_idx)];
                     call_flags = vt.valueGetInt(rt.slot(sp, rt.FRAME_OFFSET_CALL_FLAGS).*);
                     if ((call_flags & rt.FRAME_CF_CTOR) != 0 and
                         fd.def_type != c.JS_CFUNC_constructor and
                         fd.def_type != c.JS_CFUNC_constructor_magic)
                     {
                         sp += 2;
-                        mc.ctxExt(ctx).sp = @ptrCast(sp);
-                        mc.ctxExt(ctx).fp = @ptrCast(fp);
+                        x.sp = @ptrCast(sp);
+                        x.fp = @ptrCast(fp);
                         val = throwTypeError(ctx, "not a constructor");
                         state = .call_exception;
                         continue :outer;
                     }
                     argc = call_flags & rt.FRAME_CF_ARGC_MASK;
-                    mc.ctxExt(ctx).sp = @ptrCast(sp);
-                    mc.ctxExt(ctx).fp = @ptrCast(fp);
+                    x.sp = @ptrCast(sp);
+                    x.fp = @ptrCast(fp);
                     n = utils.JS_StackCheck(ctx, @intCast(max_int(fd.arg_count - argc, 0)));
                     if (n != 0) {
                         sp += 2;
@@ -311,8 +346,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         pushed_argc = fd.arg_count;
                     }
                     fp = sp;
-                    mc.ctxExt(ctx).sp = @ptrCast(sp);
-                    mc.ctxExt(ctx).fp = @ptrCast(fp);
+                    x.sp = @ptrCast(sp);
+                    x.fp = @ptrCast(fp);
                     const argv: [*]c.JSValue = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0));
                     const this_ptr = rt.slot(fp, rt.FRAME_OFFSET_THIS_OBJ);
                     const argc_flags = call_flags & (rt.FRAME_CF_CTOR | rt.FRAME_CF_ARGC_MASK);
@@ -348,7 +383,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     }
                     if (rt.isExceptionOrTailCall(val) and rt.valueGetSpecialValue(val) >= c.JS_EX_CALL) {
                         call_flags = rt.valueGetSpecialValue(val) - c.JS_EX_CALL;
-                        sp = @ptrCast(mc.ctxExt(ctx).sp);
+                        sp = @ptrCast(x.sp);
                         const fp1 = rt.valueToSp(ctx, rt.slot(fp, rt.FRAME_OFFSET_SAVED_FP).*);
                         argc = (call_flags & rt.FRAME_CF_ARGC_MASK) + 2;
                         const sp1: [*]c.JSValue = @ptrCast(rt.slot(fp, rt.FRAME_OFFSET_ARG0 + pushed_argc - argc));
@@ -365,8 +400,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 } else {
                     call_flags = vt.valueGetInt(rt.slot(sp, rt.FRAME_OFFSET_CALL_FLAGS).*);
                     if ((call_flags & rt.FRAME_CF_CTOR) != 0) {
-                        mc.ctxExt(ctx).sp = @ptrCast(sp);
-                        mc.ctxExt(ctx).fp = @ptrCast(fp);
+                        x.sp = @ptrCast(sp);
+                        x.fp = @ptrCast(fp);
                         val = coerce.js_call_constructor_start(ctx, func_obj);
                         if (vt.isExactException(val)) {
                             state = .call_exception;
@@ -383,8 +418,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         n_vars = vt.valueArraySize(vars) - rt.bytecodeArgCount(b.?);
                     }
                     argc = call_flags & rt.FRAME_CF_ARGC_MASK;
-                    mc.ctxExt(ctx).sp = @ptrCast(sp);
-                    mc.ctxExt(ctx).fp = @ptrCast(fp);
+                    x.sp = @ptrCast(sp);
+                    x.fp = @ptrCast(fp);
                     n = utils.JS_StackCheck(ctx, @intCast(max_int(rt.bytecodeArgCount(b.?) - argc, 0) + 2 + n_vars + @as(c_int, b.?.stack_size)));
                     if (n != 0) {
                         val = c.JS_EXCEPTION;
@@ -457,7 +492,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     const vars: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.vars)));
                     stack_top = @ptrFromInt(@intFromPtr(stack_top) - @as(usize, @intCast(vt.valueArraySize(vars) - rt.bytecodeArgCount(b.?))) * @sizeOf(c.JSValue));
                 }
-                if (mc.ctxExt(ctx).current_exception_is_uncatchable != 0) {
+                if (x.current_exception_is_uncatchable != 0) {
                     sp = stack_top;
                 } else {
                     while (@intFromPtr(sp) < @intFromPtr(stack_top)) {
@@ -465,8 +500,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         sp += 1;
                         if (rt.valueGetSpecialTag(val2) == c.JS_TAG_CATCH_OFFSET) {
                             sp -= 1;
-                            sp[0] = mc.ctxExt(ctx).current_exception;
-                            mc.ctxExt(ctx).current_exception = c.JS_UNINITIALIZED;
+                            sp[0] = x.current_exception;
+                            x.current_exception = c.JS_UNINITIALIZED;
                             const byte_code: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.byte_code)));
                             pc = vt.byteArrayBuf(byte_code) + @as(usize, @intCast(rt.valueGetSpecialValue(val2)));
                             state = .dispatch;
@@ -529,9 +564,10 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                 continue :outer;
             },
             .dispatch => {
-                opcode = pc[0];
-                pc += 1;
-                switch (opcode) {
+                while (true) {
+                    opcode = pc[0];
+                    pc += 1;
+                    switch (opcode) {
                     OP.push_minus1, OP.push_0, OP.push_1, OP.push_2, OP.push_3, OP.push_4, OP.push_5, OP.push_6, OP.push_7 => {
                         sp -= 1;
                         sp[0] = vt.newShortInt(opcode - OP.push_0);
@@ -949,8 +985,9 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                     OP.goto => {
                         const diff: i32 = @bitCast(mc.get_u32(pc));
                         pc = ptrAddI32(pc, diff);
-                        mc.ctxExt(ctx).interrupt_counter -= 1;
-                        if (mc.ctxExt(ctx).interrupt_counter <= 0) {
+                        x.interrupt_counter -= 1;
+                        if (x.interrupt_counter <= 0) {
+                            @branchHint(.unlikely);
                             saveFrame(ctx, fp, sp, pc, b.?);
                             val = coerce.__js_poll_interrupt(ctx);
                             const restored = restorePc(fp);
@@ -970,8 +1007,9 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             const diff: i32 = @bitCast(mc.get_u32(pc - 4));
                             pc = ptrAddI32(pc, diff - 4);
                         }
-                        mc.ctxExt(ctx).interrupt_counter -= 1;
-                        if (mc.ctxExt(ctx).interrupt_counter <= 0) {
+                        x.interrupt_counter -= 1;
+                        if (x.interrupt_counter <= 0) {
+                            @branchHint(.unlikely);
                             saveFrame(ctx, fp, sp, pc, b.?);
                             val = coerce.__js_poll_interrupt(ctx);
                             const restored = restorePc(fp);
@@ -987,25 +1025,25 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const res = value.JS_ToBool(ctx, sp[0]);
                         sp[0] = rt.newBool(res == 0);
                     },
-                    OP.get_field2 => {
-                        sp -= 1;
-                        sp[0] = sp[1];
-                        state = .get_field;
-                        // handled below by duplicating get_field
-                    },
-                    OP.get_field => {
+                    OP.get_field2, OP.get_field => {
+                        if (opcode == OP.get_field2) {
+                            sp -= 1;
+                            sp[0] = sp[1];
+                        }
                         const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
                         const idx = mc.get_u16(pc);
                         const prop = vt.valueArrayItems(cpool)[idx];
                         var obj = sp[0];
                         var slow = true;
                         if (mc.isPtr(obj)) {
+                            @branchHint(.likely);
                             var po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
                                 slow = false;
                                 while (true) {
                                     if (vt.findOwnPropertyInlined(po, prop)) |pr| {
                                         if (vt.propType(pr) != vt.JS_PROP_NORMAL) {
+                                            @branchHint(.unlikely);
                                             slow = true;
                                             break;
                                         } else {
@@ -1020,6 +1058,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                     }
                                     po = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                                 }
+                            } else {
+                                @branchHint(.unlikely);
                             }
                         }
                         if (slow) {
@@ -1029,7 +1069,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(mc.ctxExt(ctx).sp);
+                                @branchHint(.unlikely);
+                                sp = @ptrCast(x.sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -1037,20 +1078,20 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         pc += 2;
                         sp[0] = val;
                     },
-                    OP.get_length2 => {
-                        sp -= 1;
-                        sp[0] = sp[1];
-                        state = .get_length;
-                    },
-                    OP.get_length => {
+                    OP.get_length2, OP.get_length => {
+                        if (opcode == OP.get_length2) {
+                            sp -= 1;
+                            sp[0] = sp[1];
+                        }
                         const obj = sp[0];
                         var slow = true;
                         if (mc.isPtr(obj)) {
+                            @branchHint(.likely);
                             const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
                                 if (mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
-                                    if (po.proto == vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_ARRAY).* and
-                                        po.props == mc.ctxExt(ctx).empty_props)
+                                    if (po.proto == vt.classProto(x, c.JS_CLASS_ARRAY).* and
+                                        po.props == x.empty_props)
                                     {
                                         val = vt.newShortInt(@intCast(po.u.array.len));
                                         slow = false;
@@ -1058,10 +1099,12 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                 }
                             } else if (mc.mbGetMtag(po) == mc.JS_MTAG_STRING) {
                                 const ps: *vt.JSStringExt = @ptrCast(po);
-                                if (vt.stringIsAscii(ps))
-                                    val = vt.newShortInt(@intCast(vt.stringLen(ps)))
-                                else
+                                if (vt.stringIsAscii(ps)) {
+                                    @branchHint(.likely);
+                                    val = vt.newShortInt(@intCast(vt.stringLen(ps)));
+                                } else {
                                     val = vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
+                                }
                                 slow = false;
                             }
                         } else if (rt.valueGetSpecialTag(val) == c.JS_TAG_STRING_CHAR) {
@@ -1075,7 +1118,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(mc.ctxExt(ctx).sp);
+                                @branchHint(.unlikely);
+                                sp = @ptrCast(x.sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -1089,6 +1133,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const obj = sp[1];
                         var slow = true;
                         if (mc.isPtr(obj)) {
+                            @branchHint(.likely);
                             const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
                                 if (vt.findOwnPropertyInlined(po, prop)) |pr| {
@@ -1098,6 +1143,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                         slow = false;
                                     }
                                 }
+                            } else {
+                                @branchHint(.unlikely);
                             }
                         }
                         if (slow) {
@@ -1109,7 +1156,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(mc.ctxExt(ctx).sp);
+                                sp = @ptrCast(x.sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -1117,13 +1164,11 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         }
                         pc += 2;
                     },
-                    OP.get_array_el2 => {
-                        val = sp[0];
-                        sp[0] = sp[1];
-                        state = .get_array_el;
-                    },
-                    OP.get_array_el => {
-                        if (opcode == OP.get_array_el) {
+                    OP.get_array_el2, OP.get_array_el => {
+                        if (opcode == OP.get_array_el2) {
+                            val = sp[0];
+                            sp[0] = sp[1];
+                        } else {
                             val = sp[0];
                             sp += 1;
                         }
@@ -1131,6 +1176,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const obj = sp[0];
                         var slow = true;
                         if (mc.isPtr(obj) and mc.isInt(prop)) {
+                            @branchHint(.likely);
                             const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT and mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
                                 const idx: u32 = @bitCast(vt.valueGetInt(prop));
@@ -1138,7 +1184,11 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                                     const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(po.u.array.tab)));
                                     val = vt.valueArrayItems(arr)[idx];
                                     slow = false;
+                                } else {
+                                    @branchHint(.unlikely);
                                 }
+                            } else {
+                                @branchHint(.unlikely);
                             }
                         }
                         if (slow) {
@@ -1148,6 +1198,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (vt.isExactException(prop)) {
+                                @branchHint(.unlikely);
                                 val = prop;
                                 state = .exception;
                                 continue :outer;
@@ -1158,7 +1209,8 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(mc.ctxExt(ctx).sp);
+                                @branchHint(.unlikely);
+                                sp = @ptrCast(x.sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -1170,11 +1222,13 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         var prop = sp[1];
                         var slow = true;
                         if (mc.isPtr(obj) and mc.isInt(prop)) {
+                            @branchHint(.likely);
                             const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
                             if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT and mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
                                 const idx: u32 = @bitCast(vt.valueGetInt(prop));
                                 const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(po.u.array.tab)));
                                 if (idx >= po.u.array.len) {
+                                    @branchHint(.unlikely);
                                     if (idx == po.u.array.len and po.u.array.tab != c.JS_NULL and
                                         idx < @as(u32, @intCast(vt.valueArraySize(arr))))
                                     {
@@ -1211,7 +1265,7 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (rt.isExceptionOrTailCall(val)) {
-                                sp = @ptrCast(mc.ctxExt(ctx).sp);
+                                sp = @ptrCast(x.sp);
                                 state = .exception;
                                 continue :outer;
                             }
@@ -1258,77 +1312,105 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const ov = @addWithOverflow(rt.asI32(op1), rt.asI32(op2));
                             if (ov[1] != 0) {
-                                state = .add_slow;
-                                continue :outer;
+                                @branchHint(.unlikely);
+                                if (runAddSlow(ctx, fp, &sp, &pc, &b, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[1] = rt.storeU32(@bitCast(ov[0]));
+                                sp += 1;
                             }
-                            sp[1] = rt.storeU32(@bitCast(ov[0]));
                         } else if (rt.isBothShortFloat(op1, op2)) {
                             dr = jsGetShortFloat(op1) + jsGetShortFloat(op2);
                             sp += 1;
-                            state = .float_result;
-                            continue :outer;
+                            if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         } else {
-                            state = .add_slow;
-                            continue :outer;
+                            if (runAddSlow(ctx, fp, &sp, &pc, &b, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
-                        sp += 1;
                     },
                     OP.sub => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const ov = @subWithOverflow(rt.asI32(op1), rt.asI32(op2));
                             if (ov[1] != 0) {
-                                state = .binary_arith_slow;
-                                continue :outer;
+                                @branchHint(.unlikely);
+                                if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[1] = rt.storeU32(@bitCast(ov[0]));
+                                sp += 1;
                             }
-                            sp[1] = rt.storeU32(@bitCast(ov[0]));
                         } else if (rt.isBothShortFloat(op1, op2)) {
                             dr = jsGetShortFloat(op1) - jsGetShortFloat(op2);
                             sp += 1;
-                            state = .float_result;
-                            continue :outer;
+                            if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         } else {
-                            state = .binary_arith_slow;
-                            continue :outer;
+                            if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
-                        sp += 1;
                     },
                     OP.mul => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const v1 = rt.asI32(op1);
                             const v2 = rt.asI32(op2) >> 1;
                             const r: i64 = @as(i64, v1) * @as(i64, v2);
                             if (r != @as(i32, @truncate(r))) {
+                                @branchHint(.unlikely);
                                 dr = @floatFromInt(r >> 1);
                                 sp += 1;
-                                state = .float_result;
-                                continue :outer;
-                            }
-                            if (r == 0 and (v1 | v2) < 0) {
-                                sp[1] = mc.ctxExt(ctx).minus_zero;
+                                if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
                             } else {
-                                sp[1] = rt.storeU32(@bitCast(@as(i32, @truncate(r))));
+                                if (r == 0 and (v1 | v2) < 0) {
+                                    sp[1] = x.minus_zero;
+                                } else {
+                                    sp[1] = rt.storeU32(@bitCast(@as(i32, @truncate(r))));
+                                }
+                                sp += 1;
                             }
                         } else if (rt.isBothShortFloat(op1, op2)) {
                             dr = jsGetShortFloat(op1) * jsGetShortFloat(op2);
                             sp += 1;
-                            state = .float_result;
-                            continue :outer;
+                            if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         } else {
-                            state = .binary_arith_slow;
-                            continue :outer;
+                            if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
-                        sp += 1;
                     },
                     OP.div => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const v1 = vt.valueGetInt(op1);
                             const v2 = vt.valueGetInt(op2);
                             saveFrame(ctx, fp, sp, pc, b.?);
@@ -1337,92 +1419,128 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                             b = restored.b;
                             pc = restored.pc;
                             if (vt.isExactException(val)) {
+                                @branchHint(.unlikely);
                                 state = .exception;
                                 continue :outer;
                             }
                             sp[1] = val;
                             sp += 1;
                         } else {
-                            state = .binary_arith_slow;
-                            continue :outer;
+                            if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.mod => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const v1 = vt.valueGetInt(op1);
                             const v2 = vt.valueGetInt(op2);
                             if (v1 < 0 or v2 <= 0) {
-                                state = .binary_arith_slow;
+                                @branchHint(.unlikely);
+                                if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[1] = vt.newShortInt(@mod(v1, v2));
+                                sp += 1;
+                            }
+                        } else {
+                            if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
                                 continue :outer;
                             }
-                            sp[1] = vt.newShortInt(@mod(v1, v2));
-                            sp += 1;
-                        } else {
-                            state = .binary_arith_slow;
-                            continue :outer;
                         }
                     },
                     OP.pow => {
-                        state = .binary_arith_slow;
-                        continue :outer;
+                        if (runBinaryArithSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                            state = .exception;
+                            continue :outer;
+                        }
                     },
                     OP.plus => {
                         const op1 = sp[0];
                         if (!(vt.isIntOrShortFloat(op1) or (mc.isPtr(op1) and utils.js_get_mtag(mc.valueToPtr(op1)) == mc.JS_MTAG_FLOAT64))) {
-                            state = .unary_arith_slow;
-                            continue :outer;
+                            if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.neg => {
                         const op1 = sp[0];
                         if (mc.isInt(op1)) {
+                            @branchHint(.likely);
                             const v1 = rt.asI32(op1);
                             if (v1 == 0) {
-                                sp[0] = mc.ctxExt(ctx).minus_zero;
+                                sp[0] = x.minus_zero;
                             } else if (v1 == std.math.minInt(i32)) {
+                                @branchHint(.unlikely);
                                 dr = -@as(f64, @floatFromInt(vt.JS_SHORTINT_MIN));
-                                state = .float_result;
-                                continue :outer;
+                                if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
                             } else {
                                 sp[0] = rt.storeI32(-v1);
                             }
                         } else if (mc.isShortFloat(op1)) {
                             dr = -jsGetShortFloat(op1);
-                            state = .float_result;
-                            continue :outer;
+                            if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         } else {
-                            state = .unary_arith_slow;
-                            continue :outer;
+                            if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.inc => {
                         const op1 = sp[0];
                         if (mc.isInt(op1)) {
+                            @branchHint(.likely);
                             const v1 = vt.valueGetInt(op1);
                             if (v1 == vt.JS_SHORTINT_MAX) {
-                                state = .unary_arith_slow;
+                                @branchHint(.unlikely);
+                                if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[0] = vt.newShortInt(v1 + 1);
+                            }
+                        } else {
+                            if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
                                 continue :outer;
                             }
-                            sp[0] = vt.newShortInt(v1 + 1);
-                        } else {
-                            state = .unary_arith_slow;
-                            continue :outer;
                         }
                     },
                     OP.dec => {
                         const op1 = sp[0];
                         if (mc.isInt(op1)) {
+                            @branchHint(.likely);
                             const v1 = vt.valueGetInt(op1);
                             if (v1 == vt.JS_SHORTINT_MIN) {
-                                state = .unary_arith_slow;
+                                @branchHint(.unlikely);
+                                if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[0] = vt.newShortInt(v1 - 1);
+                            }
+                        } else {
+                            if (runUnaryArithSlow(ctx, fp, sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
                                 continue :outer;
                             }
-                            sp[0] = vt.newShortInt(v1 - 1);
-                        } else {
-                            state = .unary_arith_slow;
-                            continue :outer;
                         }
                     },
                     OP.post_inc, OP.post_dec => {
@@ -1477,86 +1595,113 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const r = vt.valueGetInt(op1) << @as(u5, @intCast(vt.valueGetInt(op2) & 0x1f));
                             if (r < vt.JS_SHORTINT_MIN or r > vt.JS_SHORTINT_MAX) {
+                                @branchHint(.unlikely);
                                 dr = @floatFromInt(r);
                                 sp += 1;
-                                state = .float_result;
+                                if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[1] = vt.newShortInt(r);
+                                sp += 1;
+                            }
+                        } else {
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
                                 continue :outer;
                             }
-                            sp[1] = vt.newShortInt(r);
-                            sp += 1;
-                        } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
                         }
                     },
                     OP.shr => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const r: u32 = @as(u32, @bitCast(vt.valueGetInt(op1))) >> @as(u5, @intCast(@as(u32, @bitCast(vt.valueGetInt(op2))) & 0x1f));
                             if (r > @as(u32, @intCast(vt.JS_SHORTINT_MAX))) {
+                                @branchHint(.unlikely);
                                 dr = @floatFromInt(r);
                                 sp += 1;
-                                state = .float_result;
+                                if (storeFloatResult(ctx, fp, sp, &pc, &b, dr, &val)) {
+                                    state = .exception;
+                                    continue :outer;
+                                }
+                            } else {
+                                sp[1] = vt.newShortInt(@intCast(r));
+                                sp += 1;
+                            }
+                        } else {
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
                                 continue :outer;
                             }
-                            sp[1] = vt.newShortInt(@intCast(r));
-                            sp += 1;
-                        } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
                         }
                     },
                     OP.sar => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             sp[1] = rt.storeI32(rt.asI32(op1) >> @as(u5, @intCast(vt.valueGetInt(op2) & 0x1f))) & ~@as(c.JSValue, 1);
                             sp += 1;
                         } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.@"and" => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             sp[1] = op1 & op2;
                             sp += 1;
                         } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.@"or" => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             sp[1] = op1 | op2;
                             sp += 1;
                         } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.xor => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             sp[1] = op1 ^ op2;
                             sp += 1;
                         } else {
-                            state = .binary_logic_slow;
-                            continue :outer;
+                            if (runBinaryLogicSlow(ctx, fp, &sp, &pc, &b, opcode, &val)) {
+                                state = .exception;
+                                continue :outer;
+                            }
                         }
                     },
                     OP.lt, OP.lte, OP.gt, OP.gte, OP.eq, OP.neq, OP.strict_eq, OP.strict_neq => {
                         const op1 = sp[1];
                         const op2 = sp[0];
                         if (rt.isBothInt(op1, op2)) {
+                            @branchHint(.likely);
                             const a = vt.valueGetInt(op1);
                             const bbv = vt.valueGetInt(op2);
                             const cmp: bool = switch (opcode) {
@@ -1691,137 +1836,13 @@ pub fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue {
                         continue :outer;
                     },
                 }
-                // get_field2 / get_length2 / get_array_el2 fallthroughs
-                if (state == .get_field) {
-                    state = .dispatch;
-                    const cpool: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(b.?.cpool)));
-                    const idx = mc.get_u16(pc);
-                    const prop = vt.valueArrayItems(cpool)[idx];
-                    var obj = sp[0];
-                    var slow = true;
-                    if (mc.isPtr(obj)) {
-                        var po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
-                        if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
-                            slow = false;
-                            while (true) {
-                                if (vt.findOwnPropertyInlined(po, prop)) |pr| {
-                                    if (vt.propType(pr) != vt.JS_PROP_NORMAL) {
-                                        slow = true;
-                                        break;
-                                    } else {
-                                        val = pr.value;
-                                        break;
-                                    }
-                                }
-                                obj = po.proto;
-                                if (obj == c.JS_NULL) {
-                                    val = c.JS_UNDEFINED;
-                                    break;
-                                }
-                                po = @ptrCast(@alignCast(mc.valueToPtr(obj)));
-                            }
-                        }
-                    }
-                    if (slow) {
-                        saveFrame(ctx, fp, sp, pc, b.?);
-                        val = value.JS_GetPropertyInternal(ctx, obj, prop, 1);
-                        const restored = restorePc(fp);
-                        b = restored.b;
-                        pc = restored.pc;
-                        if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(mc.ctxExt(ctx).sp);
-                            state = .exception;
-                            continue :outer;
-                        }
-                    }
-                    pc += 2;
-                    sp[0] = val;
-                } else if (state == .get_length) {
-                    state = .dispatch;
-                    const obj = sp[0];
-                    var slow = true;
-                    if (mc.isPtr(obj)) {
-                        const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
-                        if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT) {
-                            if (mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
-                                if (po.proto == vt.classProto(mc.ctxExt(ctx), c.JS_CLASS_ARRAY).* and
-                                    po.props == mc.ctxExt(ctx).empty_props)
-                                {
-                                    val = vt.newShortInt(@intCast(po.u.array.len));
-                                    slow = false;
-                                }
-                            }
-                        } else if (mc.mbGetMtag(po) == mc.JS_MTAG_STRING) {
-                            const ps: *vt.JSStringExt = @ptrCast(po);
-                            if (vt.stringIsAscii(ps))
-                                val = vt.newShortInt(@intCast(vt.stringLen(ps)))
-                            else
-                                val = vt.newShortInt(@intCast(value.js_string_utf8_to_utf16_pos(ctx, obj, @intCast(vt.stringLen(ps) * 2))));
-                            slow = false;
-                        }
-                    } else if (rt.valueGetSpecialTag(val) == c.JS_TAG_STRING_CHAR) {
-                        val = vt.newShortInt(if (rt.valueGetSpecialValue(val) >= 0x10000) 2 else 1);
-                        slow = false;
-                    }
-                    if (slow) {
-                        saveFrame(ctx, fp, sp, pc, b.?);
-                        val = value.JS_GetPropertyInternal(ctx, obj, utils.js_get_atom(ctx, c.JS_ATOM_length), 1);
-                        const restored = restorePc(fp);
-                        b = restored.b;
-                        pc = restored.pc;
-                        if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(mc.ctxExt(ctx).sp);
-                            state = .exception;
-                            continue :outer;
-                        }
-                    }
-                    sp[0] = val;
-                } else if (state == .get_array_el) {
-                    state = .dispatch;
-                    var prop = val;
-                    const obj = sp[0];
-                    var slow = true;
-                    if (mc.isPtr(obj) and mc.isInt(prop)) {
-                        const po: *mc.JSObjectExt = @ptrCast(@alignCast(mc.valueToPtr(obj)));
-                        if (mc.mbGetMtag(po) == mc.JS_MTAG_OBJECT and mc.objectClassId(po) == c.JS_CLASS_ARRAY) {
-                            const idx: u32 = @bitCast(vt.valueGetInt(prop));
-                            if (idx < po.u.array.len) {
-                                const arr: *vt.JSValueArrayExt = @ptrCast(@alignCast(mc.valueToPtr(po.u.array.tab)));
-                                val = vt.valueArrayItems(arr)[idx];
-                                slow = false;
-                            }
-                        }
-                    }
-                    if (slow) {
-                        saveFrame(ctx, fp, sp, pc, b.?);
-                        prop = coerce.JS_ToPropertyKey(ctx, prop);
-                        var restored = restorePc(fp);
-                        b = restored.b;
-                        pc = restored.pc;
-                        if (vt.isExactException(prop)) {
-                            val = prop;
-                            state = .exception;
-                            continue :outer;
-                        }
-                        saveFrame(ctx, fp, sp, pc, b.?);
-                        val = value.JS_GetPropertyInternal(ctx, sp[0], prop, 1);
-                        restored = restorePc(fp);
-                        b = restored.b;
-                        pc = restored.pc;
-                        if (rt.isExceptionOrTailCall(val)) {
-                            sp = @ptrCast(mc.ctxExt(ctx).sp);
-                            state = .exception;
-                            continue :outer;
-                        }
-                    }
-                    sp[0] = val;
                 }
             },
         }
     }
 
-    mc.ctxExt(ctx).sp = @ptrCast(sp);
-    mc.ctxExt(ctx).fp = @ptrCast(fp);
-    mc.ctxExt(ctx).js_call_rec_count -= 1;
+    x.sp = @ptrCast(sp);
+    x.fp = @ptrCast(fp);
+    x.js_call_rec_count -= 1;
     return val;
 }

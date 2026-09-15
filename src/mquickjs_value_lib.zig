@@ -664,6 +664,39 @@ pub fn string_buffer_concat(ctx: *c.JSContext, s: *vt.StringBuffer, val2: c.JSVa
 }
 
 pub fn string_buffer_putc(ctx: *c.JSContext, s: *vt.StringBuffer, ch: c_int) c_int {
+    if (vt.isExactException(s.buffer_ref.val))
+        return -1;
+    // Fast path: write UTF-8 into the existing byte-array builder. C's
+    // putc is `concat_str(JS_NewStringChar(c))` and inlines in one TU.
+    // Unpaired surrogates still go through concat_str for pairing.
+    if (ch >= 0 and (ch < 0xd800 or (ch > 0xdfff and ch <= 0x10ffff)) and
+        s.buffer_ref.val != c.JS_NULL and
+        JS_IsString(ctx, s.buffer_ref.val) == 0)
+    {
+        var encoded: [cutils.UTF8_CHAR_LEN_MAX]u8 = undefined;
+        const bytes: []const u8 = if (ch <= 0x7f) blk: {
+            encoded[0] = @intCast(ch);
+            break :blk encoded[0..1];
+        } else encoded[0..cutils.unicode_to_utf8(&encoded, @intCast(ch))];
+        const n: c_int = @intCast(bytes.len);
+        const new_len = s.len + n;
+        if (new_len > @as(c_int, @intCast(vt.JS_STRING_LEN_MAX))) {
+            s.buffer_ref.val = utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
+            return -1;
+        }
+        var arr: *vt.JSByteArrayExt = @ptrCast(@alignCast(mc.valueToPtr(s.buffer_ref.val)));
+        if (new_len + 1 > vt.byteArraySize(arr)) {
+            s.buffer_ref.val = js_resize_byte_array(ctx, s.buffer_ref.val, new_len + 1);
+            if (vt.isExactException(s.buffer_ref.val))
+                return -1;
+            arr = @ptrCast(@alignCast(mc.valueToPtr(s.buffer_ref.val)));
+        }
+        @memcpy(vt.byteArrayBuf(arr)[@intCast(s.len)..][0..bytes.len], bytes);
+        s.len = new_len;
+        if (ch > 0x7f)
+            s.is_ascii = c.FALSE;
+        return 0;
+    }
     return string_buffer_concat_str(ctx, s, JS_NewStringChar(@intCast(ch)));
 }
 
@@ -689,14 +722,57 @@ pub fn string_buffer_pop(ctx: *c.JSContext, s: *vt.StringBuffer) c.JSValue {
     return res;
 }
 
-pub fn JS_ConcatString(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JSValue {
+pub fn JS_ConcatString(ctx: *c.JSContext, val1_in: c.JSValue, val2_in: c.JSValue) c.JSValue {
+    var val1 = val1_in;
+    var val2 = val2_in;
     if (vt.isExactException(val1) or vt.isExactException(val2))
         return c.JS_EXCEPTION;
-    var b: vt.StringBuffer = undefined;
-    _ = string_buffer_push(ctx, &b, 0);
-    _ = string_buffer_concat_str(ctx, &b, val1);
-    _ = string_buffer_concat_str(ctx, &b, val2);
-    return string_buffer_pop(ctx, &b);
+
+    var buf1: vt.JSStringCharBufExt = undefined;
+    var buf2: vt.JSStringCharBufExt = undefined;
+    var p1 = get_string_ptr(ctx, &buf1, val1);
+    var p2 = get_string_ptr(ctx, &buf2, val2);
+    const len1: u32 = @intCast(vt.stringLen(p1));
+    const len2: u32 = @intCast(vt.stringLen(p2));
+    if (len2 == 0)
+        return val1;
+    if (len1 == 0)
+        return val2;
+
+    // Surrogate pairing at the join uses the shared builder path.
+    if (len2 >= 3 and is_utf8_right_surrogate(vt.stringBuf(p2)) != 0 and
+        len1 >= 3 and is_utf8_left_surrogate(vt.stringBuf(p1) + (len1 - 3)) != 0)
+    {
+        var b: vt.StringBuffer = undefined;
+        _ = string_buffer_push(ctx, &b, 0);
+        _ = string_buffer_concat_str(ctx, &b, val1);
+        _ = string_buffer_concat_str(ctx, &b, val2);
+        return string_buffer_pop(ctx, &b);
+    }
+
+    const len = len1 + len2;
+    if (len > vt.JS_STRING_LEN_MAX)
+        return utils.JS_ThrowError(ctx, c.JS_CLASS_INTERNAL_ERROR, "string too long");
+
+    const is_ascii = vt.stringIsAscii(p1) and vt.stringIsAscii(p2);
+    var val1_ref: c.JSGCRef = undefined;
+    var val2_ref: c.JSGCRef = undefined;
+    utils.pushValue(ctx, &val1_ref, val1);
+    utils.pushValue(ctx, &val2_ref, val2);
+    const p = js_alloc_string(ctx, len) orelse {
+        _ = utils.popValue(ctx, &val2_ref);
+        _ = utils.popValue(ctx, &val1_ref);
+        return c.JS_EXCEPTION;
+    };
+    val2 = utils.popValue(ctx, &val2_ref);
+    val1 = utils.popValue(ctx, &val1_ref);
+    p1 = get_string_ptr(ctx, &buf1, val1);
+    p2 = get_string_ptr(ctx, &buf2, val2);
+    const out = vt.stringBuf(p);
+    @memcpy(out[0..len1], vt.stringBuf(p1)[0..len1]);
+    @memcpy(out[len1..][0..len2], vt.stringBuf(p2)[0..len2]);
+    vt.stringSetAscii(p, is_ascii);
+    return mc.valueFromPtr(p);
 }
 
 pub fn js_string_eq(ctx: *c.JSContext, val1: c.JSValue, val2: c.JSValue) c.JS_BOOL {

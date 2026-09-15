@@ -29,16 +29,16 @@ extern fn JS_PushArg(ctx: *c.JSContext, val: c.JSValue) void;
 extern fn JS_Call(ctx: *c.JSContext, call_flags_in: c_int) c.JSValue;
 extern fn get_var_ref(ctx: *c.JSContext, pfirst_var_ref: *c.JSValue, pval: *c.JSValue) c.JSValue;
 
-fn jsGetShortFloat(v: c.JSValue) f64 {
-    return @call(.never_inline, value.js_get_short_float, .{v});
+inline fn jsGetShortFloat(v: c.JSValue) f64 {
+    return value.js_get_short_float(v);
 }
 
-fn jsNewInt32(ctx: *c.JSContext, v: i32) c.JSValue {
-    return @call(.never_inline, value.JS_NewInt32, .{ctx, v});
+inline fn jsNewInt32(ctx: *c.JSContext, v: i32) c.JSValue {
+    return value.JS_NewInt32(ctx, v);
 }
 
-fn jsNewUint32(ctx: *c.JSContext, v: u32) c.JSValue {
-    return @call(.never_inline, value.JS_NewUint32, .{ctx, v});
+inline fn jsNewUint32(ctx: *c.JSContext, v: u32) c.JSValue {
+    return value.JS_NewUint32(ctx, v);
 }
 
 fn max_int(a: c_int, b: c_int) c_int {
@@ -432,6 +432,8 @@ pub fn js_get_length32(ctx: *c.JSContext, pres: *u32, obj: c.JSValue) c_int {
 
 pub fn js_add_slow(ctx: *c.JSContext) c.JSValue {
     const sp: [*]c.JSValue = @ptrCast(mc.ctxExt(ctx).sp);
+    if (value.JS_IsString(ctx, sp[1]) != 0 and value.JS_IsString(ctx, sp[0]) != 0)
+        return value.JS_ConcatString(ctx, sp[1], sp[0]);
     sp[1] = JS_ToPrimitive(ctx, sp[1], rt.HINT_NONE);
     if (vt.isExactException(sp[1]))
         return c.JS_EXCEPTION;

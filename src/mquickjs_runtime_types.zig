@@ -133,7 +133,7 @@ pub fn isExceptionOrTailCall(v: c.JSValue) bool {
     return valueGetSpecialTag(v) == c.JS_TAG_EXCEPTION;
 }
 
-pub fn slot(p: [*]c.JSValue, off: i32) *c.JSValue {
+pub inline fn slot(p: [*]c.JSValue, off: i32) *c.JSValue {
     const addr = @as(isize, @bitCast(@intFromPtr(p))) + @as(isize, off) * @as(isize, @sizeOf(c.JSValue));
     return @ptrFromInt(@as(usize, @bitCast(addr)));
 }

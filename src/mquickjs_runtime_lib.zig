@@ -64,12 +64,12 @@ extern fn js_lrint(x: f64) c_long;
 extern fn js_fmod(x: f64, y: f64) f64;
 extern fn js_pow(x: f64, y: f64) f64;
 
-fn jsNewInt32(ctx: *c.JSContext, v: i32) c.JSValue {
-    return @call(.never_inline, value.JS_NewInt32, .{ctx, v});
+inline fn jsNewInt32(ctx: *c.JSContext, v: i32) c.JSValue {
+    return value.JS_NewInt32(ctx, v);
 }
 
-fn jsNewUint32(ctx: *c.JSContext, v: u32) c.JSValue {
-    return @call(.never_inline, value.JS_NewUint32, .{ctx, v});
+inline fn jsNewUint32(ctx: *c.JSContext, v: u32) c.JSValue {
+    return value.JS_NewUint32(ctx, v);
 }
 
 fn get_be32(d: [*]const u8) u32 {
