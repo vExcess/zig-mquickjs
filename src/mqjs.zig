@@ -34,18 +34,7 @@ const BOOL = cutils.BOOL;
 const TRUE: BOOL = cutils.TRUE;
 const FALSE: BOOL = cutils.FALSE;
 
-const c = @cImport({
-    @cInclude("stddef.h");
-    @cInclude("stdio.h");
-    @cInclude("stdlib.h");
-    @cInclude("string.h");
-    @cInclude("ctype.h");
-    @cInclude("errno.h");
-    @cInclude("sys/time.h");
-    @cInclude("readline.h");
-    @cInclude("readline_tty.h");
-    @cInclude("mquickjs.h");
-});
+const c = @import("mquickjs_c");
 
 const stdlib_data = @import("mqjs_stdlib_data");
 
@@ -96,7 +85,12 @@ const JSTimer = extern struct {
     timeout: i64,
 };
 
-var js_timer_list: [MAX_TIMERS]JSTimer = [_]JSTimer{.{ .allocated = FALSE, .func = .{ .val = 0, .prev = null }, .timeout = 0 }} ** MAX_TIMERS;
+const js_timer_init = JSTimer{
+    .allocated = FALSE,
+    .func = .{ .val = 0, .prev = null },
+    .timeout = 0,
+};
+var js_timer_list: [MAX_TIMERS]JSTimer = @splat(js_timer_init);
 var js_log_err_flag: c_int = 0;
 
 var readline_state: c.ReadlineState = undefined;
@@ -646,7 +640,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     var interactive: c_int = 0;
     var expr: ?[*:0]const u8 = null;
     var out_filename: ?[*:0]const u8 = null;
-    var include_list: [MAX_INCLUDES]?[*:0]const u8 = [_]?[*:0]const u8{null} ** MAX_INCLUDES;
+    var include_list: [MAX_INCLUDES]?[*:0]const u8 = @splat(@as(?[*:0]const u8, null));
     var include_count: usize = 0;
     var parse_flags: c_int = 0;
     var force_32bit = FALSE;

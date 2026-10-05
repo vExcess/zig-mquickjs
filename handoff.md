@@ -1,7 +1,7 @@
 # microquickjs Zig — Debugging Handoff
 
 Last updated: 2026-08-13  
-Zig version: **0.16.0**
+Zig version: **0.17.0**
 
 This document is for agents debugging the **completed** C→Zig port. The port is a faithful, line-by-line translation — not idiomatic Zig. Treat bugs as likely port artifacts; compare against the C reference when stuck.
 
@@ -18,7 +18,7 @@ MicroQuickJS is a small JavaScript engine for embedded systems. This repo is a f
 
 **Zero compiled C translation units** — `grep addCSourceFiles build.zig` is empty. C sources under `archive/c/` are reference only.
 
-Public API headers (`include/mquickjs.h`, `include/mquickjs_priv.h`) are still `@cImport`'d for type definitions. Engine logic lives entirely in Zig.
+Public API headers (`include/mquickjs.h`, `include/mquickjs_priv.h`) are translated at build time via `zig translate-c` (`include/translate/*.h` → `mquickjs_c` / `mquickjs_stdlib_c` modules). Engine logic lives entirely in Zig.
 
 ---
 

@@ -2,13 +2,7 @@
 // Engine struct layouts for mquickjs_utils Zig port
 //
 
-pub const c = @cImport({
-    @cInclude("stdarg.h");
-    @cInclude("cutils.h");
-    @cInclude("dtoa.h");
-    @cInclude("mquickjs.h");
-    @cInclude("mquickjs_atom.h");
-});
+pub const c = @import("mquickjs_c");
 
 pub const JS_MTAG_FREE: c_int = 0;
 pub const JS_MTAG_OBJECT: c_int = 1;

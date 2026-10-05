@@ -6,10 +6,6 @@ pub const vt = @import("mquickjs_value_types.zig");
 pub const mc = vt.mc;
 pub const c = vt.c;
 
-const setjmp = @cImport({
-    @cInclude("setjmp.h");
-});
-
 pub const SKIP_HAS_ARGUMENTS: c_int = 1 << 0;
 pub const SKIP_HAS_FUNC_NAME: c_int = 1 << 1;
 pub const SKIP_HAS_SEMI: c_int = 1 << 2;
@@ -154,7 +150,7 @@ pub const JSParseState = extern struct {
     capture_count: u8,
     re_bits: u8,
 
-    jmp_env: setjmp.jmp_buf,
+    jmp_env: c.jmp_buf,
     error_msg: [64]u8,
 };
 

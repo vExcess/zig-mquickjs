@@ -35,8 +35,8 @@ pub const RM_RMMUP: c_int = 5;
 
 fn SoftFP(comptime F_SIZE: u32) type {
     return struct {
-        pub const F_UINT = std.meta.Int(.unsigned, F_SIZE);
-        pub const F_ULONG = std.meta.Int(.unsigned, F_SIZE * 2);
+        pub const F_UINT = @Int(.unsigned, F_SIZE);
+        pub const F_ULONG = @Int(.unsigned, F_SIZE * 2);
 
         pub const MANT_SIZE: u32 = switch (F_SIZE) {
             32 => 23,
@@ -486,9 +486,9 @@ fn SoftFP(comptime F_SIZE: u32) type {
             return normalize_sf(a_sign, b_exp, a_mant << RND_SIZE, RM_RNE);
         }
 
-        fn internal_cvt_sf_i(comptime ICVT_SIZE: u32, a: F_UINT, rm: c_int, is_unsigned: bool) std.meta.Int(.signed, ICVT_SIZE) {
-            const ICVT_UINT = std.meta.Int(.unsigned, ICVT_SIZE);
-            const ICVT_INT = std.meta.Int(.signed, ICVT_SIZE);
+        fn internal_cvt_sf_i(comptime ICVT_SIZE: u32, a: F_UINT, rm: c_int, is_unsigned: bool) @Int(.signed, ICVT_SIZE) {
+            const ICVT_UINT = @Int(.unsigned, ICVT_SIZE);
+            const ICVT_INT = @Int(.signed, ICVT_SIZE);
             var a_sign: u32 = @intCast(a >> (F_SIZE - 1));
             var a_exp: i32 = @intCast((a >> MANT_SIZE) & EXP_MASK);
             var a_mant = a & MANT_MASK;
@@ -554,8 +554,8 @@ fn SoftFP(comptime F_SIZE: u32) type {
             return @bitCast(internal_cvt_sf_i(32, a, rm, true));
         }
 
-        fn internal_cvt_i_sf(comptime ICVT_SIZE: u32, a_in: std.meta.Int(.signed, ICVT_SIZE), rm: c_int, is_unsigned: bool) F_UINT {
-            const ICVT_UINT = std.meta.Int(.unsigned, ICVT_SIZE);
+        fn internal_cvt_i_sf(comptime ICVT_SIZE: u32, a_in: @Int(.signed, ICVT_SIZE), rm: c_int, is_unsigned: bool) F_UINT {
+            const ICVT_UINT = @Int(.unsigned, ICVT_SIZE);
             var a_sign: u32 = undefined;
             var r: ICVT_UINT = undefined;
             if (!is_unsigned and a_in < 0) {

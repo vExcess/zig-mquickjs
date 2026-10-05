@@ -5,10 +5,7 @@
 const std = @import("std");
 const stdlib_data = @import("mqjs_stdlib_data");
 
-const c = @cImport({
-    @cInclude("stddef.h");
-    @cInclude("mquickjs.h");
-});
+const c = @import("mquickjs_c");
 
 extern "env" fn console_write(ptr: [*]const u8, len: usize) void;
 extern "env" fn performance_now() f64;

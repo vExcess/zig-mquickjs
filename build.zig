@@ -36,9 +36,43 @@ fn addCommonIncludes(
 }
 
 fn addFreestandingLibcIncludes(mod: *std.Build.Module, b: *std.Build) void {
-    const zig_lib_path = b.graph.zig_lib_directory.path orelse @panic("missing zig lib directory");
-    mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/libc/include/generic-musl", .{zig_lib_path}) });
-    mod.addIncludePath(.{ .cwd_relative = b.fmt("{s}/libc/include/any-linux-any", .{zig_lib_path}) });
+    mod.addIncludePath(b.graph.path(.zig_lib, "libc/include/generic-musl"));
+    mod.addIncludePath(b.graph.path(.zig_lib, "libc/include/any-linux-any"));
+}
+
+fn addMquickjsCTranslate(
+    b: *std.Build,
+    header: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    link_libc: bool,
+    generated_headers: ?*std.Build.Step.WriteFile,
+    freestanding_libc_includes: bool,
+) *std.Build.Module {
+    const tc = b.addTranslateC(.{
+        .root_source_file = b.path(header),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = link_libc,
+    });
+    tc.addIncludePath(b.path("include"));
+    if (generated_headers) |headers| {
+        tc.addIncludePath(headers.getDirectory());
+        tc.step.dependOn(&headers.step);
+    }
+    if (freestanding_libc_includes) {
+        tc.addSystemIncludePath(b.graph.path(.zig_lib, "libc/include/generic-musl"));
+        tc.addSystemIncludePath(b.graph.path(.zig_lib, "libc/include/any-linux-any"));
+    }
+    return tc.createModule();
+}
+
+fn wireMquickjsC(mod: *std.Build.Module, mquickjs_c: *std.Build.Module) void {
+    mod.addImport("mquickjs_c", mquickjs_c);
+}
+
+fn wireMquickjsStdlibC(mod: *std.Build.Module, mquickjs_stdlib_c: *std.Build.Module) void {
+    mod.addImport("mquickjs_stdlib_c", mquickjs_stdlib_c);
 }
 
 pub fn build(b: *std.Build) !void {
@@ -87,6 +121,25 @@ pub fn build(b: *std.Build) !void {
     _ = wf_wasm.addCopyFile(mquickjs_atom_h_wasm, "mquickjs_atom.h");
     _ = wf_wasm.addCopyFile(mqjs_stdlib_h, "mqjs_stdlib.h");
 
+    const mquickjs_c_mod = addMquickjsCTranslate(
+        b,
+        "include/translate/mquickjs_native.h",
+        target,
+        optimize,
+        true,
+        wf,
+        false,
+    );
+    const mquickjs_stdlib_c_mod = addMquickjsCTranslate(
+        b,
+        "include/translate/mquickjs_stdlib.h",
+        target,
+        optimize,
+        true,
+        null,
+        false,
+    );
+
     // Compile the Zig version of cutils into an object file
     const cutils_obj = b.addObject(.{
         .name = "cutils",
@@ -108,6 +161,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
     });
+    wireMquickjsC(readline_obj.root_module, mquickjs_c_mod);
 
     const dtoa_obj = b.addObject(.{
         .name = "dtoa",
@@ -144,6 +198,7 @@ pub fn build(b: *std.Build) !void {
         }),
     });
     addCommonIncludes(mquickjs_engine_obj, b, wf);
+    wireMquickjsC(mquickjs_engine_obj.root_module, mquickjs_c_mod);
 
     const mqjs_stdlib_data_mod = b.addModule("mqjs_stdlib_data", .{
         .root_source_file = mqjs_stdlib_data_file,
@@ -153,6 +208,7 @@ pub fn build(b: *std.Build) !void {
     });
     mqjs_stdlib_data_mod.addIncludePath(b.path("include"));
     mqjs_stdlib_data_mod.addIncludePath(wf.getDirectory());
+    wireMquickjsStdlibC(mqjs_stdlib_data_mod, mquickjs_stdlib_c_mod);
 
     const dummy_wf = b.addWriteFiles();
     const dummy_root = dummy_wf.add("mquickjs_lib.zig", "pub const dummy = {};\n");
@@ -196,6 +252,7 @@ pub fn build(b: *std.Build) !void {
     });
     example_stdlib_data_mod.addIncludePath(b.path("include"));
     example_stdlib_data_mod.addIncludePath(wf.getDirectory());
+    wireMquickjsStdlibC(example_stdlib_data_mod, mquickjs_stdlib_c_mod);
 
     const example_exe = b.addExecutable(.{
         .name = "example",
@@ -206,6 +263,7 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("src/example.zig"),
             .imports = &.{
                 .{ .name = "example_stdlib_data", .module = example_stdlib_data_mod },
+                .{ .name = "mquickjs_c", .module = mquickjs_c_mod },
             },
         }),
     });
@@ -225,6 +283,7 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("src/mqjs.zig"),
             .imports = &.{
                 .{ .name = "mqjs_stdlib_data", .module = mqjs_stdlib_data_mod },
+                .{ .name = "mquickjs_c", .module = mquickjs_c_mod },
             },
         }),
     });
@@ -277,6 +336,25 @@ pub fn build(b: *std.Build) !void {
         .os_tag = .freestanding,
     });
 
+    const mquickjs_c_wasm_mod = addMquickjsCTranslate(
+        b,
+        "include/translate/mquickjs_engine.h",
+        wasm_target,
+        optimize,
+        false,
+        wf_wasm,
+        false,
+    );
+    const mquickjs_stdlib_c_wasm_mod = addMquickjsCTranslate(
+        b,
+        "include/translate/mquickjs_stdlib.h",
+        wasm_target,
+        optimize,
+        false,
+        null,
+        false,
+    );
+
     const wasm_cutils_obj = b.addObject(.{
         .name = "cutils_wasm",
         .root_module = b.createModule(.{
@@ -323,6 +401,7 @@ pub fn build(b: *std.Build) !void {
     });
     addCommonIncludes(wasm_engine_obj, b, wf_wasm);
     addFreestandingLibcIncludes(wasm_engine_obj.root_module, b);
+    wireMquickjsC(wasm_engine_obj.root_module, mquickjs_c_wasm_mod);
 
     const mqjs_stdlib_data_mod_wasm = b.createModule(.{
         .root_source_file = mqjs_stdlib_data_file_wasm,
@@ -333,6 +412,7 @@ pub fn build(b: *std.Build) !void {
     mqjs_stdlib_data_mod_wasm.addIncludePath(b.path("include"));
     mqjs_stdlib_data_mod_wasm.addIncludePath(wf_wasm.getDirectory());
     addFreestandingLibcIncludes(mqjs_stdlib_data_mod_wasm, b);
+    wireMquickjsStdlibC(mqjs_stdlib_data_mod_wasm, mquickjs_stdlib_c_wasm_mod);
 
     const wasm_exe = b.addExecutable(.{
         .name = "mqjs",
@@ -343,6 +423,7 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("src/wasm_host.zig"),
             .imports = &.{
                 .{ .name = "mqjs_stdlib_data", .module = mqjs_stdlib_data_mod_wasm },
+                .{ .name = "mquickjs_c", .module = mquickjs_c_wasm_mod },
             },
         }),
     });
@@ -364,7 +445,7 @@ pub fn build(b: *std.Build) !void {
 
     const copy_wasm_to_src = b.addSystemCommand(&.{ "cp", "-f" });
     copy_wasm_to_src.addFileArg(wasm_exe.getEmittedBin());
-    copy_wasm_to_src.addArg(b.pathJoin(&.{ b.build_root.path.?, "web", "mqjs.wasm" }));
+    copy_wasm_to_src.addFileArg(b.path("web/mqjs.wasm"));
     copy_wasm_to_src.step.dependOn(&wasm_exe.step);
     wasm_step.dependOn(&copy_wasm_to_src.step);
 

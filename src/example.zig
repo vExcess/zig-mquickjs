@@ -28,14 +28,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const c = @cImport({
-    @cInclude("stddef.h");
-    @cInclude("stdio.h");
-    @cInclude("stdlib.h");
-    @cInclude("string.h");
-    @cInclude("sys/time.h");
-    @cInclude("mquickjs.h");
-});
+const c = @import("mquickjs_c");
 
 const stdlib_data = @import("example_stdlib_data");
 

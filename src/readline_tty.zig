@@ -28,10 +28,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const readline = @import("./readline.zig");
 const cutils = @import("./cutils_lib.zig");
-const c = @cImport({
-    @cInclude("stdio.h");
-    @cInclude("stdarg.h");
-});
+const c = @import("mquickjs_c");
 
 extern "c" fn printf(fmt: [*c]const u8, ...) c_int;
 extern "c" fn atexit(func: ?*const fn () callconv(.c) void) c_int;
